@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 130" role="img" aria-label="GAV&amp;LOVE">
+  <g fill="#361e96">
+    <!-- paw mark -->
+    <g transform="translate(24,54)">
+      <ellipse cx="0" cy="14" rx="13" ry="10"/>
+      <ellipse cx="-15" cy="-4" rx="5.2" ry="7"/>
+      <ellipse cx="15" cy="-4" rx="5.2" ry="7"/>
+      <ellipse cx="-27" cy="9" rx="4.6" ry="6"/>
+      <ellipse cx="27" cy="9" rx="4.6" ry="6"/>
+    </g>
+  </g>
+  <text x="62" y="76" font-family="Georgia, 'Times New Roman', serif" font-size="62" font-weight="700" letter-spacing="1" fill="#361e96">GAV<tspan fill="#8a63e6">&amp;</tspan>LOVE</text>
+  <text x="64" y="104" font-family="Georgia, 'Times New Roman', serif" font-size="15.5" letter-spacing="7" fill="#6a5a9e">ГРУМІНГ · ГОТЕЛЬ</text>
+</svg>

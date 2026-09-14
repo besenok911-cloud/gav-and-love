@@ -1,0 +1,8 @@
+# source media (not deployed)
+photo/
+# worker deps/state
+worker/node_modules/
+worker/.wrangler/
+.DS_Store
+Thumbs.db
+desktop.ini

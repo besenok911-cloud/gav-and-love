@@ -1,0 +1,13 @@
+{
+  "name": "gavlove-booking",
+  "private": true,
+  "version": "1.0.0",
+  "description": "GAV&LOVE — booking Worker (Google Calendar + Telegram)",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}

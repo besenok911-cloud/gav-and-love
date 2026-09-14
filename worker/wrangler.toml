@@ -1,0 +1,14 @@
+name = "gavlove-booking"
+main = "src/index.js"
+compatibility_date = "2024-09-01"
+
+[vars]
+# Origin allowed to call the Worker (the live site). Change if the domain changes.
+ALLOW_ORIGIN = "https://besenok911-cloud.github.io"
+
+# Secrets are NOT stored here. Set them with:
+#   wrangler secret put SA_EMAIL
+#   wrangler secret put SA_PRIVATE_KEY
+#   wrangler secret put CALENDAR_ID
+#   wrangler secret put TELEGRAM_BOT_TOKEN
+#   wrangler secret put TELEGRAM_CHAT_ID

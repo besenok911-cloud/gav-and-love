@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://besenok911-cloud.github.io/gav-and-love/sitemap.xml
