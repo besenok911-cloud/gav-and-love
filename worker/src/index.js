@@ -207,7 +207,7 @@ async function getSlots(url, env) {
 }
 
 async function book(body, env) {
-  const { pet, service, breed, name, phone, date, time, note } = body || {};
+  const { pet, service, breed, name, phone, date, time, note, staff } = body || {};
   if (!name || !phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
 
   const isRequest = REQUEST_SERVICES.has(service) || !time;
@@ -232,13 +232,13 @@ async function book(body, env) {
       end.getTime() + BUSINESS.bufferMin * 60000 > bs);
     if (clash) return { ok: false, error: "На жаль, цей час щойно зайняли. Оберіть інший, будь ласка." };
 
-    const ev = await calCreate(env, token, { pet, service, breed, name, phone, note, date, time, source: "site" });
+    const ev = await calCreate(env, token, { pet, service, breed, name, phone, note, date, time, staff, source: "site" });
     eventLink = ev.htmlLink;
     eventId = ev.id;
   }
 
-  await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest });
-  await saveBooking(env, { pet, service, breed, name, phone, date, time, note, isRequest, eventLink, eventId });
+  await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest, staff });
+  await saveBooking(env, { pet, service, breed, name, phone, date, time, note, isRequest, eventLink, eventId, staff });
   return { ok: true, request: isRequest };
 }
 
@@ -249,9 +249,10 @@ function calEventBody(b) {
   const startMin = (+tm[1]) * 60 + (+tm[2]);
   const duration = SERVICE_DURATIONS[b.service] || DEFAULT_DURATION;
   const src = { site: "сайт", phone: "телефон", instagram: "Instagram", manual: "вручну", other: "вручну" }[b.source] || b.source || "—";
+  const price = (b.price != null && b.price !== "") ? `\nСума: ${b.price} ₴` : "";
   return {
-    summary: `${b.pet || "🐾"} · ${b.service || "грумінг"} — ${b.name || ""}`,
-    description: `Тварина: ${b.pet || "—"}\nПорода/вага: ${b.breed || "—"}\nПослуга: ${b.service || "—"}\nТелефон: ${b.phone || "—"}\nКоментар: ${b.note || "—"}\n\n(джерело: ${src})`,
+    summary: `${b.pet || "🐾"} · ${b.service || "грумінг"} — ${b.name || ""}${b.staff ? " · " + b.staff : ""}`,
+    description: `Тварина: ${b.pet || "—"}\nПорода/вага: ${b.breed || "—"}\nПослуга: ${b.service || "—"}\nМайстер: ${b.staff || "—"}\nТелефон: ${b.phone || "—"}${price}\nКоментар: ${b.note || "—"}\n\n(джерело: ${src})`,
     start: { dateTime: wallToRFC(y, m, d, startMin, BUSINESS.tz), timeZone: BUSINESS.tz },
     end: { dateTime: wallToRFC(y, m, d, startMin + duration, BUSINESS.tz), timeZone: BUSINESS.tz },
   };
@@ -284,12 +285,13 @@ async function saveBooking(env, b) {
   if (!env.DB) return;
   try {
     await env.DB.prepare(
-      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'new', 'site', ?)`
+      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'new', 'site', ?, ?, ?)`
     ).bind(
       new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
       b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
-      b.isRequest ? 1 : 0, b.eventLink || null, b.eventId || null
+      b.isRequest ? 1 : 0, b.eventLink || null, b.eventId || null,
+      (b.price != null && b.price !== "") ? b.price : null, b.staff || ""
     ).run();
   } catch (e) { /* CRM logging must never break a booking */ }
 }
@@ -310,7 +312,7 @@ async function adminList(request, env) {
   return { ok: true, bookings: results || [] };
 }
 
-const EDITABLE = ["pet", "service", "breed", "name", "phone", "date", "time", "note", "status", "source"];
+const EDITABLE = ["pet", "service", "breed", "name", "phone", "date", "time", "note", "status", "source", "price", "staff"];
 
 async function adminUpdate(request, env) {
   requireAdmin(request, env);
@@ -345,12 +347,13 @@ async function adminCreate(request, env) {
     } catch (e) { /* keep the record even if calendar fails */ }
   }
   const r = await env.DB.prepare(
-    `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
     b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
-    hasTime ? 0 : 1, eventLink, b.status || "new", b.source || "phone", eventId
+    hasTime ? 0 : 1, eventLink, b.status || "new", b.source || "phone", eventId,
+    (b.price != null && b.price !== "") ? b.price : null, b.staff || ""
   ).run();
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }
