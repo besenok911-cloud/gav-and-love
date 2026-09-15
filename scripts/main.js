@@ -14,7 +14,7 @@
     telegram: "https://t.me/+380685575727",
     viber: "viber://chat?number=%2B380685575727",
     // Booking endpoint (Cloudflare Worker → Google Calendar + Telegram). Empty = demo mode.
-    bookingEndpoint: "",
+    bookingEndpoint: "https://gavlove-booking.besenok911.workers.dev",
   };
 
   /* ---- Year ---- */
