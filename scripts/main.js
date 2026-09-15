@@ -250,7 +250,8 @@
   const CFG = window.GL_CONFIG || { services: [], staff: [], dogBreeds: [] };
   const fmtDur = window.GL_FMT_DUR || (() => "");
   const petHidden = $("#bf-pet");
-  const breedField = $("#bf-breed-field"), breedSel = $("#bf-breed"), staffSel = $("#bf-staff");
+  const breedField = $("#bf-breed-field"), breedSel = $("#bf-breed"), breedNote = $("#bf-breed-note"),
+    weightSel = $("#bf-weight"), staffSel = $("#bf-staff");
 
   // populate selects from config
   (function initBookingConfig() {
@@ -262,14 +263,16 @@
     });
     if (breedSel) breedSel.innerHTML = '<option value="">Оберіть породу…</option>' +
       CFG.dogBreeds.map(b => `<option>${b}</option>`).join("");
+    if (weightSel) weightSel.innerHTML = '<option value="">Оберіть вагу…</option>' +
+      (CFG.weightOptions || []).map(w => `<option>${w}</option>`).join("");
     if (staffSel) staffSel.innerHTML = '<option value="">Будь-який майстер</option>' +
       (CFG.staff || []).map(s => `<option>${s}</option>`).join("");
   })();
 
   function applyPet() {
     const isCat = petHidden.value === "Кіт";
-    if (breedField) breedField.hidden = isCat;
-    if (breedSel) breedSel.disabled = isCat;   // cats: no breed → excluded from submit
+    if (breedSel) { breedSel.hidden = isCat; breedSel.disabled = isCat; }  // cats: no breed → excluded from submit
+    if (breedNote) breedNote.hidden = !isCat;
   }
   applyPet();
 

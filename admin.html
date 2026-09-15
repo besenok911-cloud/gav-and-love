@@ -66,8 +66,8 @@
 
   .bar-row{display:grid;grid-template-columns:140px 1fr 70px;align-items:center;gap:10px;margin-bottom:10px;font-size:.9rem}
   .bar-row .lbl{color:var(--ink);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .bar-track{background:var(--bg-2);border-radius:999px;height:12px;overflow:hidden}
-  .bar-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--violet),#8a63e6);transition:width .6s cubic-bezier(.2,.7,.2,1)}
+  .bar-track{display:block;background:var(--bg-2);border-radius:999px;height:12px;overflow:hidden}
+  .bar-fill{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--violet),#8a63e6);transition:width .6s cubic-bezier(.2,.7,.2,1)}
   .bar-row .num{text-align:right;font-weight:800;color:var(--ink-soft)}
 
   .days{display:flex;align-items:flex-end;gap:6px;height:150px;padding-top:8px}
@@ -119,6 +119,30 @@
   .empty{text-align:center;color:var(--ink-soft);padding:40px}
   .meta{color:var(--ink-soft);font-size:.82rem;margin:10px 2px}
 
+  /* period filter */
+  .period{display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--ink-soft);font-weight:700}
+  .period input{padding:.45em .6em;border:1.5px solid var(--line);border-radius:10px;font-family:var(--font-body);font-size:.85rem;background:var(--paper);color:var(--ink)}
+  .period input:focus{outline:none;border-color:var(--violet)}
+  .period .clr{border:0;background:transparent;color:var(--ink-soft);cursor:pointer;font-size:1.1rem;line-height:1;padding:0 4px}
+
+  /* calendar */
+  .cal-head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .cal-title{font-family:var(--font-head);font-weight:600;font-size:1.3rem;text-transform:capitalize}
+  .cal-nav{display:flex;gap:6px;margin-left:auto}
+  .cal-nav .btn{border-color:var(--line);color:var(--ink);background:transparent}
+  .cal-nav .btn:hover{border-color:var(--violet);color:var(--violet)}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+  .cal-dow{font-weight:800;font-size:.72rem;text-transform:uppercase;color:var(--ink-soft);text-align:center;padding:2px 0}
+  .cal-cell{background:var(--paper);border:1px solid var(--line);border-radius:12px;min-height:106px;padding:6px 7px;display:flex;flex-direction:column;gap:3px;overflow:hidden}
+  .cal-cell.out{background:var(--bg-2);opacity:.5}
+  .cal-cell.today{border-color:var(--violet);box-shadow:0 0 0 1.5px var(--violet)}
+  .cal-daynum{font-weight:800;font-size:.8rem;color:var(--ink-soft)}
+  .cal-cell.today .cal-daynum{color:var(--violet)}
+  .cal-ev{font-size:.7rem;font-weight:700;padding:.2em .45em;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff}
+  .cal-ev.st-new{background:var(--violet)}.cal-ev.st-confirmed{background:var(--confirmed)}.cal-ev.st-done{background:var(--done)}.cal-ev.st-cancelled{background:var(--cancelled);text-decoration:line-through}
+  .cal-more{font-size:.68rem;color:var(--ink-soft);font-weight:700}
+  @media(max-width:700px){.cal-cell{min-height:76px}.cal-ev{font-size:.62rem}}
+
   /* modal */
   .modal{position:fixed;inset:0;background:rgba(28,19,64,.5);display:none;align-items:flex-start;justify-content:center;z-index:50;padding:24px;overflow:auto}
   .modal.open{display:flex}
@@ -144,6 +168,7 @@
   <div class="tabs" id="tabs" hidden>
     <button class="tabbtn on" data-view="dash">Огляд</button>
     <button class="tabbtn" data-view="list">Записи</button>
+    <button class="tabbtn" data-view="cal">Календар</button>
   </div>
   <span class="sp"></span>
   <button class="btn ghost sm" id="refreshBtn" hidden>↻ Оновити</button>
@@ -164,6 +189,7 @@
   <div class="toolbar">
     <input class="search" id="search" placeholder="Пошук: ім'я, телефон, послуга, майстер…" />
     <div class="pills" id="pills"></div>
+    <div class="period"><span>Період:</span><input type="date" id="pFrom" title="від"><span>–</span><input type="date" id="pTo" title="до"><button class="clr" id="pClear" title="Очистити">×</button></div>
     <span class="sp" style="flex:1"></span>
     <button class="btn" id="newBtn">+ Нова заявка</button>
   </div>
@@ -180,6 +206,8 @@
   <div class="empty" id="empty" hidden>Записів поки немає.</div>
 </div>
 
+<div class="wrap" id="calView" hidden></div>
+
 <div class="modal" id="modal">
   <div class="sheet">
     <h2 id="modalTitle">Нова заявка</h2>
@@ -191,8 +219,8 @@
         <option>Гігієнічний комплекс</option><option>Повний комплекс (зі стрижкою)</option><option>Стрижка</option>
         <option>Вичісування / експрес-линька</option><option>Догляд для котиків</option><option>Міні-готель</option><option>Денний садочок</option>
       </datalist></div>
-      <div class="fld" id="f-breed-fld"><label>Порода</label><select id="f-breed"></select></div>
-      <div class="fld"><label>Вага</label><input id="f-weight" placeholder="Напр. 3.5 кг" /></div>
+      <div class="fld" id="f-breed-fld"><label>Порода</label><select id="f-breed"></select><small id="f-breed-note" class="muted" hidden>Для котів порода не вибирається — вкажіть лише вагу.</small></div>
+      <div class="fld"><label>Вага</label><select id="f-weight"></select></div>
       <div class="fld"><label>Майстер</label><select id="f-staff"></select></div>
       <div class="fld"><label>Дата візиту</label><input id="f-date" type="date" /></div>
       <div class="fld"><label>Час</label><input id="f-time" type="time" /></div>
@@ -218,7 +246,7 @@
   var STAFF=CFG.staff||[];
   var $=function(s){return document.querySelector(s);};
   var token=""; try{token=localStorage.getItem(KEY)||"";}catch(e){}
-  var all=[], filter="all", q="", view="dash", editId=null;
+  var all=[], filter="all", q="", view="dash", editId=null, dateFrom="", dateTo="", calRef=null;
 
   var STATUS=[{v:"new",label:"Нова"},{v:"confirmed",label:"Підтверджена"},{v:"done",label:"Виконана"},{v:"cancelled",label:"Скасована"}];
   var FILTERS=[{v:"all",label:"Усі"}].concat(STATUS);
@@ -230,6 +258,7 @@
   function fmtDate(iso){if(!iso)return"";var d=new Date(iso);if(isNaN(d))return esc(iso);
     return d.toLocaleDateString("uk-UA",{day:"2-digit",month:"2-digit"})+" "+d.toLocaleTimeString("uk-UA",{hour:"2-digit",minute:"2-digit"});}
   function initials(name){var p=(name||"").trim().split(/\s+/);return ((p[0]||"")[0]||"?").toUpperCase();}
+  function localISO(d){var m=d.getMonth()+1,day=d.getDate();return d.getFullYear()+"-"+(m<10?"0":"")+m+"-"+(day<10?"0":"")+day;}
 
   async function api(path,opts){opts=opts||{};opts.headers=Object.assign({"Authorization":"Bearer "+token},opts.headers||{});
     var r=await fetch(API+path,opts); if(r.status===401)throw{code:401}; return r.json();}
@@ -238,16 +267,17 @@
   (function(){
     $("#f-staff").innerHTML='<option value="">— не призначено —</option>'+STAFF.map(function(s){return '<option>'+esc(s)+'</option>';}).join("");
     $("#f-breed").innerHTML='<option value="">Оберіть породу…</option>'+(CFG.dogBreeds||[]).map(function(b){return '<option>'+esc(b)+'</option>';}).join("");
+    $("#f-weight").innerHTML='<option value="">Оберіть вагу…</option>'+(CFG.weightOptions||[]).map(function(w){return '<option>'+esc(w)+'</option>';}).join("");
   })();
-  function applyPetModal(){var isCat=$("#f-pet").value==="Кіт";$("#f-breed-fld").hidden=isCat;$("#f-breed").disabled=isCat;}
+  function applyPetModal(){var isCat=$("#f-pet").value==="Кіт";$("#f-breed").hidden=isCat;$("#f-breed").disabled=isCat;$("#f-breed-note").hidden=!isCat;}
   $("#f-pet").addEventListener("change",applyPetModal);
 
   function showLogin(msg){$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#loginErr").textContent=msg||"";}
   function showApp(){$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;setView(view);}
-  function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");
+  function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");
     [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.classList.toggle("on",b.dataset.view===v);});
-    if(v==="dash")renderDash(); else render();}
+    if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else render();}
   [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.addEventListener("click",function(){setView(b.dataset.view);});});
 
   async function tryLogin(t){token=t;
@@ -334,6 +364,48 @@
       '</div></div>';
   }
 
+  /* ---------- calendar ---------- */
+  function renderCal(){
+    if(!calRef){calRef=new Date();calRef.setDate(1);}
+    var y=calRef.getFullYear(), mo=calRef.getMonth();
+    var first=new Date(y,mo,1);
+    var startDow=(first.getDay()+6)%7;               // Monday-first
+    var daysIn=new Date(y,mo+1,0).getDate();
+    var todayISO=localISO(new Date());
+    var byDate={};
+    all.forEach(function(b){ if(b.date){ (byDate[b.date]=byDate[b.date]||[]).push(b); } });
+    Object.keys(byDate).forEach(function(k){ byDate[k].sort(function(a,b){ return (a.time||"").localeCompare(b.time||""); }); });
+    var cells=[]; for(var i=0;i<startDow;i++)cells.push(null);
+    for(var dd=1;dd<=daysIn;dd++)cells.push(new Date(y,mo,dd));
+    while(cells.length%7)cells.push(null);
+    var monthName=first.toLocaleDateString("uk-UA",{month:"long",year:"numeric"});
+    var dows=["Пн","Вт","Ср","Чт","Пт","Сб","Нд"];
+    var html='<div class="cal-head"><div class="cal-title">'+esc(monthName)+'</div>'+
+      '<div class="cal-nav"><button class="btn sm" id="calPrev">‹</button>'+
+      '<button class="btn sm" id="calToday">Сьогодні</button>'+
+      '<button class="btn sm" id="calNext">›</button></div></div>';
+    html+='<div class="cal-grid">'+dows.map(function(d){return '<div class="cal-dow">'+d+'</div>';}).join("");
+    cells.forEach(function(c){
+      if(!c){ html+='<div class="cal-cell out"></div>'; return; }
+      var iso=localISO(c), evs=byDate[iso]||[];
+      html+='<div class="cal-cell'+(iso===todayISO?' today':'')+'"><div class="cal-daynum">'+c.getDate()+'</div>'+
+        evs.slice(0,4).map(function(b){
+          return '<div class="cal-ev st-'+(b.status||"new")+'" data-id="'+b.id+'" title="'+esc((b.time||"")+" "+(b.name||"")+" · "+(b.service||"")+(b.staff?" · "+b.staff:""))+'">'+
+            esc((b.time?b.time+" ":"")+(b.name||""))+'</div>';
+        }).join("")+
+        (evs.length>4?'<div class="cal-more">+'+(evs.length-4)+' ще</div>':'')+
+      '</div>';
+    });
+    html+='</div>';
+    $("#calView").innerHTML=html;
+    $("#calPrev").onclick=function(){calRef.setMonth(calRef.getMonth()-1);renderCal();};
+    $("#calNext").onclick=function(){calRef.setMonth(calRef.getMonth()+1);renderCal();};
+    $("#calToday").onclick=function(){calRef=new Date();calRef.setDate(1);renderCal();};
+    [].forEach.call(document.querySelectorAll("#calView .cal-ev"),function(el){
+      el.addEventListener("click",function(){var b=all.filter(function(x){return String(x.id)===el.dataset.id;})[0];if(b)openModal(b);});
+    });
+  }
+
   /* ---------- filters + table ---------- */
   function renderPills(){var box=$("#pills");box.innerHTML="";
     FILTERS.forEach(function(f){var n=f.v==="all"?all.length:all.filter(function(b){return (b.status||"new")===f.v;}).length;
@@ -341,10 +413,15 @@
       b.innerHTML=esc(f.label)+'<span class="cnt">'+n+'</span>';
       b.addEventListener("click",function(){filter=f.v;renderPills();render();});box.appendChild(b);});}
   $("#search").addEventListener("input",function(e){q=e.target.value.trim().toLowerCase();render();});
+  $("#pFrom").addEventListener("change",function(e){dateFrom=e.target.value;render();});
+  $("#pTo").addEventListener("change",function(e){dateTo=e.target.value;render();});
+  $("#pClear").addEventListener("click",function(){dateFrom="";dateTo="";$("#pFrom").value="";$("#pTo").value="";render();});
 
   function render(){
     var list=all.filter(function(b){
       if(filter!=="all"&&(b.status||"new")!==filter)return false;
+      if(dateFrom&&(!b.date||b.date<dateFrom))return false;
+      if(dateTo&&(!b.date||b.date>dateTo))return false;
       if(q){var hay=((b.name||"")+" "+(b.phone||"")+" "+(b.service||"")+" "+(b.breed||"")+" "+(b.staff||"")).toLowerCase();if(hay.indexOf(q)<0)return false;}
       return true;});
     $("#meta").textContent="Показано: "+list.length+" із "+all.length;
