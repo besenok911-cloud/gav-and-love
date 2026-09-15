@@ -44,7 +44,7 @@ export default {
     const cors = {
       "Access-Control-Allow-Origin": origin,
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
     };
     if (request.method === "OPTIONS") return new Response(null, { headers: cors });
 
@@ -56,9 +56,19 @@ export default {
       if (url.pathname === "/book" && request.method === "POST") {
         return json(await book(await request.json(), env), cors);
       }
+      // ---- Admin (CRM) — all require ADMIN_TOKEN ----
+      if (url.pathname === "/admin/list" && request.method === "GET") {
+        return json(await adminList(request, env), cors);
+      }
+      if (url.pathname === "/admin/update" && request.method === "POST") {
+        return json(await adminUpdate(request, env), cors);
+      }
+      if (url.pathname === "/admin/delete" && request.method === "POST") {
+        return json(await adminDelete(request, env), cors);
+      }
       return json({ ok: false, error: "not found" }, cors, 404);
     } catch (e) {
-      return json({ ok: false, error: String(e && e.message || e) }, cors, 500);
+      return json({ ok: false, error: String(e && e.message || e) }, cors, e && e.status || 500);
     }
   },
 };
@@ -237,7 +247,56 @@ async function book(body, env) {
   }
 
   await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest });
+  await saveBooking(env, { pet, service, breed, name, phone, date, time, note, isRequest, eventLink });
   return { ok: true, request: isRequest };
+}
+
+/* ----------------------------- CRM (D1) ----------------------------- */
+async function saveBooking(env, b) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'new')`
+    ).bind(
+      new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
+      b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
+      b.isRequest ? 1 : 0, b.eventLink || null
+    ).run();
+  } catch (e) { /* CRM logging must never break a booking */ }
+}
+
+function requireAdmin(request, env) {
+  const h = request.headers.get("Authorization") || "";
+  const tok = h.replace(/^Bearer\s+/i, "").trim();
+  if (!env.ADMIN_TOKEN || tok !== env.ADMIN_TOKEN) {
+    const e = new Error("unauthorized"); e.status = 401; throw e;
+  }
+}
+
+async function adminList(request, env) {
+  requireAdmin(request, env);
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM bookings ORDER BY created_at DESC LIMIT 1000`
+  ).all();
+  return { ok: true, bookings: results || [] };
+}
+
+async function adminUpdate(request, env) {
+  requireAdmin(request, env);
+  const { id, status, note } = await request.json();
+  if (!id) return { ok: false, error: "id required" };
+  if (status != null) await env.DB.prepare(`UPDATE bookings SET status=? WHERE id=?`).bind(status, id).run();
+  if (note != null) await env.DB.prepare(`UPDATE bookings SET note=? WHERE id=?`).bind(note, id).run();
+  return { ok: true };
+}
+
+async function adminDelete(request, env) {
+  requireAdmin(request, env);
+  const { id } = await request.json();
+  if (!id) return { ok: false, error: "id required" };
+  await env.DB.prepare(`DELETE FROM bookings WHERE id=?`).bind(id).run();
+  return { ok: true };
 }
 
 async function notifyTelegram(env, b) {

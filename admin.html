@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>GAV&LOVE · CRM</title>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;1,600&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#faf7f2; --paper:#fff; --ink:#221a38; --ink-soft:#6d6484;
+    --violet:#4a25c9; --violet-d:#3a1c9e; --violet-deep:#1c1340;
+    --line:#e7e0d3; --bg-2:#f2ece2;
+    --new:#4a25c9; --confirmed:#2f8f5b; --done:#6d6484; --cancelled:#c0472b;
+    --shadow:0 20px 44px -28px rgba(28,19,64,.4); --shadow-sm:0 10px 26px -18px rgba(28,19,64,.35);
+    --font-head:"Playfair Display",Georgia,serif; --font-body:"Nunito",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:var(--font-body);color:var(--ink);background:var(--bg);line-height:1.5}
+  a{color:var(--violet)}
+  .wrap{max-width:1200px;margin:0 auto;padding:20px}
+  header.top{display:flex;align-items:center;gap:14px;padding:16px 20px;background:var(--violet-deep);color:#fff}
+  header.top img{height:34px;background:#fff;border-radius:8px;padding:3px 8px}
+  header.top h1{font-family:var(--font-head);font-weight:600;font-size:1.2rem;margin:0}
+  header.top .sp{margin-left:auto}
+  .btn{font-family:var(--font-body);font-weight:700;font-size:.9rem;border:1.5px solid transparent;border-radius:999px;
+    padding:.55em 1.2em;cursor:pointer;transition:.2s;background:var(--violet);color:#fff}
+  .btn:hover{background:var(--violet-d)}
+  .btn.ghost{background:transparent;border-color:rgba(255,255,255,.4);color:#fff}
+  .btn.ghost:hover{background:rgba(255,255,255,.12)}
+  .btn.sm{padding:.4em .8em;font-size:.82rem}
+  .btn.danger{background:transparent;border-color:var(--line);color:var(--cancelled)}
+  .btn.danger:hover{background:#fff0ee}
+
+  /* login */
+  .login{max-width:380px;margin:8vh auto;background:var(--paper);border:1px solid var(--line);border-radius:20px;
+    padding:34px 30px;box-shadow:var(--shadow);text-align:center}
+  .login h2{font-family:var(--font-head);font-weight:600;margin:0 0 6px}
+  .login p{color:var(--ink-soft);margin:0 0 20px;font-size:.92rem}
+  .login input{width:100%;padding:.8em 1em;border:1.5px solid var(--line);border-radius:12px;font-size:1rem;margin-bottom:14px;font-family:var(--font-body)}
+  .login input:focus{outline:none;border-color:var(--violet)}
+  .login .btn{width:100%;padding:.85em}
+  .err{color:var(--cancelled);font-weight:700;font-size:.88rem;min-height:1.2em;margin-top:10px}
+
+  /* toolbar */
+  .toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:20px 0}
+  .search{flex:1;min-width:200px;padding:.7em 1em;border:1.5px solid var(--line);border-radius:999px;font-size:.95rem;font-family:var(--font-body);background:var(--paper)}
+  .search:focus{outline:none;border-color:var(--violet)}
+  .pills{display:flex;flex-wrap:wrap;gap:7px}
+  .pill{border:1.5px solid var(--line);background:var(--paper);border-radius:999px;padding:.45em .95em;cursor:pointer;font-weight:700;font-size:.85rem;color:var(--ink);transition:.15s}
+  .pill:hover{border-color:var(--violet)}
+  .pill.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .pill .cnt{opacity:.7;font-weight:800;margin-left:.35em}
+
+  /* table */
+  .tablewrap{overflow-x:auto;background:var(--paper);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-sm)}
+  table{width:100%;border-collapse:collapse;min-width:900px;font-size:.9rem}
+  th,td{padding:.75em .85em;text-align:left;vertical-align:top}
+  thead th{background:var(--bg-2);color:var(--ink);font-weight:800;font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;position:sticky;top:0}
+  tbody tr{border-top:1px solid var(--line)}
+  tbody tr:hover{background:#faf8ff}
+  td.name{font-weight:700}
+  td.phone a{font-weight:700;text-decoration:none}
+  .muted{color:var(--ink-soft)}
+  .when{white-space:nowrap;font-weight:700}
+  .req{display:inline-block;font-size:.68rem;font-weight:800;color:var(--violet);background:#efeaff;border-radius:6px;padding:.1em .45em;margin-left:.3em}
+  .note{max-width:220px;color:var(--ink-soft);cursor:text}
+  select.status{font-family:var(--font-body);font-weight:700;font-size:.82rem;border:1.5px solid var(--line);border-radius:10px;padding:.4em .5em;cursor:pointer;background:#fff}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:.4em;vertical-align:middle}
+  .s-new{color:var(--new)} .s-confirmed{color:var(--confirmed)} .s-done{color:var(--done)} .s-cancelled{color:var(--cancelled)}
+  .empty{text-align:center;color:var(--ink-soft);padding:40px}
+  .meta{color:var(--ink-soft);font-size:.82rem;margin:10px 2px}
+  [hidden]{display:none!important}
+  @media(max-width:600px){.wrap{padding:12px}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <img src="assets/brand/logo.svg" alt="GAV&LOVE" />
+  <h1>CRM · записи</h1>
+  <span class="sp"></span>
+  <button class="btn ghost sm" id="refreshBtn" hidden>↻ Оновити</button>
+  <button class="btn ghost sm" id="logoutBtn" hidden>Вийти</button>
+</header>
+
+<!-- Login -->
+<div class="login" id="loginCard">
+  <h2>Вхід у CRM</h2>
+  <p>Введіть пароль доступу до панелі записів.</p>
+  <input type="password" id="tokenInput" placeholder="Пароль" autocomplete="current-password" />
+  <button class="btn" id="loginBtn">Увійти</button>
+  <p class="err" id="loginErr"></p>
+</div>
+
+<!-- Panel -->
+<div class="wrap" id="panel" hidden>
+  <div class="toolbar">
+    <input class="search" id="search" placeholder="Пошук: ім'я, телефон, послуга…" />
+    <div class="pills" id="pills"></div>
+  </div>
+  <p class="meta" id="meta"></p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>Отримано</th><th>Клієнт</th><th>Телефон</th><th>Тварина</th><th>Послуга</th>
+        <th>Порода</th><th>Дата візиту</th><th>Коментар</th><th>Статус</th><th></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="empty" id="empty" hidden>Записів поки немає.</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var API = "https://gavlove-booking.besenok911.workers.dev";
+  var KEY = "gavlove_admin_token";
+  var $ = function(s){return document.querySelector(s);};
+  var token = "";
+  try { token = localStorage.getItem(KEY) || ""; } catch(e){}
+  var all = [], filter = "all", q = "";
+
+  var STATUS = [
+    {v:"new",       label:"Нова"},
+    {v:"confirmed", label:"Підтверджена"},
+    {v:"done",      label:"Виконана"},
+    {v:"cancelled", label:"Скасована"}
+  ];
+  var FILTERS = [{v:"all",label:"Усі"}].concat(STATUS);
+
+  function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
+  function fmtDate(iso){ if(!iso) return ""; var d=new Date(iso); if(isNaN(d)) return esc(iso);
+    return d.toLocaleDateString("uk-UA",{day:"2-digit",month:"2-digit"})+" "+d.toLocaleTimeString("uk-UA",{hour:"2-digit",minute:"2-digit"}); }
+  function statusLabel(v){ var s=STATUS.filter(function(x){return x.v===v;})[0]; return s?s.label:v; }
+
+  async function api(path, opts){
+    opts = opts || {};
+    opts.headers = Object.assign({"Authorization":"Bearer "+token}, opts.headers||{});
+    var r = await fetch(API+path, opts);
+    if(r.status===401){ throw {code:401}; }
+    return r.json();
+  }
+
+  // ---- auth ----
+  function showLogin(msg){
+    $("#loginCard").hidden=false; $("#panel").hidden=true;
+    $("#refreshBtn").hidden=true; $("#logoutBtn").hidden=true;
+    $("#loginErr").textContent = msg||"";
+  }
+  function showPanel(){
+    $("#loginCard").hidden=true; $("#panel").hidden=false;
+    $("#refreshBtn").hidden=false; $("#logoutBtn").hidden=false;
+  }
+  async function tryLogin(t){
+    token = t;
+    try{
+      var d = await api("/admin/list");
+      try{ localStorage.setItem(KEY, token); }catch(e){}
+      all = d.bookings||[]; showPanel(); renderPills(); render();
+    }catch(e){
+      if(e && e.code===401){ showLogin("Невірний пароль."); }
+      else { showLogin("Помилка з'єднання. Спробуйте ще раз."); }
+    }
+  }
+  $("#loginBtn").addEventListener("click", function(){ tryLogin($("#tokenInput").value.trim()); });
+  $("#tokenInput").addEventListener("keydown", function(e){ if(e.key==="Enter") tryLogin(e.target.value.trim()); });
+  $("#logoutBtn").addEventListener("click", function(){ try{localStorage.removeItem(KEY);}catch(e){} token=""; $("#tokenInput").value=""; showLogin(""); });
+  $("#refreshBtn").addEventListener("click", async function(){ try{ var d=await api("/admin/list"); all=d.bookings||[]; renderPills(); render(); }catch(e){ if(e.code===401) showLogin("Сесія завершилась, увійдіть знову."); } });
+
+  // ---- filters ----
+  function renderPills(){
+    var box=$("#pills"); box.innerHTML="";
+    FILTERS.forEach(function(f){
+      var n = f.v==="all" ? all.length : all.filter(function(b){return (b.status||"new")===f.v;}).length;
+      var b=document.createElement("button");
+      b.className="pill"+(filter===f.v?" on":"");
+      b.innerHTML=esc(f.label)+'<span class="cnt">'+n+'</span>';
+      b.addEventListener("click",function(){ filter=f.v; renderPills(); render(); });
+      box.appendChild(b);
+    });
+  }
+  $("#search").addEventListener("input", function(e){ q=e.target.value.trim().toLowerCase(); render(); });
+
+  // ---- table ----
+  function render(){
+    var list = all.filter(function(b){
+      if(filter!=="all" && (b.status||"new")!==filter) return false;
+      if(q){ var hay=((b.name||"")+" "+(b.phone||"")+" "+(b.service||"")+" "+(b.breed||"")).toLowerCase(); if(hay.indexOf(q)<0) return false; }
+      return true;
+    });
+    $("#meta").textContent = "Показано: "+list.length+" із "+all.length;
+    var rows=$("#rows"); rows.innerHTML="";
+    $("#empty").hidden = list.length>0;
+    list.forEach(function(b){
+      var tr=document.createElement("tr");
+      var st=b.status||"new";
+      var visit = b.date ? (esc(b.date)+(b.time?(" "+esc(b.time)):"")) : '<span class="muted">—</span>';
+      var opts = STATUS.map(function(s){return '<option value="'+s.v+'"'+(s.v===st?" selected":"")+'>'+s.label+'</option>';}).join("");
+      tr.innerHTML =
+        '<td class="when muted">'+fmtDate(b.created_at)+'</td>'+
+        '<td class="name">'+esc(b.name)+'</td>'+
+        '<td class="phone"><a href="tel:'+esc(b.phone)+'">'+esc(b.phone)+'</a></td>'+
+        '<td>'+esc(b.pet)+'</td>'+
+        '<td>'+esc(b.service)+(String(b.is_request)==="1"?'<span class="req">заявка</span>':'')+'</td>'+
+        '<td class="muted">'+esc(b.breed)+'</td>'+
+        '<td class="when">'+visit+'</td>'+
+        '<td class="note" title="Натисніть, щоб редагувати">'+esc(b.note)+'</td>'+
+        '<td><span class="dot s-'+st+'" style="background:currentColor"></span>'+
+          '<select class="status s-'+st+'">'+opts+'</select></td>'+
+        '<td><button class="btn danger sm">✕</button></td>';
+      // status change
+      tr.querySelector("select.status").addEventListener("change", async function(e){
+        var v=e.target.value;
+        try{ await api("/admin/update",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:b.id,status:v})});
+          b.status=v; renderPills(); render(); }catch(err){ alert("Не вдалося оновити статус"); }
+      });
+      // note edit
+      tr.querySelector(".note").addEventListener("click", async function(){
+        var nv=prompt("Коментар:", b.note||""); if(nv===null) return;
+        try{ await api("/admin/update",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:b.id,note:nv})});
+          b.note=nv; render(); }catch(err){ alert("Не вдалося зберегти коментар"); }
+      });
+      // delete
+      tr.querySelector("button.danger").addEventListener("click", async function(){
+        if(!confirm("Видалити запис "+(b.name||"")+"?")) return;
+        try{ await api("/admin/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:b.id})});
+          all=all.filter(function(x){return x.id!==b.id;}); renderPills(); render(); }catch(err){ alert("Не вдалося видалити"); }
+      });
+      rows.appendChild(tr);
+    });
+  }
+
+  // ---- boot ----
+  if(token){ tryLogin(token); } else { showLogin(""); }
+})();
+</script>
+</body>
+</html>
