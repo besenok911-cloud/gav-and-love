@@ -105,21 +105,12 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1080,
-      "h": 1080
-    },
-    {
-      "id": "g013",
-      "src": "assets/gallery/g013.webp",
-      "species": "dog",
-      "kind": "portrait",
-      "breed": "",
       "w": 1152,
       "h": 1440
     },
     {
-      "id": "g014",
-      "src": "assets/gallery/g014.webp",
+      "id": "g013",
+      "src": "assets/gallery/g013.webp",
       "species": "dog",
       "kind": "beforeafter",
       "breed": "",
@@ -127,8 +118,8 @@ window.LP_GALLERY = {
       "h": 1314
     },
     {
-      "id": "g015",
-      "src": "assets/gallery/g015.webp",
+      "id": "g014",
+      "src": "assets/gallery/g014.webp",
       "species": "cat",
       "kind": "beforeafter",
       "breed": "",
@@ -136,8 +127,8 @@ window.LP_GALLERY = {
       "h": 1440
     },
     {
-      "id": "g016",
-      "src": "assets/gallery/g016.webp",
+      "id": "g015",
+      "src": "assets/gallery/g015.webp",
       "species": "dog",
       "kind": "portrait",
       "breed": "",
@@ -145,12 +136,21 @@ window.LP_GALLERY = {
       "h": 708
     },
     {
+      "id": "g016",
+      "src": "assets/gallery/g016.webp",
+      "species": "dog",
+      "kind": "portrait",
+      "breed": "",
+      "w": 1440,
+      "h": 1440
+    },
+    {
       "id": "g017",
       "src": "assets/gallery/g017.webp",
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
+      "w": 1152,
       "h": 1440
     },
     {
@@ -195,7 +195,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
+      "w": 1155,
       "h": 1440
     },
     {
@@ -204,7 +204,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1155,
+      "w": 1152,
       "h": 1440
     },
     {
@@ -213,7 +213,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
+      "w": 1155,
       "h": 1440
     },
     {
@@ -222,7 +222,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1155,
+      "w": 1152,
       "h": 1440
     },
     {
@@ -240,7 +240,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
+      "w": 1245,
       "h": 1440
     },
     {
@@ -258,7 +258,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1245,
+      "w": 1246,
       "h": 1440
     },
     {
@@ -267,7 +267,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1246,
+      "w": 1156,
       "h": 1440
     },
     {
@@ -276,8 +276,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1156,
-      "h": 1440
+      "w": 1440,
+      "h": 1439
     },
     {
       "id": "g032",
@@ -286,7 +286,7 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 1439
+      "h": 1440
     },
     {
       "id": "g033",
@@ -300,10 +300,10 @@ window.LP_GALLERY = {
     {
       "id": "g034",
       "src": "assets/gallery/g034.webp",
-      "species": "dog",
+      "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
+      "w": 1152,
       "h": 1440
     },
     {
@@ -312,7 +312,7 @@ window.LP_GALLERY = {
       "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
+      "w": 1153,
       "h": 1440
     },
     {
@@ -321,16 +321,16 @@ window.LP_GALLERY = {
       "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1153,
+      "w": 1152,
       "h": 1440
     },
     {
       "id": "g037",
       "src": "assets/gallery/g037.webp",
-      "species": "cat",
+      "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
+      "w": 1153,
       "h": 1440
     },
     {
@@ -339,8 +339,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1153,
-      "h": 1440
+      "w": 1358,
+      "h": 1241
     },
     {
       "id": "g039",
@@ -348,8 +348,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1358,
-      "h": 1241
+      "w": 1252,
+      "h": 1440
     },
     {
       "id": "g040",
@@ -366,7 +366,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1252,
+      "w": 1155,
       "h": 1440
     },
     {
@@ -390,10 +390,10 @@ window.LP_GALLERY = {
     {
       "id": "g044",
       "src": "assets/gallery/g044.webp",
-      "species": "dog",
+      "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1155,
+      "w": 1440,
       "h": 1440
     },
     {
@@ -421,7 +421,7 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 1440
+      "h": 1439
     },
     {
       "id": "g048",
@@ -430,15 +430,15 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 1439
+      "h": 1440
     },
     {
       "id": "g049",
       "src": "assets/gallery/g049.webp",
-      "species": "cat",
+      "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
+      "w": 1152,
       "h": 1440
     },
     {
@@ -465,8 +465,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
-      "h": 1440
+      "w": 1080,
+      "h": 1080
     },
     {
       "id": "g053",
@@ -492,8 +492,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1080,
-      "h": 1080
+      "w": 1440,
+      "h": 1440
     },
     {
       "id": "g056",
@@ -510,17 +510,17 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
-      "h": 1440
+      "w": 1080,
+      "h": 1080
     },
     {
       "id": "g058",
       "src": "assets/gallery/g058.webp",
-      "species": "dog",
+      "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1080,
-      "h": 1080
+      "w": 1440,
+      "h": 1440
     },
     {
       "id": "g059",
@@ -537,8 +537,8 @@ window.LP_GALLERY = {
       "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
-      "h": 1440
+      "w": 1080,
+      "h": 1080
     },
     {
       "id": "g061",
@@ -546,8 +546,8 @@ window.LP_GALLERY = {
       "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1080,
-      "h": 1080
+      "w": 1152,
+      "h": 1440
     },
     {
       "id": "g062",
@@ -555,16 +555,16 @@ window.LP_GALLERY = {
       "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
+      "w": 1155,
       "h": 1440
     },
     {
       "id": "g063",
       "src": "assets/gallery/g063.webp",
-      "species": "cat",
+      "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1155,
+      "w": 1152,
       "h": 1440
     },
     {
@@ -573,8 +573,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
-      "h": 1440
+      "w": 1280,
+      "h": 1280
     },
     {
       "id": "g065",
@@ -591,8 +591,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1280,
-      "h": 1280
+      "w": 1152,
+      "h": 1440
     },
     {
       "id": "g067",
@@ -600,8 +600,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
-      "h": 1440
+      "w": 728,
+      "h": 808
     },
     {
       "id": "g068",
@@ -609,26 +609,26 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 728,
-      "h": 808
-    },
-    {
-      "id": "g069",
-      "src": "assets/gallery/g069.webp",
-      "species": "dog",
-      "kind": "portrait",
-      "breed": "",
       "w": 1364,
       "h": 1440
     },
     {
-      "id": "g070",
-      "src": "assets/gallery/g070.webp",
+      "id": "g069",
+      "src": "assets/gallery/g069.webp",
       "species": "cat",
       "kind": "portrait",
       "breed": "",
       "w": 721,
       "h": 721
+    },
+    {
+      "id": "g070",
+      "src": "assets/gallery/g070.webp",
+      "species": "dog",
+      "kind": "portrait",
+      "breed": "",
+      "w": 1440,
+      "h": 1440
     },
     {
       "id": "g071",
@@ -672,8 +672,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
-      "h": 1440
+      "w": 750,
+      "h": 750
     },
     {
       "id": "g076",
@@ -681,8 +681,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 750,
-      "h": 750
+      "w": 1225,
+      "h": 1440
     },
     {
       "id": "g077",
@@ -696,20 +696,20 @@ window.LP_GALLERY = {
     {
       "id": "g078",
       "src": "assets/gallery/g078.webp",
-      "species": "dog",
-      "kind": "portrait",
-      "breed": "",
-      "w": 1225,
-      "h": 1440
-    },
-    {
-      "id": "g079",
-      "src": "assets/gallery/g079.webp",
       "species": "cat",
       "kind": "portrait",
       "breed": "",
       "w": 734,
       "h": 734
+    },
+    {
+      "id": "g079",
+      "src": "assets/gallery/g079.webp",
+      "species": "dog",
+      "kind": "portrait",
+      "breed": "",
+      "w": 1415,
+      "h": 1440
     },
     {
       "id": "g080",
@@ -726,8 +726,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1415,
-      "h": 1440
+      "w": 750,
+      "h": 750
     },
     {
       "id": "g082",
@@ -735,8 +735,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 750,
-      "h": 750
+      "w": 1156,
+      "h": 1440
     },
     {
       "id": "g083",
@@ -762,7 +762,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1156,
+      "w": 1419,
       "h": 1440
     },
     {
@@ -771,7 +771,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1419,
+      "w": 1417,
       "h": 1440
     },
     {
@@ -780,7 +780,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1417,
+      "w": 1440,
       "h": 1440
     },
     {
@@ -798,7 +798,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
+      "w": 1152,
       "h": 1440
     },
     {
@@ -807,7 +807,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
+      "w": 1153,
       "h": 1440
     },
     {
@@ -816,7 +816,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1153,
+      "w": 1152,
       "h": 1440
     },
     {
@@ -834,7 +834,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
+      "w": 1153,
       "h": 1440
     },
     {
@@ -843,7 +843,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1153,
+      "w": 1440,
       "h": 1440
     },
     {
@@ -852,7 +852,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
+      "w": 1155,
       "h": 1440
     },
     {
@@ -861,7 +861,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1155,
+      "w": 1256,
       "h": 1440
     },
     {
@@ -870,8 +870,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1256,
-      "h": 1440
+      "w": 536,
+      "h": 536
     },
     {
       "id": "g098",
@@ -879,8 +879,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 536,
-      "h": 536
+      "w": 1440,
+      "h": 1440
     },
     {
       "id": "g099",
@@ -888,8 +888,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
-      "h": 1440
+      "w": 712,
+      "h": 712
     },
     {
       "id": "g100",
@@ -897,8 +897,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 712,
-      "h": 712
+      "w": 1153,
+      "h": 1440
     },
     {
       "id": "g101",
@@ -906,7 +906,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1153,
+      "w": 1267,
       "h": 1440
     },
     {
@@ -924,7 +924,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1267,
+      "w": 1440,
       "h": 1440
     },
     {
@@ -933,8 +933,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
-      "h": 1440
+      "w": 960,
+      "h": 960
     },
     {
       "id": "g105",
@@ -942,8 +942,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 960,
-      "h": 960
+      "w": 1440,
+      "h": 1440
     },
     {
       "id": "g106",
@@ -952,24 +952,24 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 1440
+      "h": 1434
     },
     {
       "id": "g107",
       "src": "assets/gallery/g107.webp",
-      "species": "dog",
-      "kind": "portrait",
-      "breed": "",
-      "w": 1440,
-      "h": 1434
-    },
-    {
-      "id": "g108",
-      "src": "assets/gallery/g108.webp",
       "species": "cat",
       "kind": "portrait",
       "breed": "",
       "w": 1440,
+      "h": 1440
+    },
+    {
+      "id": "g108",
+      "src": "assets/gallery/g108.webp",
+      "species": "dog",
+      "kind": "portrait",
+      "breed": "",
+      "w": 1152,
       "h": 1440
     },
     {
@@ -978,7 +978,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
+      "w": 1156,
       "h": 1440
     },
     {
@@ -987,8 +987,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1156,
-      "h": 1440
+      "w": 1395,
+      "h": 1395
     },
     {
       "id": "g111",
@@ -996,8 +996,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1395,
-      "h": 1395
+      "w": 1440,
+      "h": 1440
     },
     {
       "id": "g112",
@@ -1005,8 +1005,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
-      "h": 1440
+      "w": 996,
+      "h": 996
     },
     {
       "id": "g113",
@@ -1014,8 +1014,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 996,
-      "h": 996
+      "w": 1440,
+      "h": 1440
     },
     {
       "id": "g114",
@@ -1042,7 +1042,7 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 1440
+      "h": 1080
     },
     {
       "id": "g117",
@@ -1051,7 +1051,7 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 1080
+      "h": 1440
     },
     {
       "id": "g118",
@@ -1059,8 +1059,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
-      "h": 1440
+      "w": 1280,
+      "h": 1280
     },
     {
       "id": "g119",
@@ -1068,8 +1068,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1280,
-      "h": 1280
+      "w": 753,
+      "h": 753
     },
     {
       "id": "g120",
@@ -1077,8 +1077,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 753,
-      "h": 753
+      "w": 1152,
+      "h": 1440
     },
     {
       "id": "g121",
@@ -1086,7 +1086,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
+      "w": 1440,
       "h": 1440
     },
     {
@@ -1113,7 +1113,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
+      "w": 1157,
       "h": 1440
     },
     {
@@ -1122,7 +1122,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1157,
+      "w": 1152,
       "h": 1440
     },
     {
@@ -1137,16 +1137,16 @@ window.LP_GALLERY = {
     {
       "id": "g127",
       "src": "assets/gallery/g127.webp",
-      "species": "dog",
+      "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
+      "w": 1440,
       "h": 1440
     },
     {
       "id": "g128",
       "src": "assets/gallery/g128.webp",
-      "species": "cat",
+      "species": "dog",
       "kind": "portrait",
       "breed": "",
       "w": 1440,
@@ -1191,20 +1191,20 @@ window.LP_GALLERY = {
     {
       "id": "g133",
       "src": "assets/gallery/g133.webp",
-      "species": "dog",
-      "kind": "portrait",
-      "breed": "",
-      "w": 1440,
-      "h": 1440
-    },
-    {
-      "id": "g134",
-      "src": "assets/gallery/g134.webp",
       "species": "cat",
       "kind": "portrait",
       "breed": "",
       "w": 1177,
       "h": 1177
+    },
+    {
+      "id": "g134",
+      "src": "assets/gallery/g134.webp",
+      "species": "dog",
+      "kind": "portrait",
+      "breed": "",
+      "w": 1440,
+      "h": 1440
     },
     {
       "id": "g135",
@@ -1240,7 +1240,7 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 1440
+      "h": 967
     },
     {
       "id": "g139",
@@ -1248,8 +1248,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
-      "h": 967
+      "w": 948,
+      "h": 992
     },
     {
       "id": "g140",
@@ -1257,8 +1257,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 948,
-      "h": 992
+      "w": 1440,
+      "h": 1440
     },
     {
       "id": "g141",
@@ -1294,7 +1294,7 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 1440
+      "h": 1080
     },
     {
       "id": "g145",
@@ -1303,12 +1303,12 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 1080
+      "h": 1440
     },
     {
       "id": "g146",
       "src": "assets/gallery/g146.webp",
-      "species": "dog",
+      "species": "cat",
       "kind": "portrait",
       "breed": "",
       "w": 1440,
@@ -1320,7 +1320,7 @@ window.LP_GALLERY = {
       "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
+      "w": 1206,
       "h": 1440
     },
     {
@@ -1329,21 +1329,12 @@ window.LP_GALLERY = {
       "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1206,
+      "w": 1152,
       "h": 1440
     },
     {
       "id": "g149",
       "src": "assets/gallery/g149.webp",
-      "species": "cat",
-      "kind": "portrait",
-      "breed": "",
-      "w": 1152,
-      "h": 1440
-    },
-    {
-      "id": "g150",
-      "src": "assets/gallery/g150.webp",
       "species": "dog",
       "kind": "portrait",
       "breed": "",
@@ -1351,12 +1342,21 @@ window.LP_GALLERY = {
       "h": 1440
     },
     {
-      "id": "g151",
-      "src": "assets/gallery/g151.webp",
+      "id": "g150",
+      "src": "assets/gallery/g150.webp",
       "species": "cat",
       "kind": "portrait",
       "breed": "",
       "w": 1440,
+      "h": 1440
+    },
+    {
+      "id": "g151",
+      "src": "assets/gallery/g151.webp",
+      "species": "dog",
+      "kind": "portrait",
+      "breed": "",
+      "w": 1153,
       "h": 1440
     },
     {
@@ -1365,8 +1365,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1153,
-      "h": 1440
+      "w": 937,
+      "h": 1171
     },
     {
       "id": "g153",
@@ -1374,8 +1374,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 937,
-      "h": 1171
+      "w": 1440,
+      "h": 1080
     },
     {
       "id": "g154",
@@ -1383,8 +1383,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
-      "h": 1080
+      "w": 1152,
+      "h": 1440
     },
     {
       "id": "g155",
@@ -1401,8 +1401,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
-      "h": 1440
+      "w": 1440,
+      "h": 960
     },
     {
       "id": "g157",
@@ -1410,8 +1410,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
-      "h": 960
+      "w": 1280,
+      "h": 1280
     },
     {
       "id": "g158",
@@ -1419,8 +1419,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1280,
-      "h": 1280
+      "w": 1155,
+      "h": 1440
     },
     {
       "id": "g159",
@@ -1428,7 +1428,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1155,
+      "w": 1156,
       "h": 1440
     },
     {
@@ -1437,13 +1437,13 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1156,
+      "w": 1152,
       "h": 1440
     },
     {
       "id": "g161",
       "src": "assets/gallery/g161.webp",
-      "species": "dog",
+      "species": "cat",
       "kind": "portrait",
       "breed": "",
       "w": 1152,
@@ -1461,7 +1461,7 @@ window.LP_GALLERY = {
     {
       "id": "g163",
       "src": "assets/gallery/g163.webp",
-      "species": "cat",
+      "species": "dog",
       "kind": "portrait",
       "breed": "",
       "w": 1152,
@@ -1473,8 +1473,8 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
-      "h": 1440
+      "w": 1440,
+      "h": 1149
     },
     {
       "id": "g165",
@@ -1482,22 +1482,22 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
-      "h": 1149
+      "w": 1234,
+      "h": 1440
     },
     {
       "id": "g166",
       "src": "assets/gallery/g166.webp",
-      "species": "dog",
+      "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1234,
+      "w": 1440,
       "h": 1440
     },
     {
       "id": "g167",
       "src": "assets/gallery/g167.webp",
-      "species": "cat",
+      "species": "dog",
       "kind": "portrait",
       "breed": "",
       "w": 1440,
@@ -1510,7 +1510,7 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 1440
+      "h": 1439
     },
     {
       "id": "g169",
@@ -1519,7 +1519,7 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 1439
+      "h": 954
     },
     {
       "id": "g170",
@@ -1528,12 +1528,12 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 954
+      "h": 1440
     },
     {
       "id": "g171",
       "src": "assets/gallery/g171.webp",
-      "species": "dog",
+      "species": "cat",
       "kind": "portrait",
       "breed": "",
       "w": 1440,
@@ -1546,7 +1546,7 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 1440
+      "h": 1079
     },
     {
       "id": "g173",
@@ -1555,12 +1555,12 @@ window.LP_GALLERY = {
       "kind": "portrait",
       "breed": "",
       "w": 1440,
-      "h": 1079
+      "h": 1440
     },
     {
       "id": "g174",
       "src": "assets/gallery/g174.webp",
-      "species": "cat",
+      "species": "dog",
       "kind": "portrait",
       "breed": "",
       "w": 1440,
@@ -1572,7 +1572,7 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
+      "w": 1352,
       "h": 1440
     },
     {
@@ -1581,16 +1581,16 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1352,
+      "w": 1440,
       "h": 1440
     },
     {
       "id": "g177",
       "src": "assets/gallery/g177.webp",
-      "species": "dog",
+      "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
+      "w": 1399,
       "h": 1440
     },
     {
@@ -1599,21 +1599,12 @@ window.LP_GALLERY = {
       "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1399,
-      "h": 1440
-    },
-    {
-      "id": "g179",
-      "src": "assets/gallery/g179.webp",
-      "species": "cat",
-      "kind": "portrait",
-      "breed": "",
       "w": 1143,
       "h": 960
     },
     {
-      "id": "g180",
-      "src": "assets/gallery/g180.webp",
+      "id": "g179",
+      "src": "assets/gallery/g179.webp",
       "species": "dog",
       "kind": "portrait",
       "breed": "",
@@ -1621,12 +1612,21 @@ window.LP_GALLERY = {
       "h": 918
     },
     {
+      "id": "g180",
+      "src": "assets/gallery/g180.webp",
+      "species": "dog",
+      "kind": "portrait",
+      "breed": "",
+      "w": 1248,
+      "h": 1440
+    },
+    {
       "id": "g181",
       "src": "assets/gallery/g181.webp",
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1248,
+      "w": 1332,
       "h": 1440
     },
     {
@@ -1635,16 +1635,16 @@ window.LP_GALLERY = {
       "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1332,
+      "w": 1440,
       "h": 1440
     },
     {
       "id": "g183",
       "src": "assets/gallery/g183.webp",
-      "species": "dog",
+      "species": "cat",
       "kind": "portrait",
       "breed": "",
-      "w": 1440,
+      "w": 1152,
       "h": 1440
     },
     {
@@ -1659,10 +1659,10 @@ window.LP_GALLERY = {
     {
       "id": "g185",
       "src": "assets/gallery/g185.webp",
-      "species": "cat",
+      "species": "dog",
       "kind": "portrait",
       "breed": "",
-      "w": 1152,
+      "w": 1440,
       "h": 1440
     },
     {
@@ -1686,15 +1686,6 @@ window.LP_GALLERY = {
     {
       "id": "g188",
       "src": "assets/gallery/g188.webp",
-      "species": "dog",
-      "kind": "portrait",
-      "breed": "",
-      "w": 1440,
-      "h": 1440
-    },
-    {
-      "id": "g189",
-      "src": "assets/gallery/g189.webp",
       "species": "dog",
       "kind": "portrait",
       "breed": "",
