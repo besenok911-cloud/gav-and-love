@@ -81,8 +81,8 @@
   .pill.on{background:var(--ink);color:#fff;border-color:var(--ink)}
   .pill .cnt{opacity:.7;font-weight:800;margin-left:.35em}
   .tablewrap{overflow-x:auto;background:var(--paper);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-sm)}
-  table{width:100%;border-collapse:collapse;font-size:.86rem;table-layout:auto}
-  th,td{padding:.6em .6em;text-align:left;vertical-align:top}
+  table{width:100%;border-collapse:collapse;font-size:.84rem;table-layout:auto}
+  th,td{padding:.55em .5em;text-align:left;vertical-align:top}
   td.phone a{white-space:normal;word-break:break-all}
   thead th{background:var(--bg-2);color:var(--ink);font-weight:800;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em}
   tbody tr{border-top:1px solid var(--line)}
@@ -94,8 +94,9 @@
   .req{display:inline-block;font-size:.66rem;font-weight:800;color:var(--violet);background:var(--violet-soft);border-radius:6px;padding:.1em .45em;margin-left:.3em}
   .src{display:inline-block;font-size:.72rem;font-weight:800;padding:.2em .6em;border-radius:999px}
   .src-site{background:#eef7ff;color:#2a6fb0}.src-phone{background:#eafaf0;color:#2f8f5b}.src-instagram{background:#fdeef6;color:#bc1888}.src-other{background:var(--bg-2);color:var(--ink-soft)}
-  .note{max-width:200px;color:var(--ink-soft)}
-  select.status{font-family:var(--font-body);font-weight:700;font-size:.82rem;border:1.5px solid var(--line);border-radius:10px;padding:.4em .5em;cursor:pointer;background:#fff}
+  .note{max-width:150px;color:var(--ink-soft)}
+  select.status{font-family:var(--font-body);font-weight:700;font-size:.8rem;border:1.5px solid var(--line);border-radius:9px;padding:.35em .3em;cursor:pointer;background:#fff;max-width:110px}
+  .btn.icon,.btn.danger.sm{padding:.3em .5em;font-size:.8rem}
   .s-new{color:var(--new)}.s-confirmed{color:var(--confirmed)}.s-done{color:var(--done)}.s-cancelled{color:var(--cancelled)}
   .rowact{display:flex;gap:6px}
   .empty{text-align:center;color:var(--ink-soft);padding:40px}
@@ -165,8 +166,8 @@
   <div class="tablewrap">
     <table>
       <thead><tr>
-        <th>Отримано</th><th>Клієнт</th><th>Телефон</th><th>Тварина</th><th>Послуга</th>
-        <th>Порода</th><th>Візит</th><th>Джерело</th><th>Коментар</th><th>Статус</th><th></th>
+        <th>Отримано</th><th>Клієнт</th><th>Телефон</th><th>Улюбленець</th><th>Послуга</th>
+        <th>Візит</th><th>Джерело</th><th>Коментар</th><th>Статус</th><th></th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -295,9 +296,8 @@
         '<td class="when muted">'+fmtDate(b.created_at)+'</td>'+
         '<td class="name">'+esc(b.name)+'</td>'+
         '<td class="phone"><a href="tel:'+esc(b.phone)+'">'+esc(b.phone)+'</a></td>'+
-        '<td>'+esc(b.pet)+'</td>'+
+        '<td>'+esc(b.pet)+(b.breed?'<span class="muted"> · '+esc(b.breed)+'</span>':'')+'</td>'+
         '<td>'+esc(b.service)+(String(b.is_request)==="1"?'<span class="req">заявка</span>':'')+'</td>'+
-        '<td class="muted">'+esc(b.breed)+'</td>'+
         '<td class="when">'+visit+'</td>'+
         '<td><span class="src '+srcClass+'">'+esc(SRC[sr]||sr)+'</span></td>'+
         '<td class="note">'+esc(b.note)+'</td>'+
