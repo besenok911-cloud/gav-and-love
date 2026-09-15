@@ -185,13 +185,15 @@
       else { more.hidden = false; more.textContent = galleryExpanded ? "Згорнути" : `Показати всі роботи (${list.length})`; }
     }
     const show = galleryExpanded ? list.length : Math.min(GAL_INITIAL, list.length);
+    const hint = `<span class="g-hint"><svg class="i"><use href="#i-paw"/></svg> Переглянути</span>`;
     list.slice(0, show).forEach((it, i) => {
       const fig = document.createElement("figure");
       fig.className = "g-item";
+      if (!reduced) fig.style.transitionDelay = Math.min(i, 9) * 55 + "ms";
       if (it.video) {
         fig.classList.add("g-video");
         fig.innerHTML =
-          `<span class="g-badge g-badge-play"><svg class="i"><use href="#i-play"/></svg> Відео</span>` +
+          `<span class="g-badge g-badge-play"><svg class="i"><use href="#i-play"/></svg> Відео</span>` + hint +
           `<video src="${it.video}" poster="${it.src}" muted loop playsinline preload="none" width="${it.w}" height="${it.h}"></video>`;
         fig.addEventListener("click", () => openLightbox(i));
         grid.appendChild(fig);
@@ -201,7 +203,7 @@
         const badge = it.kind === "beforeafter" ? "До / Після" : (it.breed || "");
         const alt = `GAV&LOVE — грумінг, ${SPECIES[it.species] || "улюбленець"}${badge ? " — " + badge : ""}`;
         fig.innerHTML =
-          (badge ? `<span class="g-badge">${badge}</span>` : "") +
+          (badge ? `<span class="g-badge">${badge}</span>` : "") + hint +
           `<img src="${it.src}" alt="${alt}" loading="lazy" width="${it.w}" height="${it.h}">`;
         fig.addEventListener("click", () => openLightbox(i));
         grid.appendChild(fig);
