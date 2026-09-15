@@ -319,19 +319,16 @@
   });
 
   /* ============================================================
-     PAW CURSOR TRAIL (desktop, subtle)
+     INTERIOR / HOTEL LIGHTBOX (static image groups)
      ============================================================ */
-  if (!reduced && matchMedia("(pointer:fine)").matches) {
-    let last = 0;
-    addEventListener("pointermove", e => {
-      const now = Date.now(); if (now - last < 90) return; last = now;
-      const el = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      el.setAttribute("class", "paw-trail");
-      el.setAttribute("viewBox", "0 0 24 24");
-      el.style.left = e.clientX + "px"; el.style.top = e.clientY + "px";
-      el.innerHTML = '<use href="#i-paw"/>';
-      document.body.appendChild(el);
-      setTimeout(() => el.remove(), 1000);
-    }, { passive: true });
-  }
+  $$("#interiorGrid img, .hotel-photos img").length && (function () {
+    const imgs = $$("#interiorGrid img, .hotel-photos img");
+    // de-duplicate by src so repeated photos share one lightbox slide set
+    const seen = new Set(), list = [];
+    imgs.forEach(im => { if (!seen.has(im.src)) { seen.add(im.src); list.push({ src: im.getAttribute("src") }); } });
+    imgs.forEach(im => im.addEventListener("click", () => {
+      const i = list.findIndex(x => x.src === im.getAttribute("src"));
+      visibleList = list; openLightbox(i < 0 ? 0 : i);
+    }));
+  })();
 })();
