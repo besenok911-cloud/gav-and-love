@@ -129,6 +129,7 @@
     { id: "video", label: "🎬 Відео", test: it => !!it.video },
   ];
   let galleryItems = [], currentFilter = "all", visibleList = [], lbIndex = 0;
+  const GAL_INITIAL = 16; let galleryExpanded = false;
 
   const gObserver = new IntersectionObserver((entries, obs) => {
     entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); obs.unobserve(e.target); } });
@@ -146,15 +147,28 @@
     const data = window.LP_GALLERY;
     if (!data) { $("#galleryGrid").innerHTML = '<p class="price-empty">Галерея тимчасово недоступна.</p>'; return; }
     const vids = (window.LP_VIDEOS && window.LP_VIDEOS.items) || [];
-    galleryItems = vids.concat(data.items || []);
+    const photos = data.items || [];
+    // interleave: photos lead, one video sprinkled roughly every 4 photos
+    galleryItems = []; let vi = 0;
+    photos.forEach((p, idx) => {
+      galleryItems.push(p);
+      if (idx % 4 === 3 && vi < vids.length) galleryItems.push(vids[vi++]);
+    });
+    while (vi < vids.length) galleryItems.push(vids[vi++]);
     const fb = $("#galleryFilters");
     filters.forEach(f => {
       const b = document.createElement("button");
       b.className = "gfilter" + (f.id === "all" ? " is-active" : "");
       b.textContent = f.label;
-      b.addEventListener("click", () => { currentFilter = f.id;
+      b.addEventListener("click", () => { currentFilter = f.id; galleryExpanded = false;
         $$(".gfilter", fb).forEach(x => x.classList.toggle("is-active", x === b)); renderGallery(); });
       fb.appendChild(b);
+    });
+    const moreBtn = $("#galleryMore");
+    if (moreBtn) moreBtn.addEventListener("click", () => {
+      galleryExpanded = !galleryExpanded;
+      renderGallery();
+      if (!galleryExpanded) $("#gallery").scrollIntoView({ behavior: "smooth" });
     });
     renderGallery();
   })();
@@ -165,7 +179,13 @@
     const list = galleryItems.filter(f.test);
     visibleList = list;
     grid.innerHTML = "";
-    list.forEach((it, i) => {
+    const more = $("#galleryMore");
+    if (more) {
+      if (list.length <= GAL_INITIAL) { more.hidden = true; }
+      else { more.hidden = false; more.textContent = galleryExpanded ? "Згорнути" : `Показати всі роботи (${list.length})`; }
+    }
+    const show = galleryExpanded ? list.length : Math.min(GAL_INITIAL, list.length);
+    list.slice(0, show).forEach((it, i) => {
       const fig = document.createElement("figure");
       fig.className = "g-item";
       if (it.video) {

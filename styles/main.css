@@ -226,14 +226,16 @@ h1,h2,h3{font-family:var(--font-head);font-weight:600;line-height:1.12;margin:0;
   font-weight:700;font-size:.88rem;padding:.58em 1.15em;border-radius:999px;cursor:pointer;transition:.2s}
 .gfilter:hover{border-color:var(--violet)}
 .gfilter.is-active{background:var(--ink);color:#fff;border-color:var(--ink)}
-.gallery-grid{columns:4;column-gap:16px}
-.g-item{break-inside:avoid;margin-bottom:16px;border-radius:var(--radius);overflow:hidden;position:relative;cursor:pointer;
+.gallery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.g-item{aspect-ratio:1;margin:0;border-radius:var(--radius);overflow:hidden;position:relative;cursor:pointer;
   box-shadow:var(--shadow-sm);background:var(--paper);opacity:0;transform:translateY(16px);transition:opacity .5s,transform .5s,box-shadow .25s}
 .g-item.in{opacity:1;transform:none}
-.g-item img{width:100%;height:auto;display:block;transition:transform .5s ease}
+.g-item img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .5s ease}
 .g-item:hover{box-shadow:var(--shadow)}
-.g-item:hover img{transform:scale(1.04)}
-.g-video video{width:100%;height:auto;display:block;transition:transform .5s ease}
+.g-item:hover img{transform:scale(1.06)}
+.g-video video{width:100%;height:100%;object-fit:cover;display:block;transition:transform .5s ease}
+.gallery-more{text-align:center;margin-top:32px}
+.gallery-more .btn{min-width:220px}
 .g-video:hover video{transform:scale(1.03)}
 .g-badge-play{display:inline-flex;align-items:center;gap:.35em;background:rgba(74,37,201,.92)}
 .g-badge-play .i{width:.85em;height:.85em}
@@ -321,7 +323,7 @@ h1,h2,h3{font-family:var(--font-head);font-weight:600;line-height:1.12;margin:0;
   .trust-item:nth-child(2){border-right:0}
   .trust-item:nth-child(1),.trust-item:nth-child(2){border-bottom:1px solid var(--line)}
   .why-list{grid-template-columns:1fr}
-  .gallery-grid{columns:3}
+  .gallery-grid{grid-template-columns:repeat(3,1fr)}
   .interior-grid{grid-template-columns:repeat(2,1fr);grid-auto-rows:180px}
   .interior-grid .span2{grid-column:span 2}
 }
@@ -334,7 +336,7 @@ h1,h2,h3{font-family:var(--font-head);font-weight:600;line-height:1.12;margin:0;
   .nav-toggle{display:flex;margin-left:auto}
   .header-inner{gap:12px;height:70px}
   .main-nav{inset:70px 0 auto 0}
-  .gallery-grid{columns:2;column-gap:12px}
+  .gallery-grid{grid-template-columns:repeat(2,1fr);gap:10px}
   .qa-grid{grid-template-columns:1fr}
   .interior-head{align-items:flex-start}
 }
