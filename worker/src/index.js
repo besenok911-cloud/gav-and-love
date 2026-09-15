@@ -382,6 +382,14 @@ async function adminDelete(request, env) {
   requireAdmin(request, env);
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
+  // remove the linked Google Calendar event first
+  try {
+    const row = await env.DB.prepare(`SELECT event_id FROM bookings WHERE id=?`).bind(id).first();
+    if (row && row.event_id && env.CALENDAR_ID && env.SA_EMAIL) {
+      const token = await getAccessToken(env);
+      await calDelete(env, token, row.event_id);
+    }
+  } catch (e) { /* non-fatal — still delete the row */ }
   await env.DB.prepare(`DELETE FROM bookings WHERE id=?`).bind(id).run();
   return { ok: true };
 }
