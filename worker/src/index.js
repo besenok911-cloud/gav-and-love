@@ -36,6 +36,8 @@ const SERVICE_DURATIONS = {
 const DEFAULT_DURATION = 120;
 // services that are NOT fixed time slots — sent as a request instead
 const REQUEST_SERVICES = new Set(["Міні-готель", "Денний садочок"]);
+// Майстри (roster) — keep in sync with data/config.js `staff`
+const STAFF = ["Дар'я", "Катерина", "Марія"];
 
 /* ----------------------------- HTTP entry ----------------------------- */
 export default {
@@ -179,9 +181,43 @@ function parseDate(s) {
   return { y: +m[1], m: +m[2], d: +m[3] };
 }
 
+// List timed events in [timeMin,timeMax] with their assigned staff (from extendedProperties).
+async function listEvents(env, token, timeMin, timeMax) {
+  const u = calUrl(env) +
+    `?singleEvents=true&maxResults=250&orderBy=startTime` +
+    `&timeMin=${encodeURIComponent(timeMin.toISOString())}` +
+    `&timeMax=${encodeURIComponent(timeMax.toISOString())}`;
+  const res = await fetch(u, { headers: { Authorization: `Bearer ${token}` } });
+  const d = await res.json();
+  return (d.items || []).filter(e => e.start && e.start.dateTime).map(e => ({
+    start: new Date(e.start.dateTime).getTime(),
+    end: new Date(e.end.dateTime).getTime(),
+    staff: (e.extendedProperties && e.extendedProperties.private && e.extendedProperties.private.staff) || "",
+  }));
+}
+
+// Events overlapping [start,end] (with buffer on both sides).
+function overlappingAt(events, start, end) {
+  const buf = BUSINESS.bufferMin * 60000;
+  return events.filter(ev => start < ev.end + buf && end + buf > ev.start);
+}
+// Is a slot free for the given staff? "" (any) → free while capacity remains.
+function slotFree(events, start, end, staff) {
+  const ov = overlappingAt(events, start, end);
+  if (staff) return !ov.some(ev => ev.staff === staff);
+  return ov.length < STAFF.length;               // any master: capacity of the roster
+}
+// Pick a free master for an "any" booking, or null if none.
+function pickFreeStaff(events, start, end) {
+  const ov = overlappingAt(events, start, end);
+  const busy = new Set(ov.map(ev => ev.staff).filter(Boolean));
+  return STAFF.find(s => !busy.has(s)) || null;
+}
+
 async function getSlots(url, env) {
   const { y, m, d } = parseDate(url.searchParams.get("date"));
   const service = url.searchParams.get("service") || "";
+  const staff = url.searchParams.get("staff") || "";     // "" = будь-який майстер
   const duration = SERVICE_DURATIONS[service] || DEFAULT_DURATION;
 
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
@@ -190,7 +226,7 @@ async function getSlots(url, env) {
   const token = await getAccessToken(env);
   const dayStart = wallToUTC(y, m, d, 0, BUSINESS.tz);
   const dayEnd = wallToUTC(y, m, d, 24 * 60, BUSINESS.tz);
-  const busy = await freeBusy(env, token, dayStart, dayEnd);
+  const events = await listEvents(env, token, dayStart, dayEnd);
 
   const earliest = Date.now() + BUSINESS.minLeadMin * 60000;
   const maxTime = Date.now() + BUSINESS.maxAheadDays * 86400000;
@@ -199,16 +235,16 @@ async function getSlots(url, env) {
     const start = wallToUTC(y, m, d, t, BUSINESS.tz).getTime();
     const end = start + duration * 60000;
     if (start < earliest || start > maxTime) continue;
-    const blockedUntil = end + BUSINESS.bufferMin * 60000;
-    const clash = busy.some(([bs, be]) => start < be + BUSINESS.bufferMin * 60000 && blockedUntil > bs);
-    if (!clash) slots.push(hhmm(t));
+    if (slotFree(events, start, end, staff)) slots.push(hhmm(t));
   }
   return { ok: true, slots };
 }
 
 async function book(body, env) {
-  const { pet, service, breed, name, phone, date, time, note, staff } = body || {};
+  const { pet, service, breed, name, phone, date, time, note, weight } = body || {};
+  let staff = (body && body.staff) || "";
   if (!name || !phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
+  if (staff && !STAFF.includes(staff)) staff = "";      // ignore unknown master
 
   const isRequest = REQUEST_SERVICES.has(service) || !time;
   let eventLink = null, eventId = null;
@@ -221,25 +257,25 @@ async function book(body, env) {
     const duration = SERVICE_DURATIONS[service] || DEFAULT_DURATION;
 
     const token = await getAccessToken(env);
-    // re-check the slot is still free (double-booking guard)
     const start = wallToUTC(y, m, d, startMin, BUSINESS.tz);
     const end = new Date(start.getTime() + duration * 60000);
-    const busy = await freeBusy(env, token,
+    // re-check availability (per chosen master, or capacity for "any")
+    const events = await listEvents(env, token,
       new Date(start.getTime() - BUSINESS.bufferMin * 60000),
       new Date(end.getTime() + BUSINESS.bufferMin * 60000));
-    const clash = busy.some(([bs, be]) =>
-      start.getTime() < be + BUSINESS.bufferMin * 60000 &&
-      end.getTime() + BUSINESS.bufferMin * 60000 > bs);
-    if (clash) return { ok: false, error: "На жаль, цей час щойно зайняли. Оберіть інший, будь ласка." };
+    if (!slotFree(events, start.getTime(), end.getTime(), staff)) {
+      return { ok: false, error: "На жаль, цей час щойно зайняли. Оберіть інший, будь ласка." };
+    }
+    if (!staff) staff = pickFreeStaff(events, start.getTime(), end.getTime()) || "";  // auto-assign a free master
 
-    const ev = await calCreate(env, token, { pet, service, breed, name, phone, note, date, time, staff, source: "site" });
+    const ev = await calCreate(env, token, { pet, service, breed, weight, name, phone, note, date, time, staff, source: "site" });
     eventLink = ev.htmlLink;
     eventId = ev.id;
   }
 
   await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest, staff });
-  await saveBooking(env, { pet, service, breed, name, phone, date, time, note, isRequest, eventLink, eventId, staff });
-  return { ok: true, request: isRequest };
+  await saveBooking(env, { pet, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff });
+  return { ok: true, request: isRequest, staff };
 }
 
 /* ----------------------------- Calendar events ----------------------------- */
@@ -250,11 +286,13 @@ function calEventBody(b) {
   const duration = SERVICE_DURATIONS[b.service] || DEFAULT_DURATION;
   const src = { site: "сайт", phone: "телефон", instagram: "Instagram", manual: "вручну", other: "вручну" }[b.source] || b.source || "—";
   const price = (b.price != null && b.price !== "") ? `\nСума: ${b.price} ₴` : "";
+  const petLine = [b.breed, b.weight].filter(Boolean).join(", ") || "—";
   return {
     summary: `${b.pet || "🐾"} · ${b.service || "грумінг"} — ${b.name || ""}${b.staff ? " · " + b.staff : ""}`,
-    description: `Тварина: ${b.pet || "—"}\nПорода/вага: ${b.breed || "—"}\nПослуга: ${b.service || "—"}\nМайстер: ${b.staff || "—"}\nТелефон: ${b.phone || "—"}${price}\nКоментар: ${b.note || "—"}\n\n(джерело: ${src})`,
+    description: `Тварина: ${b.pet || "—"}\nПорода/вага: ${petLine}\nПослуга: ${b.service || "—"}\nМайстер: ${b.staff || "—"}\nТелефон: ${b.phone || "—"}${price}\nКоментар: ${b.note || "—"}\n\n(джерело: ${src})`,
     start: { dateTime: wallToRFC(y, m, d, startMin, BUSINESS.tz), timeZone: BUSINESS.tz },
     end: { dateTime: wallToRFC(y, m, d, startMin + duration, BUSINESS.tz), timeZone: BUSINESS.tz },
+    extendedProperties: { private: { staff: b.staff || "" } },
   };
 }
 const calUrl = (env, id) =>
@@ -285,13 +323,13 @@ async function saveBooking(env, b) {
   if (!env.DB) return;
   try {
     await env.DB.prepare(
-      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'new', 'site', ?, ?, ?)`
+      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'new', 'site', ?, ?, ?, ?)`
     ).bind(
       new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
       b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
       b.isRequest ? 1 : 0, b.eventLink || null, b.eventId || null,
-      (b.price != null && b.price !== "") ? b.price : null, b.staff || ""
+      (b.price != null && b.price !== "") ? b.price : null, b.staff || "", b.weight || ""
     ).run();
   } catch (e) { /* CRM logging must never break a booking */ }
 }
@@ -312,7 +350,7 @@ async function adminList(request, env) {
   return { ok: true, bookings: results || [] };
 }
 
-const EDITABLE = ["pet", "service", "breed", "name", "phone", "date", "time", "note", "status", "source", "price", "staff"];
+const EDITABLE = ["pet", "service", "breed", "name", "phone", "date", "time", "note", "status", "source", "price", "staff", "weight"];
 
 async function adminUpdate(request, env) {
   requireAdmin(request, env);
@@ -347,13 +385,13 @@ async function adminCreate(request, env) {
     } catch (e) { /* keep the record even if calendar fails */ }
   }
   const r = await env.DB.prepare(
-    `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
     b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
     hasTime ? 0 : 1, eventLink, b.status || "new", b.source || "phone", eventId,
-    (b.price != null && b.price !== "") ? b.price : null, b.staff || ""
+    (b.price != null && b.price !== "") ? b.price : null, b.staff || "", b.weight || ""
   ).run();
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }

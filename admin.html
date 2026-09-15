@@ -191,8 +191,9 @@
         <option>Гігієнічний комплекс</option><option>Повний комплекс (зі стрижкою)</option><option>Стрижка</option>
         <option>Вичісування / експрес-линька</option><option>Догляд для котиків</option><option>Міні-готель</option><option>Денний садочок</option>
       </datalist></div>
-      <div class="fld"><label>Порода / вага</label><input id="f-breed" placeholder="Напр. Шпіц, 3.5 кг" /></div>
-      <div class="fld"><label>Майстер</label><input id="f-staff" list="staffList" placeholder="Ім'я майстра" /><datalist id="staffList"></datalist></div>
+      <div class="fld" id="f-breed-fld"><label>Порода</label><select id="f-breed"></select></div>
+      <div class="fld"><label>Вага</label><input id="f-weight" placeholder="Напр. 3.5 кг" /></div>
+      <div class="fld"><label>Майстер</label><select id="f-staff"></select></div>
       <div class="fld"><label>Дата візиту</label><input id="f-date" type="date" /></div>
       <div class="fld"><label>Час</label><input id="f-time" type="time" /></div>
       <div class="fld"><label>Сума, ₴</label><input id="f-price" type="number" min="0" step="10" placeholder="напр. 1200" /></div>
@@ -208,12 +209,13 @@
   </div>
 </div>
 
+<script src="data/config.js"></script>
 <script>
 (function(){
   "use strict";
   var API="https://gavlove-booking.besenok911.workers.dev", KEY="gavlove_admin_token";
-  // Список майстрів (підказки у формі). Заміни на реальні імена.
-  var STAFF=["Дар'я","Катерина","Марія"];
+  var CFG=window.GL_CONFIG||{staff:[],dogBreeds:[],services:[]};
+  var STAFF=CFG.staff||[];
   var $=function(s){return document.querySelector(s);};
   var token=""; try{token=localStorage.getItem(KEY)||"";}catch(e){}
   var all=[], filter="all", q="", view="dash", editId=null;
@@ -232,8 +234,13 @@
   async function api(path,opts){opts=opts||{};opts.headers=Object.assign({"Authorization":"Bearer "+token},opts.headers||{});
     var r=await fetch(API+path,opts); if(r.status===401)throw{code:401}; return r.json();}
 
-  // seed staff datalist
-  (function(){var dl=$("#staffList");dl.innerHTML=STAFF.map(function(s){return '<option>'+esc(s)+'</option>';}).join("");})();
+  // populate staff + breed selects
+  (function(){
+    $("#f-staff").innerHTML='<option value="">— не призначено —</option>'+STAFF.map(function(s){return '<option>'+esc(s)+'</option>';}).join("");
+    $("#f-breed").innerHTML='<option value="">Оберіть породу…</option>'+(CFG.dogBreeds||[]).map(function(b){return '<option>'+esc(b)+'</option>';}).join("");
+  })();
+  function applyPetModal(){var isCat=$("#f-pet").value==="Кіт";$("#f-breed-fld").hidden=isCat;$("#f-breed").disabled=isCat;}
+  $("#f-pet").addEventListener("change",applyPetModal);
 
   function showLogin(msg){$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#loginErr").textContent=msg||"";}
@@ -349,7 +356,7 @@
       var noteic=b.note?'<span class="noteic" title="'+esc(b.note)+'">💬</span>':'';
       tr.innerHTML=
         '<td class="client"><div class="nm">'+esc(b.name)+'</div><div class="ph"><a href="tel:'+esc(b.phone)+'">'+esc(b.phone)+'</a></div></td>'+
-        '<td>'+esc(b.pet)+(b.breed?'<span class="muted"> · '+esc(b.breed)+'</span>':'')+'</td>'+
+        '<td>'+esc(b.pet)+(function(){var pd=[b.breed,b.weight].filter(Boolean).join(", ");return pd?'<span class="muted"> · '+esc(pd)+'</span>':'';})()+'</td>'+
         '<td>'+esc(b.service)+(String(b.is_request)==="1"?'<span class="req">заявка</span>':'')+noteic+'</td>'+
         '<td class="when">'+visit+'</td>'+
         '<td>'+(b.staff?esc(b.staff):'<span class="muted">—</span>')+'</td>'+
@@ -372,12 +379,14 @@
     $("#modalTitle").textContent=b?"Редагувати заявку":"Нова заявка";
     $("#f-name").value=b?b.name||"":"";$("#f-phone").value=b?b.phone||"":"";
     $("#f-pet").value=b&&["Собака","Кіт"].indexOf(b.pet)>=0?b.pet:(b?"Інше":"Собака");
-    $("#f-service").value=b?b.service||"":"";$("#f-breed").value=b?b.breed||"":"";
+    $("#f-service").value=b?b.service||"":"";
+    $("#f-breed").value=b?b.breed||"":"";$("#f-weight").value=b?b.weight||"":"";
     $("#f-staff").value=b?b.staff||"":"";
     $("#f-source").value=b?(b.source||"site"):"phone";
     $("#f-date").value=b?b.date||"":"";$("#f-time").value=b?b.time||"":"";
     $("#f-price").value=(b&&b.price!=null)?b.price:"";
     $("#f-status").value=b?(b.status||"new"):"new";$("#f-note").value=b?b.note||"":"";
+    applyPetModal();
     $("#modalErr").textContent="";$("#modal").classList.add("open");$("#f-name").focus();}
   function closeModal(){$("#modal").classList.remove("open");}
   $("#newBtn").addEventListener("click",function(){openModal(null);});
@@ -385,9 +394,10 @@
   $("#modal").addEventListener("click",function(e){if(e.target===$("#modal"))closeModal();});
   $("#saveBtn").addEventListener("click",async function(){
     var pv=$("#f-price").value.trim();
+    var isCat=$("#f-pet").value==="Кіт";
     var payload={name:$("#f-name").value.trim(),phone:$("#f-phone").value.trim(),pet:$("#f-pet").value,
-      service:$("#f-service").value.trim(),breed:$("#f-breed").value.trim(),staff:$("#f-staff").value.trim(),
-      source:$("#f-source").value,date:$("#f-date").value,time:$("#f-time").value,
+      service:$("#f-service").value.trim(),breed:isCat?"":$("#f-breed").value,weight:$("#f-weight").value.trim(),
+      staff:$("#f-staff").value,source:$("#f-source").value,date:$("#f-date").value,time:$("#f-time").value,
       price:pv===""?"":Number(pv),status:$("#f-status").value,note:$("#f-note").value.trim()};
     if(!payload.name||!payload.phone){$("#modalErr").textContent="Вкажіть ім'я і телефон.";return;}
     try{

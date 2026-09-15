@@ -247,11 +247,38 @@
   /* ============================================================
      BOOKING FORM
      ============================================================ */
+  const CFG = window.GL_CONFIG || { services: [], staff: [], dogBreeds: [] };
+  const fmtDur = window.GL_FMT_DUR || (() => "");
+  const petHidden = $("#bf-pet");
+  const breedField = $("#bf-breed-field"), breedSel = $("#bf-breed"), staffSel = $("#bf-staff");
+
+  // populate selects from config
+  (function initBookingConfig() {
+    const svc = $("#bf-service");
+    if (svc) CFG.services.forEach(s => {
+      const o = document.createElement("option");
+      o.value = s.name; o.textContent = s.name + (s.dur ? " · ~" + fmtDur(s.dur) : "");
+      svc.appendChild(o);
+    });
+    if (breedSel) breedSel.innerHTML = '<option value="">Оберіть породу…</option>' +
+      CFG.dogBreeds.map(b => `<option>${b}</option>`).join("");
+    if (staffSel) staffSel.innerHTML = '<option value="">Будь-який майстер</option>' +
+      (CFG.staff || []).map(s => `<option>${s}</option>`).join("");
+  })();
+
+  function applyPet() {
+    const isCat = petHidden.value === "Кіт";
+    if (breedField) breedField.hidden = isCat;
+    if (breedSel) breedSel.disabled = isCat;   // cats: no breed → excluded from submit
+  }
+  applyPet();
+
   const petSeg = $("#bf-pet-seg");
   if (petSeg) petSeg.addEventListener("click", e => {
     const b = e.target.closest(".seg-btn"); if (!b) return;
     $$(".seg-btn", petSeg).forEach(x => x.classList.toggle("is-active", x === b));
-    $("#bf-pet").value = b.dataset.val;
+    petHidden.value = b.dataset.val;
+    applyPet();
   });
 
   // Date bounds: today .. +30 days
@@ -262,8 +289,8 @@
     dateInput.max = iso(new Date(Date.now() + 30 * 86400000));
   }
 
-  // Slot picker (grooming services). Hotel/pawplay are free-form requests.
-  const REQUEST_SVC = ["Міні-готель", "Денний садочок"];
+  // Slot picker (grooming services). Hotel/daycare are free-form requests.
+  const REQUEST_SVC = CFG.services.filter(s => s.request).map(s => s.name);
   const serviceSel = $("#bf-service");
   const slotsField = $("#bf-slots-field"), slotsBox = $("#bf-slots"),
     slotsHint = $("#bf-slots-hint"), timeInput = $("#bf-time");
@@ -277,7 +304,7 @@
     slotsField.hidden = false; slotsBox.innerHTML = ""; slotsHint.textContent = "завантаження…";
     const my = ++slotsToken;
     try {
-      const r = await fetch(`${CONFIG.bookingEndpoint}/slots?date=${dateInput.value}&service=${encodeURIComponent(serviceSel.value)}`);
+      const r = await fetch(`${CONFIG.bookingEndpoint}/slots?date=${dateInput.value}&service=${encodeURIComponent(serviceSel.value)}&staff=${encodeURIComponent(staffSel ? staffSel.value : "")}`);
       const d = await r.json();
       if (my !== slotsToken) return;
       const slots = d.slots || [];
@@ -296,6 +323,7 @@
   }
   serviceSel && serviceSel.addEventListener("change", refreshSlots);
   dateInput && dateInput.addEventListener("change", refreshSlots);
+  staffSel && staffSel.addEventListener("change", refreshSlots);
 
   const form = $("#bookingForm"), status = $("#bfStatus");
   form && form.addEventListener("submit", async e => {
@@ -310,14 +338,14 @@
     const btn = form.querySelector('button[type="submit"]');
     btn.disabled = true; status.textContent = "Надсилаємо…";
     try {
-      let request = false, demo = false;
+      let request = false, demo = false, assignedStaff = "";
       if (CONFIG.bookingEndpoint) {
         const res = await fetch(`${CONFIG.bookingEndpoint}/book`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
         });
         const d = await res.json();
         if (!d.ok) throw new Error(d.error || "bad");
-        request = d.request;
+        request = d.request; assignedStaff = d.staff || "";
       } else {
         await new Promise(r => setTimeout(r, 500)); // online-booking not activated yet
         demo = true;
@@ -327,10 +355,11 @@
         ? "Дякуємо! Щоб миттєво підтвердити час, напишіть нам у Telegram / Viber або зателефонуйте 👇"
         : request
           ? "Дякуємо! Заявку надіслано — ми зв'яжемось для підтвердження."
-          : "Готово! Запис створено — до зустрічі 🐾";
+          : "Готово! Запис створено" + (assignedStaff ? " до майстра " + assignedStaff : "") + " — до зустрічі 🐾";
       if (demo) { const c = document.getElementById("contacts"); if (c) c.scrollIntoView({ behavior: "smooth" }); }
-      form.reset(); $("#bf-pet").value = "Собака";
+      form.reset(); petHidden.value = "Собака";
       $$(".seg-btn", petSeg).forEach((x, i) => x.classList.toggle("is-active", i === 0));
+      applyPet();
       slotsField.hidden = true;
     } catch (err) {
       status.className = "form-status err";

@@ -298,18 +298,19 @@
         <label for="bf-service">Послуга</label>
         <select id="bf-service" name="service" required>
           <option value="">Оберіть послугу…</option>
-          <option>Гігієнічний комплекс</option>
-          <option>Повний комплекс (зі стрижкою)</option>
-          <option>Стрижка</option>
-          <option>Вичісування / експрес-линька</option>
-          <option>Догляд для котиків</option>
-          <option>Міні-готель</option>
-          <option>Денний садочок</option>
         </select>
       </div>
+      <div class="field" id="bf-breed-field">
+        <label for="bf-breed">Порода</label>
+        <select id="bf-breed" name="breed"></select>
+      </div>
       <div class="field">
-        <label for="bf-breed">Порода / вага</label>
-        <input type="text" id="bf-breed" name="breed" placeholder="Напр. Шпіц, 3.5 кг" />
+        <label for="bf-weight">Вага</label>
+        <input type="text" id="bf-weight" name="weight" placeholder="Напр. 3.5 кг" />
+      </div>
+      <div class="field">
+        <label for="bf-staff">Майстер</label>
+        <select id="bf-staff" name="staff"></select>
       </div>
       <div class="field">
         <label for="bf-name">Ваше ім'я</label>
@@ -394,6 +395,7 @@
   <button class="lb-next" id="lbNext" aria-label="Наступне">›</button>
 </div>
 
+<script src="data/config.js" defer></script>
 <script src="data/prices.js" defer></script>
 <script src="data/gallery.js" defer></script>
 <script src="data/videos.js" defer></script>
