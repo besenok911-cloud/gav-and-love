@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   note TEXT,
   is_request INTEGER DEFAULT 0,
   event_link TEXT,
-  status TEXT DEFAULT 'new'
+  status TEXT DEFAULT 'new',
+  source TEXT DEFAULT 'site'
 );
 CREATE INDEX IF NOT EXISTS idx_bookings_created ON bookings (created_at DESC);

@@ -60,6 +60,9 @@ export default {
       if (url.pathname === "/admin/list" && request.method === "GET") {
         return json(await adminList(request, env), cors);
       }
+      if (url.pathname === "/admin/create" && request.method === "POST") {
+        return json(await adminCreate(request, env), cors);
+      }
       if (url.pathname === "/admin/update" && request.method === "POST") {
         return json(await adminUpdate(request, env), cors);
       }
@@ -256,8 +259,8 @@ async function saveBooking(env, b) {
   if (!env.DB) return;
   try {
     await env.DB.prepare(
-      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'new')`
+      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'new', 'site')`
     ).bind(
       new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
       b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
@@ -282,13 +285,37 @@ async function adminList(request, env) {
   return { ok: true, bookings: results || [] };
 }
 
+const EDITABLE = ["pet", "service", "breed", "name", "phone", "date", "time", "note", "status", "source"];
+
 async function adminUpdate(request, env) {
   requireAdmin(request, env);
-  const { id, status, note } = await request.json();
+  const body = await request.json();
+  const id = body && body.id;
   if (!id) return { ok: false, error: "id required" };
-  if (status != null) await env.DB.prepare(`UPDATE bookings SET status=? WHERE id=?`).bind(status, id).run();
-  if (note != null) await env.DB.prepare(`UPDATE bookings SET note=? WHERE id=?`).bind(note, id).run();
+  const sets = [], vals = [];
+  for (const f of EDITABLE) {
+    if (body[f] != null) { sets.push(`${f}=?`); vals.push(body[f]); }
+  }
+  if (!sets.length) return { ok: false, error: "nothing to update" };
+  vals.push(id);
+  await env.DB.prepare(`UPDATE bookings SET ${sets.join(",")} WHERE id=?`).bind(...vals).run();
   return { ok: true };
+}
+
+async function adminCreate(request, env) {
+  requireAdmin(request, env);
+  const b = await request.json();
+  if (!b || !b.name || !b.phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
+  const isRequest = !b.time ? 1 : 0;
+  const r = await env.DB.prepare(
+    `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source)
+     VALUES (?,?,?,?,?,?,?,?,?,?,NULL,?,?)`
+  ).bind(
+    new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
+    b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
+    isRequest, b.status || "new", b.source || "phone"
+  ).run();
+  return { ok: true, id: r.meta && r.meta.last_row_id };
 }
 
 async function adminDelete(request, env) {
