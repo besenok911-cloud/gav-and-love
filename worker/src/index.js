@@ -211,7 +211,7 @@ async function book(body, env) {
   if (!name || !phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
 
   const isRequest = REQUEST_SERVICES.has(service) || !time;
-  let eventLink = null;
+  let eventLink = null, eventId = null;
 
   if (!isRequest) {
     const { y, m, d } = parseDate(date);
@@ -232,26 +232,51 @@ async function book(body, env) {
       end.getTime() + BUSINESS.bufferMin * 60000 > bs);
     if (clash) return { ok: false, error: "На жаль, цей час щойно зайняли. Оберіть інший, будь ласка." };
 
-    const res = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.CALENDAR_ID)}/events`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          summary: `${pet || "🐾"} · ${service} — ${name}`,
-          description: `Тварина: ${pet}\nПорода/вага: ${breed || "—"}\nПослуга: ${service}\nТелефон: ${phone}\nКоментар: ${note || "—"}\n\n(бронювання з сайту)`,
-          start: { dateTime: wallToRFC(y, m, d, startMin, BUSINESS.tz), timeZone: BUSINESS.tz },
-          end: { dateTime: wallToRFC(y, m, d, startMin + duration, BUSINESS.tz), timeZone: BUSINESS.tz },
-        }),
-      });
-    const ev = await res.json();
-    if (!ev.id) throw new Error("event insert failed: " + JSON.stringify(ev));
+    const ev = await calCreate(env, token, { pet, service, breed, name, phone, note, date, time, source: "site" });
     eventLink = ev.htmlLink;
+    eventId = ev.id;
   }
 
   await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest });
-  await saveBooking(env, { pet, service, breed, name, phone, date, time, note, isRequest, eventLink });
+  await saveBooking(env, { pet, service, breed, name, phone, date, time, note, isRequest, eventLink, eventId });
   return { ok: true, request: isRequest };
+}
+
+/* ----------------------------- Calendar events ----------------------------- */
+function calEventBody(b) {
+  const { y, m, d } = parseDate(b.date);
+  const tm = /^(\d{1,2}):(\d{2})$/.exec(b.time || "");
+  const startMin = (+tm[1]) * 60 + (+tm[2]);
+  const duration = SERVICE_DURATIONS[b.service] || DEFAULT_DURATION;
+  const src = { site: "сайт", phone: "телефон", instagram: "Instagram", manual: "вручну", other: "вручну" }[b.source] || b.source || "—";
+  return {
+    summary: `${b.pet || "🐾"} · ${b.service || "грумінг"} — ${b.name || ""}`,
+    description: `Тварина: ${b.pet || "—"}\nПорода/вага: ${b.breed || "—"}\nПослуга: ${b.service || "—"}\nТелефон: ${b.phone || "—"}\nКоментар: ${b.note || "—"}\n\n(джерело: ${src})`,
+    start: { dateTime: wallToRFC(y, m, d, startMin, BUSINESS.tz), timeZone: BUSINESS.tz },
+    end: { dateTime: wallToRFC(y, m, d, startMin + duration, BUSINESS.tz), timeZone: BUSINESS.tz },
+  };
+}
+const calUrl = (env, id) =>
+  `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.CALENDAR_ID)}/events` +
+  (id ? "/" + encodeURIComponent(id) : "");
+async function calCreate(env, token, b) {
+  const res = await fetch(calUrl(env), { method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(calEventBody(b)) });
+  const ev = await res.json();
+  if (!ev.id) throw new Error("event insert failed: " + JSON.stringify(ev));
+  return ev;
+}
+async function calPatch(env, token, id, b) {
+  const res = await fetch(calUrl(env, id), { method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(calEventBody(b)) });
+  const ev = await res.json();
+  if (!ev.id) throw new Error("event patch failed: " + JSON.stringify(ev));
+  return ev;
+}
+async function calDelete(env, token, id) {
+  await fetch(calUrl(env, id), { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
 }
 
 /* ----------------------------- CRM (D1) ----------------------------- */
@@ -259,12 +284,12 @@ async function saveBooking(env, b) {
   if (!env.DB) return;
   try {
     await env.DB.prepare(
-      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'new', 'site')`
+      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'new', 'site', ?)`
     ).bind(
       new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
       b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
-      b.isRequest ? 1 : 0, b.eventLink || null
+      b.isRequest ? 1 : 0, b.eventLink || null, b.eventId || null
     ).run();
   } catch (e) { /* CRM logging must never break a booking */ }
 }
@@ -296,26 +321,61 @@ async function adminUpdate(request, env) {
   for (const f of EDITABLE) {
     if (body[f] != null) { sets.push(`${f}=?`); vals.push(body[f]); }
   }
-  if (!sets.length) return { ok: false, error: "nothing to update" };
-  vals.push(id);
-  await env.DB.prepare(`UPDATE bookings SET ${sets.join(",")} WHERE id=?`).bind(...vals).run();
-  return { ok: true };
+  if (sets.length) {
+    vals.push(id);
+    await env.DB.prepare(`UPDATE bookings SET ${sets.join(",")} WHERE id=?`).bind(...vals).run();
+  }
+  let calendar = "unchanged";
+  try { calendar = await syncCalendar(env, id); }
+  catch (e) { calendar = "error: " + String(e && e.message || e); }
+  return { ok: true, calendar };
 }
 
 async function adminCreate(request, env) {
   requireAdmin(request, env);
   const b = await request.json();
   if (!b || !b.name || !b.phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
-  const isRequest = !b.time ? 1 : 0;
+  const hasTime = !!(b.date && b.time);
+  let eventId = null, eventLink = null;
+  if (hasTime && (b.status || "new") !== "cancelled") {
+    try {
+      const token = await getAccessToken(env);
+      const ev = await calCreate(env, token, b);
+      eventId = ev.id; eventLink = ev.htmlLink;
+    } catch (e) { /* keep the record even if calendar fails */ }
+  }
   const r = await env.DB.prepare(
-    `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source)
-     VALUES (?,?,?,?,?,?,?,?,?,?,NULL,?,?)`
+    `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
     b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
-    isRequest, b.status || "new", b.source || "phone"
+    hasTime ? 0 : 1, eventLink, b.status || "new", b.source || "phone", eventId
   ).run();
   return { ok: true, id: r.meta && r.meta.last_row_id };
+}
+
+// Keep the Google Calendar event in sync with the CRM row (source of truth).
+async function syncCalendar(env, id) {
+  if (!env.DB || !env.CALENDAR_ID || !env.SA_EMAIL) return "skip";
+  const row = await env.DB.prepare(`SELECT * FROM bookings WHERE id=?`).bind(id).first();
+  if (!row) return "no-row";
+  const hasTime = !!(row.date && row.time);
+  const active = hasTime && row.status !== "cancelled";
+  const token = await getAccessToken(env);
+  if (active) {
+    if (row.event_id) { await calPatch(env, token, row.event_id, row); return "patched"; }
+    const ev = await calCreate(env, token, row);
+    await env.DB.prepare(`UPDATE bookings SET event_id=?, event_link=? WHERE id=?`).bind(ev.id, ev.htmlLink, id).run();
+    return "created";
+  }
+  // no time or cancelled -> remove the calendar event, free the slot
+  if (row.event_id) {
+    await calDelete(env, token, row.event_id);
+    await env.DB.prepare(`UPDATE bookings SET event_id=NULL, event_link=NULL WHERE id=?`).bind(id).run();
+    return "deleted";
+  }
+  return "unchanged";
 }
 
 async function adminDelete(request, env) {
