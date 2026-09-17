@@ -294,6 +294,7 @@ async function loadMasters(env) {
     return results.map(r => ({
       name: r.name, active: r.active ? 1 : 0,
       startMin: hmToMin(r.work_start) || 600, endMin: hmToMin(r.work_end) || 1200,
+      breakStart: hmToMin(r.break_start), breakEnd: hmToMin(r.break_end),
       daysOff: String(r.days_off || "").split(",").map(x => x.trim()).filter(x => x !== "").map(Number),
       vacations: parseVac(r.vacations),
     }));
@@ -305,6 +306,10 @@ function masterWorks(mst, iso, dow) {
   if (mst.daysOff.includes(dow)) return false;
   for (const v of mst.vacations) if (v && v.from && v.to && iso >= v.from && iso <= v.to) return false;
   return true;
+}
+// Does [sMin,eMin] overlap the master's lunch break?
+function inBreak(mst, sMin, eMin) {
+  return mst.breakStart != null && mst.breakEnd != null && mst.breakStart < mst.breakEnd && sMin < mst.breakEnd && eMin > mst.breakStart;
 }
 
 async function getSlots(url, env) {
@@ -337,7 +342,7 @@ async function getSlots(url, env) {
     if (start < earliest || start > maxTime) continue;
     // available if some working master's window covers [t,t+dur] and they're free
     const avail = working.some(mst =>
-      t >= mst.startMin && t + duration <= mst.endMin &&
+      t >= mst.startMin && t + duration <= mst.endMin && !inBreak(mst, t, t + duration) &&
       !overlappingAt(events, start, end).some(ev => ev.staff === mst.name));
     if (avail) slots.push(hhmm(t));
   }
@@ -371,7 +376,7 @@ async function book(body, env) {
       new Date(start.getTime() - BUSINESS.bufferMin * 60000),
       new Date(end.getTime() + BUSINESS.bufferMin * 60000));
     const isFree = mst => startMin >= mst.startMin && startMin + duration <= mst.endMin &&
-      masterWorks(mst, date, dow) &&
+      !inBreak(mst, startMin, startMin + duration) && masterWorks(mst, date, dow) &&
       !overlappingAt(events, start.getTime(), end.getTime()).some(ev => ev.staff === mst.name);
     if (staff) {
       const mst = masters.find(x => x.name === staff);
@@ -624,7 +629,7 @@ async function adminMasters(request, env) {
   const { results } = await env.DB.prepare(`SELECT * FROM masters ORDER BY sort, id`).all();
   return { ok: true, masters: results || [] };
 }
-const MASTER_FIELDS = ["name", "active", "work_start", "work_end", "days_off", "vacations", "sort", "salary_type", "salary_value"];
+const MASTER_FIELDS = ["name", "active", "work_start", "work_end", "days_off", "vacations", "sort", "salary_type", "salary_value", "break_start", "break_end"];
 async function masterSave(request, env) {
   requireAdmin(request, env);
   const b = await request.json();
@@ -636,8 +641,8 @@ async function masterSave(request, env) {
   }
   if (!b.name) return { ok: false, error: "name required" };
   const r = await env.DB.prepare(
-    `INSERT INTO masters (name,active,work_start,work_end,days_off,vacations,sort,salary_type,salary_value) VALUES (?,?,?,?,?,?,?,?,?)`
-  ).bind(b.name, b.active ? 1 : 0, b.work_start || "10:00", b.work_end || "20:00", b.days_off || "", b.vacations || "", b.sort || 0, b.salary_type || "", (b.salary_value == null || b.salary_value === "") ? null : Number(b.salary_value)).run();
+    `INSERT INTO masters (name,active,work_start,work_end,days_off,vacations,sort,salary_type,salary_value,break_start,break_end) VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(b.name, b.active ? 1 : 0, b.work_start || "10:00", b.work_end || "20:00", b.days_off || "", b.vacations || "", b.sort || 0, b.salary_type || "", (b.salary_value == null || b.salary_value === "") ? null : Number(b.salary_value), b.break_start || "", b.break_end || "").run();
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }
 async function masterDelete(request, env) {
