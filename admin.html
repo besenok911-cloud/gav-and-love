@@ -180,7 +180,7 @@
   td.client .ph a{color:var(--violet);text-decoration:none;font-weight:700;font-size:.82rem;word-break:break-all}
   .muted{color:var(--ink-soft)}
   .when{white-space:nowrap;font-weight:700}
-  .th-when{width:120px}
+  .th-when{width:92px}
   .price{text-align:right;font-family:var(--font-head);font-weight:700;white-space:nowrap}
   .req{display:inline-block;font-size:.64rem;font-weight:800;color:var(--violet);background:var(--violet-soft);border-radius:6px;padding:.1em .4em;margin-left:.3em}
   .noteic{cursor:help;margin-left:.3em;opacity:.7}
@@ -1221,8 +1221,8 @@
     var rows=$("#rows");rows.innerHTML="";$("#empty").hidden=list.length>0;
     list.forEach(function(b){var tr=document.createElement("tr");var st=b.status||"new";var sr=b.source||"site";
       var srcClass=({site:"src-site",phone:"src-phone",instagram:"src-instagram"})[sr]||"src-other";
-      var visit=b.date?(esc(b.date)+(b.time?(" "+esc(b.time)):"")):'<span class="muted">—</span>';
-      var cr=fmtCreated(b.created_at);var created=cr?esc(cr.date+" "+cr.time):'<span class="muted">—</span>';
+      var visit=b.date?(esc(b.date)+(b.time?('<div class="ph">'+esc(b.time)+'</div>'):"")):'<span class="muted">—</span>';
+      var cr=fmtCreated(b.created_at);var created=cr?(esc(cr.date)+'<div class="ph">'+esc(cr.time)+'</div>'):'<span class="muted">—</span>';
       var opts=STATUS.map(function(s){return '<option value="'+s.v+'"'+(s.v===st?" selected":"")+'>'+s.label+'</option>';}).join("");
       var noteic=b.note?'<span class="noteic" title="'+esc(b.note)+'">💬</span>':'';
       tr.innerHTML=
