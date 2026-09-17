@@ -170,6 +170,11 @@
   select.status{font-family:var(--font-body);font-weight:700;font-size:.8rem;border:1.5px solid var(--line);border-radius:9px;padding:.35em .3em;cursor:pointer;background:#fff;max-width:118px}
   .s-new{color:var(--new)}.s-confirmed{color:var(--confirmed)}.s-done{color:var(--done)}.s-waitlist{color:var(--gold)}.s-cancelled{color:var(--cancelled)}
   .s-arrived{color:#0ea5b7}.s-in_progress{color:#e6912b}.s-paid{color:#1a7f37}.s-no_show{color:#8a8a8a}
+  .th-sort th[data-sort]{cursor:pointer;user-select:none;white-space:nowrap}
+  .th-sort th[data-sort]:hover{color:var(--violet)}
+  .th-sort th.sorted{color:var(--violet)}
+  .filter-row th{padding:4px 6px;background:var(--bg-2);position:static}
+  .filter-row input,.filter-row select{width:100%;padding:.32em .45em;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:.78rem;background:var(--paper);color:var(--ink);min-width:0}
   .tl-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
   .qbtn{border:1.5px solid var(--line);background:var(--paper);color:var(--ink-soft);border-radius:999px;padding:.2em .7em;font-size:.72rem;font-weight:800;cursor:pointer;white-space:nowrap;transition:.12s}
   .qbtn:hover{border-color:var(--qc);color:var(--qc)}
@@ -304,10 +309,20 @@
   <p class="meta" id="meta"></p>
   <div class="tablewrap">
     <table>
-      <thead><tr>
-        <th>Клієнт</th><th>Улюбленець</th><th>Послуга</th><th>Візит</th>
-        <th>Майстер</th><th>Сума</th><th>Джерело</th><th>Статус</th><th></th>
-      </tr></thead>
+      <thead>
+        <tr class="th-sort">
+          <th data-sort="name" data-label="Клієнт">Клієнт</th><th data-sort="pet" data-label="Улюбленець">Улюбленець</th>
+          <th data-sort="service" data-label="Послуга">Послуга</th><th data-sort="visit" data-label="Візит">Візит</th>
+          <th data-sort="staff" data-label="Майстер">Майстер</th><th data-sort="price" data-label="Сума">Сума</th>
+          <th data-sort="source" data-label="Джерело">Джерело</th><th data-sort="status" data-label="Статус">Статус</th><th></th>
+        </tr>
+        <tr class="filter-row">
+          <th><input id="fc-client" placeholder="ім'я / тел"></th><th><input id="fc-pet" placeholder="улюбленець"></th>
+          <th><select id="fc-service"></select></th><th></th>
+          <th><select id="fc-staff"></select></th><th></th>
+          <th><select id="fc-source"></select></th><th><select id="fc-status"></select></th><th></th>
+        </tr>
+      </thead>
       <tbody id="rows"></tbody>
     </table>
   </div>
@@ -456,6 +471,7 @@
   var $=function(s){return document.querySelector(s);};
   var token=""; try{token=localStorage.getItem(KEY)||"";}catch(e){}
   var all=[], filter="all", q="", view="dash", editId=null, dateFrom="", dateTo="", calRef=null;
+  var sortKey="", sortDir=1, filtersWired=false, colFilters={client:"",pet:"",service:"",staff:"",source:""};
   var clients=[], pets=[], clientQ="", editClientId=null, editPetId=null, petClientId=null, mastersList=[];
   var repFrom="", repTo="";
   var svcList=[], notesState={gift:"",big:""}, svcCatalog=[];
@@ -980,13 +996,46 @@
   $("#pTo").addEventListener("change",function(e){dateTo=e.target.value;render();});
   $("#pClear").addEventListener("click",function(){dateFrom="";dateTo="";$("#pFrom").value="";$("#pTo").value="";render();});
 
+  function cmpBy(a,b,k){
+    if(k==="price")return (Number(a.price)||0)-(Number(b.price)||0);
+    if(k==="visit"){var av=(a.date||"")+" "+(a.time||""),bv=(b.date||"")+" "+(b.time||"");return av<bv?-1:av>bv?1:0;}
+    if(k==="status"){var ord=STATUS.map(function(s){return s.v;});return ord.indexOf(a.status||"new")-ord.indexOf(b.status||"new");}
+    var fmap={name:"name",pet:"pet_name",service:"service",staff:"staff",source:"source"},f=fmap[k]||k;
+    var xa=String(a[f]||"").toLowerCase(),xb=String(b[f]||"").toLowerCase();return xa<xb?-1:xa>xb?1:0;
+  }
+  function fillFC(id,opts,allLabel){var el=$(id);if(!el)return;var cur=el.value;el.innerHTML='<option value="">'+esc(allLabel)+'</option>'+opts.map(function(o){return '<option value="'+esc(o.v)+'">'+esc(o.l)+'</option>';}).join("");el.value=cur;}
+  function distinctVals(fn){var seen={},out=[];all.forEach(function(b){var v=fn(b);if(v&&!seen[v]){seen[v]=1;out.push(v);}});return out.sort();}
+  function syncFilterOptions(){
+    fillFC("#fc-service",distinctVals(function(b){return b.service;}).map(function(s){return {v:s,l:s};}),"Усі послуги");
+    fillFC("#fc-staff",distinctVals(function(b){return b.staff;}).map(function(s){return {v:s,l:s};}),"Усі майстри");
+    fillFC("#fc-source",Object.keys(SRC).map(function(k){return {v:k,l:SRC[k]};}),"Усі джерела");
+    fillFC("#fc-status",STATUS.map(function(s){return {v:s.v,l:s.label};}),"Усі статуси");
+    var fs=$("#fc-status");if(fs)fs.value=(filter==="all"?"":filter);
+  }
+  function wireFilters(){filtersWired=true;
+    $("#fc-client").addEventListener("input",function(e){colFilters.client=e.target.value.trim().toLowerCase();render();});
+    $("#fc-pet").addEventListener("input",function(e){colFilters.pet=e.target.value.trim().toLowerCase();render();});
+    $("#fc-service").addEventListener("change",function(e){colFilters.service=e.target.value;render();});
+    $("#fc-staff").addEventListener("change",function(e){colFilters.staff=e.target.value;render();});
+    $("#fc-source").addEventListener("change",function(e){colFilters.source=e.target.value;render();});
+    $("#fc-status").addEventListener("change",function(e){filter=e.target.value||"all";renderPills();render();});
+    [].forEach.call(document.querySelectorAll(".th-sort th[data-sort]"),function(th){th.addEventListener("click",function(){var k=th.dataset.sort;if(sortKey===k)sortDir=-sortDir;else{sortKey=k;sortDir=1;}render();});});
+  }
   function render(){
+    if(!filtersWired)wireFilters(); syncFilterOptions();
     var list=all.filter(function(b){
       if(filter!=="all"&&(b.status||"new")!==filter)return false;
       if(dateFrom&&(!b.date||b.date<dateFrom))return false;
       if(dateTo&&(!b.date||b.date>dateTo))return false;
       if(q){var hay=((b.name||"")+" "+(b.phone||"")+" "+(b.service||"")+" "+(b.breed||"")+" "+(b.staff||"")).toLowerCase();if(hay.indexOf(q)<0)return false;}
+      if(colFilters.service&&(b.service||"")!==colFilters.service)return false;
+      if(colFilters.staff&&(b.staff||"")!==colFilters.staff)return false;
+      if(colFilters.source&&(b.source||"site")!==colFilters.source)return false;
+      if(colFilters.client){var hc=((b.name||"")+" "+(b.phone||"")).toLowerCase();if(hc.indexOf(colFilters.client)<0)return false;}
+      if(colFilters.pet){var hp=((b.pet||"")+" "+(b.pet_name||"")+" "+(b.breed||"")).toLowerCase();if(hp.indexOf(colFilters.pet)<0)return false;}
       return true;});
+    if(sortKey)list=list.slice().sort(function(a,b){return cmpBy(a,b,sortKey)*sortDir;});
+    [].forEach.call(document.querySelectorAll(".th-sort th[data-sort]"),function(th){var on=th.dataset.sort===sortKey;th.classList.toggle("sorted",on);th.textContent=th.dataset.label+(on?(sortDir>0?" ▲":" ▼"):"");});
     $("#meta").textContent="Показано: "+list.length+" із "+all.length;
     var rows=$("#rows");rows.innerHTML="";$("#empty").hidden=list.length>0;
     list.forEach(function(b){var tr=document.createElement("tr");var st=b.status||"new";var sr=b.source||"site";
