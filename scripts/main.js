@@ -355,7 +355,9 @@
       if (!d) return;
       if (d.services && d.services.length && serviceSel) {
         const prev = serviceSel.value;
-        serviceSel.innerHTML = d.services.map(s =>
+        const ph = serviceSel.querySelector('option[value=""]');
+        const phHtml = ph ? ph.outerHTML : '<option value="">Оберіть послугу…</option>';
+        serviceSel.innerHTML = phHtml + d.services.map(s =>
           `<option value="${esc(s.name)}">${esc(s.name)}${s.duration ? " · ~" + fmtDur(s.duration) : ""}</option>`).join("");
         if (prev && d.services.some(s => s.name === prev)) serviceSel.value = prev;
         REQUEST_SVC = d.services.filter(s => s.is_request).map(s => s.name);
