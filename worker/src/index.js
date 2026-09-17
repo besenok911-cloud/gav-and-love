@@ -862,12 +862,13 @@ async function runDailyDigest(env, force) {
   const due = [];
   for (const k in byClient) {
     const list = byClient[k];
-    const doneDates = list.filter(b => b.status === "done" && b.date).map(b => b.date).sort();
+    const isDone = b => b.status === "done" || b.status === "paid";
+    const doneDates = list.filter(b => isDone(b) && b.date).map(b => b.date).sort();
     if (!doneDates.length) continue;
     const last = doneDates[doneDates.length - 1];
     const hasUpcoming = list.some(b => b.date && b.date >= today && (b.status === "new" || b.status === "confirmed"));
     if (last <= cutoff && !hasUpcoming) {
-      const ref = list.slice().reverse().find(b => b.status === "done") || list[0];
+      const ref = list.slice().reverse().find(isDone) || list[0];
       due.push({ name: ref.name || "", phone: ref.phone || "", pet: ref.pet_name || "", last });
     }
   }
@@ -886,7 +887,7 @@ async function syncCalendar(env, id) {
   const row = await env.DB.prepare(`SELECT * FROM bookings WHERE id=?`).bind(id).first();
   if (!row) return "no-row";
   const hasTime = !!(row.date && row.time);
-  const active = hasTime && row.status !== "cancelled";
+  const active = hasTime && row.status !== "cancelled" && row.status !== "no_show";
   const token = await getAccessToken(env);
   if (active) {
     if (row.event_id) { await calPatch(env, token, row.event_id, row); return "patched"; }

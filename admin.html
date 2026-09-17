@@ -169,6 +169,11 @@
   .src-site{background:#eef7ff;color:#2a6fb0}.src-phone{background:#eafaf0;color:#2f8f5b}.src-instagram{background:#fdeef6;color:#bc1888}.src-other{background:var(--bg-2);color:var(--ink-soft)}
   select.status{font-family:var(--font-body);font-weight:700;font-size:.8rem;border:1.5px solid var(--line);border-radius:9px;padding:.35em .3em;cursor:pointer;background:#fff;max-width:118px}
   .s-new{color:var(--new)}.s-confirmed{color:var(--confirmed)}.s-done{color:var(--done)}.s-waitlist{color:var(--gold)}.s-cancelled{color:var(--cancelled)}
+  .s-arrived{color:#0ea5b7}.s-in_progress{color:#e6912b}.s-paid{color:#1a7f37}.s-no_show{color:#8a8a8a}
+  .tl-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+  .qbtn{border:1.5px solid var(--line);background:var(--paper);color:var(--ink-soft);border-radius:999px;padding:.2em .7em;font-size:.72rem;font-weight:800;cursor:pointer;white-space:nowrap;transition:.12s}
+  .qbtn:hover{border-color:var(--qc);color:var(--qc)}
+  .qbtn.on{background:var(--qc);border-color:var(--qc);color:#fff}
   .rowact{display:flex;gap:5px}
   .empty{text-align:center;color:var(--ink-soft);padding:40px}
   .meta{color:var(--ink-soft);font-size:.82rem;margin:10px 2px}
@@ -453,7 +458,11 @@
   var repFrom="", repTo="";
   var svcList=[], notesState={gift:"",big:""}, svcCatalog=[];
 
-  var STATUS=[{v:"new",label:"Нова"},{v:"confirmed",label:"Підтверджена"},{v:"done",label:"Виконана"},{v:"waitlist",label:"Лист очікування"},{v:"cancelled",label:"Скасована"}];
+  var STATUS=[{v:"new",label:"Нова"},{v:"confirmed",label:"Підтверджена"},{v:"arrived",label:"Прибув"},{v:"in_progress",label:"У процесі"},{v:"done",label:"Готово"},{v:"paid",label:"Оплачено"},{v:"no_show",label:"Не прийшов"},{v:"waitlist",label:"Лист очікування"},{v:"cancelled",label:"Скасована"}];
+  // statuses counted as completed revenue
+  function isRevenue(b){var s=b&&b.status;return s==="done"||s==="paid";}
+  // day-of lifecycle for the quick buttons in Огляд
+  var QSTAGES=[{v:"arrived",label:"Прибув"},{v:"in_progress",label:"В роботі"},{v:"done",label:"Готово"},{v:"paid",label:"Оплачено"},{v:"no_show",label:"Не прийшов"}];
   var FILTERS=[{v:"all",label:"Усі"}].concat(STATUS);
   var SRC={site:"Сайт",phone:"Телефон",instagram:"Instagram",manual:"Інше",other:"Інше"};
 
@@ -473,6 +482,7 @@
     $("#f-staff").innerHTML='<option value="">— не призначено —</option>'+STAFF.map(function(s){return '<option>'+esc(s)+'</option>';}).join("");
     $("#f-breed").innerHTML='<option value="">Оберіть породу…</option>'+(CFG.dogBreeds||[]).map(function(b){return '<option>'+esc(b)+'</option>';}).join("");
     $("#f-weight").innerHTML='<option value="">Оберіть вагу…</option>'+(CFG.weightOptions||[]).map(function(w){return '<option>'+esc(w)+'</option>';}).join("");
+    $("#f-status").innerHTML=STATUS.map(function(s){return '<option value="'+s.v+'">'+esc(s.label)+'</option>';}).join("");
   })();
   // модалка: услуга → порода → вес из справочника, авто-цена по совпадению
   function mNorm(x){return String(x||"").toLowerCase().replace(/[’'ʼ`]/g,"'").replace(/\s+/g," ").trim();}
@@ -582,11 +592,13 @@
     var upc=all.filter(function(b){return b.status==="confirmed"&&b.date&&b.date>today&&b.time&&b.service!=="Блокування";})
       .sort(function(a,b){return (a.date+a.time).localeCompare(b.date+b.time);}).slice(0,8);
 
-    var timeline=todaysTimed.map(function(b){var mn=min2(b.time),past=mn!=null&&mn<nowMin&&b.status!=="done";
+    var timeline=todaysTimed.map(function(b){var mn=min2(b.time),past=mn!=null&&mn<nowMin&&!isRevenue(b);
+      var qbar=QSTAGES.map(function(st){return '<button class="qbtn'+(b.status===st.v?" on":"")+'" data-st="'+st.v+'" style="--qc:'+(STCOLOR[st.v]||"var(--new)")+'">'+esc(st.label)+'</button>';}).join("");
       return '<div class="tl-row'+(past?" past":"")+'" data-id="'+b.id+'">'+
         '<div class="tl-time">'+esc(b.time||"")+'</div>'+
         '<div class="tl-main"><div class="t1">'+esc(b.name||"—")+(b.pet_name?' · '+esc(b.pet_name):'')+'</div>'+
-          '<div class="t2">'+esc(b.service||"")+(b.staff?' · '+esc(b.staff):'')+'</div></div>'+
+          '<div class="t2">'+esc(b.service||"")+(b.staff?' · '+esc(b.staff):'')+'</div>'+
+          '<div class="tl-actions">'+qbar+'</div></div>'+
         '<div class="tl-right">'+stChip(b.status)+(Number(b.price)>0?'<span class="muted" style="font-weight:800">'+money(b.price)+'</span>':'')+'</div>'+
       '</div>';}).join("")||nodataP("Сьогодні візитів немає");
 
@@ -632,6 +644,16 @@
     var byId=function(id){return all.filter(function(x){return String(x.id)===String(id);})[0];};
     [].forEach.call($("#dashView").querySelectorAll("[data-id]"),function(el){
       el.addEventListener("click",function(){var b=byId(el.dataset.id);if(b)openModal(b);});});
+    [].forEach.call($("#dashView").querySelectorAll(".qbtn"),function(btn){
+      btn.addEventListener("click",function(e){e.stopPropagation();var row=btn.closest("[data-id]");if(row)setBookingStatus(row.dataset.id,btn.dataset.st);});});
+  }
+  // optimistic quick status change (used by Огляд quick buttons)
+  function setBookingStatus(id,status){
+    var b=all.filter(function(x){return String(x.id)===String(id);})[0];if(!b)return;
+    if(b.status===status)return; var old=b.status; b.status=status;
+    if(view==="dash")renderDash(); renderPills();
+    api("/admin/update",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:+id,status:status})})
+      .catch(function(){b.status=old;if(view==="dash")renderDash();renderPills();alert("Не вдалося оновити статус");});
   }
 
   /* ---------- reports (Звіти) ---------- */
@@ -650,20 +672,20 @@
     var avail={};(mastersList||[]).forEach(function(m){avail[m.name]=0;});
     for(var d=new Date(repFrom+"T12:00:00");localISO(d)<=repTo;d.setDate(d.getDate()+1)){var iso=localISO(d);
       (mastersList||[]).forEach(function(m){var cfg=masterCfg(m.name);if(cfg&&!dayOff(cfg,iso))avail[m.name]+=(cfg.end-cfg.start);});}
-    var agg={};bk.forEach(function(b){var s=(b.staff||"").trim();if(!s||b.status==="cancelled")return;var a=agg[s]||(agg[s]={count:0,mins:0,rev:0});a.count++;a.mins+=svcDur(b.service);if(b.status==="done")a.rev+=Number(b.price)||0;});
+    var agg={};bk.forEach(function(b){var s=(b.staff||"").trim();if(!s||b.status==="cancelled")return;var a=agg[s]||(agg[s]={count:0,mins:0,rev:0});a.count++;a.mins+=svcDur(b.service);if(isRevenue(b))a.rev+=Number(b.price)||0;});
     var out=(mastersList||[]).map(function(m){var a=agg[m.name]||{count:0,mins:0,rev:0};var av=avail[m.name]||0;return {name:m.name,count:a.count,hours:Math.round(a.mins/60*10)/10,rev:a.rev,occ:av?Math.round(a.mins/av*100):0};});
     Object.keys(agg).forEach(function(s){if(!out.some(function(x){return x.name===s;}))out.push({name:s,count:agg[s].count,hours:Math.round(agg[s].mins/60*10)/10,rev:agg[s].rev,occ:0});});
     return out.sort(function(a,b){return b.rev-a.rev||b.count-a.count;});
   }
   function renderReports(){
     repDefaults();
-    var bk=repBookings(),done=bk.filter(function(b){return b.status==="done";});
+    var bk=repBookings(),done=bk.filter(function(b){return isRevenue(b);});
     var rev=done.reduce(function(s,b){return s+(Number(b.price)||0);},0);
     var dwp=done.filter(function(b){return Number(b.price)>0;});var avg=dwp.length?Math.round(rev/dwp.length):0;
     var cancelled=bk.filter(function(b){return b.status==="cancelled";}).length;var cancPct=bk.length?Math.round(cancelled/bk.length*100):0;
     var firstBy={};all.forEach(function(b){if(!b.date)return;var k=b.client_id!=null?"c"+b.client_id:"p"+normPhone(b.phone);if(!firstBy[k]||b.date<firstBy[k])firstBy[k]=b.date;});
     var newClients=Object.keys(firstBy).filter(function(k){return firstBy[k]>=repFrom&&firstBy[k]<=repTo;}).length;
-    var doneBy={};all.forEach(function(b){if(b.status==="done"){var k=b.client_id!=null?"c"+b.client_id:"p"+normPhone(b.phone);doneBy[k]=(doneBy[k]||0)+1;}});
+    var doneBy={};all.forEach(function(b){if(isRevenue(b)){var k=b.client_id!=null?"c"+b.client_id:"p"+normPhone(b.phone);doneBy[k]=(doneBy[k]||0)+1;}});
     var wv=Object.keys(doneBy).length,rc=Object.keys(doneBy).filter(function(k){return doneBy[k]>=2;}).length;var repeatPct=wv?Math.round(rc/wv*100):0;
     var spanDays=Math.round((new Date(repTo)-new Date(repFrom))/86400000)+1;
     var buckets={},labels=[];
@@ -1031,7 +1053,7 @@
   function normPhone(p){return (p||"").replace(/\D/g,"").slice(-9);}
   function bookingsOf(c){var np=normPhone(c.phone);return all.filter(function(b){return (c.id&&b.client_id===c.id)||(np&&normPhone(b.phone)===np);});}
   function petsOf(cid){return pets.filter(function(p){return p.client_id===cid;});}
-  var STCOLOR={new:"var(--new)",confirmed:"var(--confirmed)",done:"var(--done)",waitlist:"var(--gold)",cancelled:"var(--cancelled)"};
+  var STCOLOR={new:"var(--new)",confirmed:"var(--confirmed)",arrived:"#0ea5b7",in_progress:"#e6912b",done:"var(--done)",paid:"#1a7f37",no_show:"#8a8a8a",waitlist:"var(--gold)",cancelled:"var(--cancelled)"};
   function stLabel(v){var s=STATUS.filter(function(x){return x.v===v;})[0];return s?s.label:v;}
   var SPECIES_L={dog:"Собака",cat:"Кіт",other:"Тварина"};
 
@@ -1054,7 +1076,7 @@
     var box=$("#clist");
     box.innerHTML=list.map(function(c){
       var ps=petsOf(c.id);
-      var spent=bookingsOf(c).filter(function(b){return b.status==="done";}).reduce(function(s,b){return s+(Number(b.price)||0);},0);
+      var spent=bookingsOf(c).filter(function(b){return isRevenue(b);}).reduce(function(s,b){return s+(Number(b.price)||0);},0);
       return '<div class="ccard" data-id="'+c.id+'"><h4>'+esc(c.name||"Без імені")+'</h4>'+
         '<div class="cmeta">'+esc(c.phone||"—")+(spent?" · "+money(spent):"")+'</div>'+
         '<div class="cpets">'+(ps.length?ps.map(function(p){return '<span class="ppill'+(p.special?" special":"")+'">'+(p.special?"⚠️ ":"")+esc(p.name||"?")+'</span>';}).join(""):'<span class="muted" style="font-size:.8rem">немає улюбленців</span>')+'</div></div>';
@@ -1083,7 +1105,7 @@
   }
   function renderClientHistory(c){
     var hs=bookingsOf(c).slice().sort(function(a,b){return (b.date||"").localeCompare(a.date||"");});
-    var total=hs.filter(function(b){return b.status==="done";}).reduce(function(s,b){return s+(Number(b.price)||0);},0);
+    var total=hs.filter(function(b){return isRevenue(b);}).reduce(function(s,b){return s+(Number(b.price)||0);},0);
     $("#cl-total").textContent="Витрачено: "+money(total)+" · візитів: "+hs.length;
     $("#cl-hist").innerHTML=hs.length?hs.map(function(b){
       return '<div class="hist-row"><span class="muted">'+esc(b.date||"—")+'</span>'+
@@ -1251,7 +1273,7 @@
   function exportClients(){
     var H=["ID","Ім'я","Телефон","Email","Месенджер","Джерело","Згода","Статус","Улюбленці","Візитів","Витрачено (грн)","Коментар"];
     var rows=clients.map(function(c){
-      var bs=bookingsOf(c);var spent=bs.filter(function(b){return b.status==="done";}).reduce(function(s,b){return s+(Number(b.price)||0);},0);
+      var bs=bookingsOf(c);var spent=bs.filter(function(b){return isRevenue(b);}).reduce(function(s,b){return s+(Number(b.price)||0);},0);
       var petnames=petsOf(c.id).map(function(p){return (p.special?"⚠ ":"")+p.name+(p.breed?" ("+p.breed+")":"");}).join("; ");
       return [c.id,c.name,c.phone,c.email,c.messenger,(SRC[c.source]||c.source),(c.consent?"так":"ні"),(c.status==="inactive"?"неактивний":"активний"),petnames,bs.length,spent,c.note];
     });
