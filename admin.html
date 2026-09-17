@@ -233,6 +233,7 @@
     <div class="pills" id="pills"></div>
     <div class="period"><span>Період:</span><input type="date" id="pFrom" title="від"><span>–</span><input type="date" id="pTo" title="до"><button class="clr" id="pClear" title="Очистити">×</button></div>
     <span class="sp" style="flex:1"></span>
+    <button class="btn ghost sm" id="exportBtn" style="border-color:var(--line);color:var(--ink)">⬇ CSV</button>
     <button class="btn" id="newBtn">+ Нова заявка</button>
   </div>
   <p class="meta" id="meta"></p>
@@ -711,6 +712,7 @@
     $("#modalErr").textContent="";$("#modal").classList.add("open");$("#f-name").focus();}
   function closeModal(){$("#modal").classList.remove("open");}
   $("#newBtn").addEventListener("click",function(){openModal(null);});
+  if($("#exportBtn"))$("#exportBtn").addEventListener("click",exportBookings);
   $("#cancelBtn").addEventListener("click",closeModal);
   $("#modal").addEventListener("click",function(e){if(e.target===$("#modal"))closeModal();});
   $("#saveBtn").addEventListener("click",async function(){
@@ -739,11 +741,12 @@
 
   function renderClients(){
     var v=$("#clientsView");
-    v.innerHTML='<div class="toolbar"><input class="search" id="clSearch" placeholder="Пошук клієнта: імʼя, телефон, кличка…"><span style="flex:1"></span><button class="btn" id="clNew">+ Новий клієнт</button></div>'+
+    v.innerHTML='<div class="toolbar"><input class="search" id="clSearch" placeholder="Пошук клієнта: імʼя, телефон, кличка…"><span style="flex:1"></span><button class="btn ghost sm" id="clExport" style="border-color:var(--line);color:var(--ink)">⬇ CSV</button><button class="btn" id="clNew">+ Новий клієнт</button></div>'+
       '<p class="meta" id="clMeta"></p><div class="clist" id="clist"></div>';
     $("#clSearch").value=clientQ;
     $("#clSearch").addEventListener("input",function(e){clientQ=e.target.value;renderClientList();});
     $("#clNew").addEventListener("click",function(){openClientModal(null);});
+    $("#clExport").addEventListener("click",exportClients);
     renderClientList();
   }
   function renderClientList(){
@@ -929,6 +932,32 @@
       $("#rmErr").style.color="var(--confirmed)";$("#rmErr").textContent="Готово! Записів на завтра: "+r.tomorrow+", на повторний візит: "+r.repeatDue+". Перевірте Telegram.";
     }catch(e){$("#rmErr").style.color="var(--cancelled)";$("#rmErr").textContent="Не вдалося надіслати.";}
   });
+
+  /* ---------- CSV export ---------- */
+  function csvEsc(v){v=(v==null?"":String(v));return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
+  function downloadCSV(filename,header,rows){
+    var lines=[header.map(csvEsc).join(",")].concat(rows.map(function(r){return r.map(csvEsc).join(",");}));
+    var blob=new Blob(["﻿"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
+    var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=filename;
+    document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},200);
+  }
+  function today10(){return new Date().toISOString().slice(0,10);}
+  function exportBookings(){
+    var H=["ID","Отримано","Клієнт","Телефон","Тварина","Кличка","Порода","Вага","Послуга","Дата","Час","Майстер","Сума","Джерело","Статус","Коментар"];
+    var rows=all.slice().sort(function(a,b){return (b.created_at||"").localeCompare(a.created_at||"");}).map(function(b){
+      return [b.id,(b.created_at||"").replace("T"," ").slice(0,16),b.name,b.phone,b.pet,b.pet_name,b.breed,b.weight,b.service,b.date,b.time,b.staff,(Number(b.price)>0?b.price:""),(SRC[b.source]||b.source),(stLabel(b.status||"new")),b.note];
+    });
+    downloadCSV("gavlove-zapysy-"+today10()+".csv",H,rows);
+  }
+  function exportClients(){
+    var H=["ID","Ім'я","Телефон","Email","Месенджер","Джерело","Згода","Статус","Улюбленці","Візитів","Витрачено (грн)","Коментар"];
+    var rows=clients.map(function(c){
+      var bs=bookingsOf(c);var spent=bs.filter(function(b){return b.status==="done";}).reduce(function(s,b){return s+(Number(b.price)||0);},0);
+      var petnames=petsOf(c.id).map(function(p){return (p.special?"⚠ ":"")+p.name+(p.breed?" ("+p.breed+")":"");}).join("; ");
+      return [c.id,c.name,c.phone,c.email,c.messenger,(SRC[c.source]||c.source),(c.consent?"так":"ні"),(c.status==="inactive"?"неактивний":"активний"),petnames,bs.length,spent,c.note];
+    });
+    downloadCSV("gavlove-klienty-"+today10()+".csv",H,rows);
+  }
 
   if(token){tryLogin(token);}else{showLogin("");}
 })();
