@@ -160,6 +160,9 @@
   .sch-block.blk{background:repeating-linear-gradient(45deg,#8a83a3,#8a83a3 7px,#6f6a86 7px,#6f6a86 14px)}
   .sch-block .bt{font-weight:800}
   .sch-block small{opacity:.85;font-weight:600}
+  .sch-cell.off{background:repeating-linear-gradient(45deg,#efeae1,#efeae1 6px,#e6e0d4 6px,#e6e0d4 12px);cursor:not-allowed}
+  .sch-col.col-off{background:rgba(201,162,74,.06)}
+  .sch-off-label{position:absolute;top:8px;left:0;right:0;text-align:center;font-size:.72rem;font-weight:800;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.06em;pointer-events:none;z-index:1}
 
   /* clients */
   .clist{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
@@ -522,6 +525,32 @@
     return STAFF.concat(["__none__"]).map(function(s){return {day:day,staff:s==="__none__"?"":s,label:s==="__none__"?"Не призначено":s};});
   }
   function inCol(b,c){if(b.date!==c.day)return false;if(c.staff===null)return true;return (b.staff||"")===c.staff;}
+  function masterCfg(name){
+    var m=mastersList.filter(function(x){return x.name===name;})[0];if(!m)return null;
+    var vac=[];try{vac=JSON.parse(m.vacations||"[]");}catch(e){}
+    return {active:!!m.active,start:min2(m.work_start)||600,end:min2(m.work_end)||1200,
+      daysOff:String(m.days_off||"").split(",").map(function(x){return x.trim();}).filter(Boolean),vac:vac};
+  }
+  function dayOff(cfg,dayISO){
+    if(!cfg)return null;
+    var dow=new Date(dayISO+"T12:00:00").getDay();
+    if(!cfg.active)return "Неактивний";
+    if(cfg.daysOff.indexOf(String(dow))>=0)return "Вихідний";
+    for(var i=0;i<cfg.vac.length;i++){var v=cfg.vac[i];if(v&&v.from&&v.to&&dayISO>=v.from&&dayISO<=v.to)return "Відпустка";}
+    return null;
+  }
+  // off state for a schedule column: {full, label, cfg}
+  function colOff(c){
+    if(schMode==="week"){ // day column, any master
+      if(!mastersList.length)return null;
+      var works=mastersList.some(function(m){return !dayOff(masterCfg(m.name),c.day);});
+      return works?null:{full:true,label:"Зачинено"};
+    }
+    if(!c.staff)return null;                 // "Не призначено" column
+    var cfg=masterCfg(c.staff);if(!cfg)return null;
+    var off=dayOff(cfg,c.day);
+    return off?{full:true,label:off,cfg:cfg}:{full:false,cfg:cfg};
+  }
   function gridBody(){
     var cols=schCols(),N=cols.length,rows=(SCH.close-SCH.open)/SCH.step;
     var h='<div class="sch-grid" style="grid-template-columns:56px repeat('+N+',minmax(0,1fr))">';
@@ -530,8 +559,12 @@
     for(var r=0;r<rows;r++)h+='<div class="sch-time">'+hhmm2(SCH.open+r*SCH.step)+'</div>';
     h+='</div>';
     cols.forEach(function(c){
-      h+='<div class="sch-col" data-day="'+c.day+'" data-staff="'+(c.staff==null?"__any__":c.staff)+'">';
-      for(var r=0;r<rows;r++)h+='<div class="sch-cell" data-min="'+(SCH.open+r*SCH.step)+'"></div>';
+      var off=colOff(c);
+      h+='<div class="sch-col'+(off&&off.full?" col-off":"")+'" data-day="'+c.day+'" data-staff="'+(c.staff==null?"__any__":c.staff)+'">';
+      for(var r=0;r<rows;r++){var cmin=SCH.open+r*SCH.step;
+        var cellOff=off?(off.full||(off.cfg&&(cmin<off.cfg.start||cmin>=off.cfg.end))):false;
+        h+='<div class="sch-cell'+(cellOff?" off":"")+'" data-min="'+cmin+'"></div>';}
+      if(off&&off.full)h+='<div class="sch-off-label">'+esc(off.label)+'</div>';
       all.filter(function(b){return b.time&&inCol(b,c);}).forEach(function(b){
         var sm=min2(b.time);if(sm==null)return;
         var isblk=b.service==="Блокування";
@@ -602,6 +635,7 @@
       el.addEventListener("dragstart",function(e){e.dataTransfer.setData("text/plain",el.dataset.id);e.dataTransfer.effectAllowed="move";});
     });
     [].forEach.call($("#calView").querySelectorAll(".sch-cell"),function(cell){
+      if(cell.classList.contains("off"))return;   // day off / vacation / non-working hours — not bookable
       cell.addEventListener("dragover",function(e){e.preventDefault();cell.classList.add("drop");});
       cell.addEventListener("dragleave",function(){cell.classList.remove("drop");});
       cell.addEventListener("drop",async function(e){e.preventDefault();cell.classList.remove("drop");
