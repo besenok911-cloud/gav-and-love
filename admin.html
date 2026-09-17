@@ -143,6 +143,25 @@
   .cal-more{font-size:.68rem;color:var(--ink-soft);font-weight:700}
   @media(max-width:700px){.cal-cell{min-height:76px}.cal-ev{font-size:.62rem}}
 
+  /* clients */
+  .clist{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+  .ccard{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:15px 17px;box-shadow:var(--shadow-sm);cursor:pointer;transition:.15s}
+  .ccard:hover{border-color:var(--violet);transform:translateY(-2px);box-shadow:var(--shadow)}
+  .ccard h4{margin:0 0 3px;font-size:1.02rem;font-family:var(--font-head);font-weight:600}
+  .ccard .cmeta{color:var(--ink-soft);font-size:.85rem;font-weight:700}
+  .ccard .cpets{margin-top:9px;display:flex;flex-wrap:wrap;gap:5px}
+  .ppill{font-size:.72rem;font-weight:800;background:var(--violet-soft);color:var(--violet);border-radius:999px;padding:.2em .65em}
+  .ppill.special{background:#fff3d6;color:#a5741a}
+  .pet-line{display:flex;align-items:center;gap:10px;padding:9px 2px;border-top:1px solid var(--line-soft);cursor:pointer}
+  .pet-line:first-child{border-top:0}
+  .pet-line:hover .pet-nm{color:var(--violet)}
+  .pet-nm{font-weight:800}
+  .pet-sub{color:var(--ink-soft);font-size:.82rem}
+  .hist-row{display:grid;grid-template-columns:78px 1fr auto auto;gap:10px;align-items:center;padding:7px 2px;border-top:1px solid var(--line-soft);font-size:.85rem}
+  .hist-row:first-child{border-top:0}
+  .hist-row .hp{font-family:var(--font-head);font-weight:700;text-align:right}
+  .hist-badge{font-size:.68rem;font-weight:800;padding:.15em .5em;border-radius:999px;color:#fff}
+
   /* modal */
   .modal{position:fixed;inset:0;background:rgba(28,19,64,.5);display:none;align-items:flex-start;justify-content:center;z-index:50;padding:24px;overflow:auto}
   .modal.open{display:flex}
@@ -169,6 +188,7 @@
     <button class="tabbtn on" data-view="dash">Огляд</button>
     <button class="tabbtn" data-view="list">Записи</button>
     <button class="tabbtn" data-view="cal">Календар</button>
+    <button class="tabbtn" data-view="clients">Клієнти</button>
   </div>
   <span class="sp"></span>
   <button class="btn ghost sm" id="refreshBtn" hidden>↻ Оновити</button>
@@ -207,6 +227,7 @@
 </div>
 
 <div class="wrap" id="calView" hidden></div>
+<div class="wrap" id="clientsView" hidden></div>
 
 <div class="modal" id="modal">
   <div class="sheet">
@@ -215,6 +236,7 @@
       <div class="fld"><label>Ім'я *</label><input id="f-name" /></div>
       <div class="fld"><label>Телефон *</label><input id="f-phone" placeholder="+380…" /></div>
       <div class="fld"><label>Тварина</label><select id="f-pet"><option>Собака</option><option>Кіт</option><option>Інше</option></select></div>
+      <div class="fld"><label>Кличка</label><input id="f-petname" placeholder="Напр. Рекс" /></div>
       <div class="fld"><label>Послуга</label><input id="f-service" list="svcList" /><datalist id="svcList">
         <option>Гігієнічний комплекс</option><option>Повний комплекс (зі стрижкою)</option><option>Стрижка</option>
         <option>Вичісування / експрес-линька</option><option>Догляд для котиків</option><option>Міні-готель</option><option>Денний садочок</option>
@@ -237,7 +259,75 @@
   </div>
 </div>
 
-<script src="data/config.js?v=13"></script>
+<!-- Client card -->
+<div class="modal" id="clientModal">
+  <div class="sheet" style="width:min(720px,100%)">
+    <h2 id="clModalTitle">Картка клієнта</h2>
+    <div class="grid2">
+      <div class="fld"><label>Ім'я та прізвище *</label><input id="cl-name" /></div>
+      <div class="fld"><label>Телефон *</label><input id="cl-phone" placeholder="+380…" /></div>
+      <div class="fld"><label>Email</label><input id="cl-email" type="email" /></div>
+      <div class="fld"><label>Месенджер</label><input id="cl-messenger" placeholder="@telegram / viber / ig" /></div>
+      <div class="fld"><label>Джерело залучення</label><select id="cl-source"><option value="site">Сайт</option><option value="instagram">Instagram</option><option value="phone">Телефон</option><option value="ads">Реклама</option><option value="referral">Рекомендація</option><option value="other">Інше</option></select></div>
+      <div class="fld"><label>Статус</label><select id="cl-status"><option value="active">Активний</option><option value="inactive">Неактивний</option></select></div>
+      <div class="fld wide"><label style="display:flex;align-items:center;gap:8px;font-weight:700"><input type="checkbox" id="cl-consent" style="width:auto"> Згода на комунікації</label></div>
+      <div class="fld wide"><label>Коментар адміністратора</label><textarea id="cl-note" rows="2"></textarea></div>
+    </div>
+    <div id="cl-pets-wrap" hidden style="margin-top:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <h3 style="font-family:var(--font-head);font-weight:600;margin:0">Улюбленці</h3>
+        <button class="btn sm" id="cl-add-pet">+ Додати</button>
+      </div>
+      <div id="cl-pets"></div>
+    </div>
+    <div id="cl-hist-wrap" hidden style="margin-top:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <h3 style="font-family:var(--font-head);font-weight:600;margin:0">Історія візитів</h3>
+        <span class="muted" id="cl-total" style="font-weight:800"></span>
+      </div>
+      <div id="cl-hist"></div>
+    </div>
+    <p class="modal-err" id="clModalErr"></p>
+    <div class="sheet-act">
+      <button class="btn danger sm" id="cl-del" hidden>Видалити</button>
+      <span style="flex:1"></span>
+      <button class="btn ghost sm" id="cl-cancel" style="border-color:var(--line);color:var(--ink-soft)">Закрити</button>
+      <button class="btn" id="cl-save">Зберегти</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pet card -->
+<div class="modal" id="petModal">
+  <div class="sheet" style="width:min(680px,100%)">
+    <h2 id="petModalTitle">Картка улюбленця</h2>
+    <div class="grid2">
+      <div class="fld"><label>Кличка *</label><input id="pt-name" /></div>
+      <div class="fld"><label>Вид</label><select id="pt-species"><option value="dog">Собака</option><option value="cat">Кіт</option><option value="other">Інше</option></select></div>
+      <div class="fld"><label>Порода / метис</label><input id="pt-breed" list="ptBreeds" /><datalist id="ptBreeds"></datalist></div>
+      <div class="fld"><label>Дата народження</label><input id="pt-birthdate" type="date" /></div>
+      <div class="fld"><label>Вага</label><select id="pt-weight"></select></div>
+      <div class="fld"><label>Стать</label><select id="pt-sex"><option value="">—</option><option value="m">Хлопчик</option><option value="f">Дівчинка</option></select></div>
+      <div class="fld"><label>Окрас</label><input id="pt-color" /></div>
+      <div class="fld"><label style="display:flex;align-items:center;gap:8px;font-weight:700"><input type="checkbox" id="pt-special" style="width:auto"> ⚠️ Особлива увага</label></div>
+      <div class="fld wide"><label>Алергії / чутливість шкіри</label><input id="pt-allergies" /></div>
+      <div class="fld"><label>Поведінка</label><select id="pt-behavior"><option value="">—</option><option value="спокійно">Спокійно</option><option value="тривожно">Тривожно</option><option value="агресивно">Агресивно</option></select></div>
+      <div class="fld"><label>Реакція (фен/машинка/кігтеріз)</label><input id="pt-reactions" /></div>
+      <div class="fld wide"><label>Побажання по стрижці</label><textarea id="pt-prefs" rows="2"></textarea></div>
+      <div class="fld wide"><label>Ветрекомендації</label><textarea id="pt-vet" rows="2"></textarea></div>
+      <div class="fld wide"><label>⚠️ Протипоказання / попередження</label><textarea id="pt-warnings" rows="2"></textarea></div>
+    </div>
+    <p class="modal-err" id="petModalErr"></p>
+    <div class="sheet-act">
+      <button class="btn danger sm" id="pt-del" hidden>Видалити</button>
+      <span style="flex:1"></span>
+      <button class="btn ghost sm" id="pt-cancel" style="border-color:var(--line);color:var(--ink-soft)">Скасувати</button>
+      <button class="btn" id="pt-save">Зберегти</button>
+    </div>
+  </div>
+</div>
+
+<script src="data/config.js?v=14"></script>
 <script>
 (function(){
   "use strict";
@@ -247,6 +337,7 @@
   var $=function(s){return document.querySelector(s);};
   var token=""; try{token=localStorage.getItem(KEY)||"";}catch(e){}
   var all=[], filter="all", q="", view="dash", editId=null, dateFrom="", dateTo="", calRef=null;
+  var clients=[], pets=[], clientQ="", editClientId=null, editPetId=null, petClientId=null;
 
   var STATUS=[{v:"new",label:"Нова"},{v:"confirmed",label:"Підтверджена"},{v:"done",label:"Виконана"},{v:"cancelled",label:"Скасована"}];
   var FILTERS=[{v:"all",label:"Усі"}].concat(STATUS);
@@ -275,18 +366,22 @@
   function showLogin(msg){$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#loginErr").textContent=msg||"";}
   function showApp(){$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;setView(view);}
-  function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");
+  function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");
     [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.classList.toggle("on",b.dataset.view===v);});
-    if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else render();}
+    if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else render();}
   [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.addEventListener("click",function(){setView(b.dataset.view);});});
 
+  async function loadClientsPets(){
+    try{clients=(await api("/admin/clients")).clients||[];}catch(e){clients=[];}
+    try{pets=(await api("/admin/pets")).pets||[];}catch(e){pets=[];}
+  }
   async function tryLogin(t){token=t;
-    try{var d=await api("/admin/list");try{localStorage.setItem(KEY,token);}catch(e){}all=d.bookings||[];showApp();renderPills();}
+    try{var d=await api("/admin/list");try{localStorage.setItem(KEY,token);}catch(e){}all=d.bookings||[];await loadClientsPets();showApp();renderPills();}
     catch(e){showLogin(e&&e.code===401?"Невірний пароль.":"Помилка з'єднання. Спробуйте ще раз.");}}
   $("#loginBtn").addEventListener("click",function(){tryLogin($("#tokenInput").value.trim());});
   $("#tokenInput").addEventListener("keydown",function(e){if(e.key==="Enter")tryLogin(e.target.value.trim());});
   $("#logoutBtn").addEventListener("click",function(){try{localStorage.removeItem(KEY);}catch(e){}token="";$("#tokenInput").value="";showLogin("");});
-  async function reload(){try{var d=await api("/admin/list");all=d.bookings||[];renderPills();setView(view);}catch(e){if(e.code===401)showLogin("Сесія завершилась, увійдіть знову.");}}
+  async function reload(){try{var d=await api("/admin/list");all=d.bookings||[];await loadClientsPets();renderPills();setView(view);}catch(e){if(e.code===401)showLogin("Сесія завершилась, увійдіть знову.");}}
   $("#refreshBtn").addEventListener("click",reload);
 
   /* ---------- dashboard ---------- */
@@ -433,7 +528,7 @@
       var noteic=b.note?'<span class="noteic" title="'+esc(b.note)+'">💬</span>':'';
       tr.innerHTML=
         '<td class="client"><div class="nm">'+esc(b.name)+'</div><div class="ph"><a href="tel:'+esc(b.phone)+'">'+esc(b.phone)+'</a></div></td>'+
-        '<td>'+esc(b.pet)+(function(){var pd=[b.breed,b.weight].filter(Boolean).join(", ");return pd?'<span class="muted"> · '+esc(pd)+'</span>':'';})()+'</td>'+
+        '<td>'+esc(b.pet)+(b.pet_name?' <b>'+esc(b.pet_name)+'</b>':'')+(function(){var pd=[b.breed,b.weight].filter(Boolean).join(", ");return pd?'<span class="muted"> · '+esc(pd)+'</span>':'';})()+'</td>'+
         '<td>'+esc(b.service)+(String(b.is_request)==="1"?'<span class="req">заявка</span>':'')+noteic+'</td>'+
         '<td class="when">'+visit+'</td>'+
         '<td>'+(b.staff?esc(b.staff):'<span class="muted">—</span>')+'</td>'+
@@ -456,6 +551,7 @@
     $("#modalTitle").textContent=b?"Редагувати заявку":"Нова заявка";
     $("#f-name").value=b?b.name||"":"";$("#f-phone").value=b?b.phone||"":"";
     $("#f-pet").value=b&&["Собака","Кіт"].indexOf(b.pet)>=0?b.pet:(b?"Інше":"Собака");
+    $("#f-petname").value=b?b.pet_name||"":"";
     $("#f-service").value=b?b.service||"":"";
     $("#f-breed").value=b?b.breed||"":"";$("#f-weight").value=b?b.weight||"":"";
     $("#f-staff").value=b?b.staff||"":"";
@@ -472,7 +568,7 @@
   $("#saveBtn").addEventListener("click",async function(){
     var pv=$("#f-price").value.trim();
     var isCat=$("#f-pet").value==="Кіт";
-    var payload={name:$("#f-name").value.trim(),phone:$("#f-phone").value.trim(),pet:$("#f-pet").value,
+    var payload={name:$("#f-name").value.trim(),phone:$("#f-phone").value.trim(),pet:$("#f-pet").value,pet_name:$("#f-petname").value.trim(),
       service:$("#f-service").value.trim(),breed:isCat?"":$("#f-breed").value,weight:$("#f-weight").value.trim(),
       staff:$("#f-staff").value,source:$("#f-source").value,date:$("#f-date").value,time:$("#f-time").value,
       price:pv===""?"":Number(pv),status:$("#f-status").value,note:$("#f-note").value.trim()};
@@ -484,6 +580,135 @@
     }catch(err){$("#modalErr").textContent="Не вдалося зберегти. Спробуйте ще раз.";}
   });
   document.addEventListener("keydown",function(e){if(e.key==="Escape")closeModal();});
+
+  /* ---------- clients & pets ---------- */
+  function normPhone(p){return (p||"").replace(/\D/g,"").slice(-9);}
+  function bookingsOf(c){var np=normPhone(c.phone);return all.filter(function(b){return (c.id&&b.client_id===c.id)||(np&&normPhone(b.phone)===np);});}
+  function petsOf(cid){return pets.filter(function(p){return p.client_id===cid;});}
+  var STCOLOR={new:"var(--new)",confirmed:"var(--confirmed)",done:"var(--done)",cancelled:"var(--cancelled)"};
+  function stLabel(v){var s=STATUS.filter(function(x){return x.v===v;})[0];return s?s.label:v;}
+  var SPECIES_L={dog:"Собака",cat:"Кіт",other:"Тварина"};
+
+  function renderClients(){
+    var v=$("#clientsView");
+    v.innerHTML='<div class="toolbar"><input class="search" id="clSearch" placeholder="Пошук клієнта: імʼя, телефон, кличка…"><span style="flex:1"></span><button class="btn" id="clNew">+ Новий клієнт</button></div>'+
+      '<p class="meta" id="clMeta"></p><div class="clist" id="clist"></div>';
+    $("#clSearch").value=clientQ;
+    $("#clSearch").addEventListener("input",function(e){clientQ=e.target.value;renderClientList();});
+    $("#clNew").addEventListener("click",function(){openClientModal(null);});
+    renderClientList();
+  }
+  function renderClientList(){
+    var qq=(clientQ||"").trim().toLowerCase();
+    var list=clients.filter(function(c){ if(!qq)return true;
+      var hay=((c.name||"")+" "+(c.phone||"")+" "+petsOf(c.id).map(function(p){return p.name;}).join(" ")).toLowerCase();
+      return hay.indexOf(qq)>=0;});
+    $("#clMeta").textContent="Клієнтів: "+list.length+" із "+clients.length;
+    var box=$("#clist");
+    box.innerHTML=list.map(function(c){
+      var ps=petsOf(c.id);
+      var spent=bookingsOf(c).filter(function(b){return b.status==="done";}).reduce(function(s,b){return s+(Number(b.price)||0);},0);
+      return '<div class="ccard" data-id="'+c.id+'"><h4>'+esc(c.name||"Без імені")+'</h4>'+
+        '<div class="cmeta">'+esc(c.phone||"—")+(spent?" · "+money(spent):"")+'</div>'+
+        '<div class="cpets">'+(ps.length?ps.map(function(p){return '<span class="ppill'+(p.special?" special":"")+'">'+(p.special?"⚠️ ":"")+esc(p.name||"?")+'</span>';}).join(""):'<span class="muted" style="font-size:.8rem">немає улюбленців</span>')+'</div></div>';
+    }).join("")||'<p class="nodata">Клієнтів не знайдено.</p>';
+    [].forEach.call(box.querySelectorAll(".ccard"),function(el){el.addEventListener("click",function(){openClientModal(clients.filter(function(x){return String(x.id)===el.dataset.id;})[0]);});});
+  }
+
+  function openClientModal(c){
+    editClientId=c?c.id:null;
+    $("#clModalTitle").textContent=c?"Картка клієнта":"Новий клієнт";
+    $("#cl-name").value=c?c.name||"":"";$("#cl-phone").value=c?c.phone||"":"";
+    $("#cl-email").value=c?c.email||"":"";$("#cl-messenger").value=c?c.messenger||"":"";
+    $("#cl-source").value=c?(c.source||"site"):"site";$("#cl-status").value=c?(c.status||"active"):"active";
+    $("#cl-consent").checked=c?!!c.consent:false;$("#cl-note").value=c?c.note||"":"";
+    $("#cl-del").hidden=!c;$("#cl-pets-wrap").hidden=!c;$("#cl-hist-wrap").hidden=!c;
+    if(c){renderClientPets(c);renderClientHistory(c);}
+    $("#clModalErr").textContent="";$("#clientModal").classList.add("open");
+  }
+  function renderClientPets(c){
+    var ps=petsOf(c.id);
+    $("#cl-pets").innerHTML=ps.length?ps.map(function(p){
+      return '<div class="pet-line" data-id="'+p.id+'"><span class="ppill'+(p.special?" special":"")+'">'+(p.special?"⚠️":"🐾")+'</span>'+
+        '<div style="flex:1"><div class="pet-nm">'+esc(p.name||"?")+'</div><div class="pet-sub">'+esc([SPECIES_L[p.species]||"",p.breed,p.weight].filter(Boolean).join(" · "))+'</div></div><span style="color:var(--ink-soft)">✎</span></div>';
+    }).join(""):'<p class="muted" style="font-size:.85rem">Немає улюбленців. Додайте першого.</p>';
+    [].forEach.call($("#cl-pets").querySelectorAll(".pet-line"),function(el){el.addEventListener("click",function(){openPetModal(pets.filter(function(x){return String(x.id)===el.dataset.id;})[0],c.id);});});
+  }
+  function renderClientHistory(c){
+    var hs=bookingsOf(c).slice().sort(function(a,b){return (b.date||"").localeCompare(a.date||"");});
+    var total=hs.filter(function(b){return b.status==="done";}).reduce(function(s,b){return s+(Number(b.price)||0);},0);
+    $("#cl-total").textContent="Витрачено: "+money(total)+" · візитів: "+hs.length;
+    $("#cl-hist").innerHTML=hs.length?hs.map(function(b){
+      return '<div class="hist-row"><span class="muted">'+esc(b.date||"—")+'</span>'+
+        '<span>'+esc(b.service||"")+(b.pet_name?" · "+esc(b.pet_name):"")+(b.staff?" · "+esc(b.staff):"")+'</span>'+
+        '<span class="hist-badge" style="background:'+(STCOLOR[b.status||"new"])+'">'+esc(stLabel(b.status||"new"))+'</span>'+
+        '<span class="hp">'+(Number(b.price)>0?money(b.price):"—")+'</span></div>';
+    }).join(""):'<p class="muted" style="font-size:.85rem">Ще немає візитів.</p>';
+  }
+
+  $("#cl-cancel").addEventListener("click",function(){$("#clientModal").classList.remove("open");});
+  $("#clientModal").addEventListener("click",function(e){if(e.target===$("#clientModal"))$("#clientModal").classList.remove("open");});
+  $("#cl-add-pet").addEventListener("click",function(){if(editClientId)openPetModal(null,editClientId);});
+  $("#cl-save").addEventListener("click",async function(){
+    var payload={name:$("#cl-name").value.trim(),phone:$("#cl-phone").value.trim(),email:$("#cl-email").value.trim(),
+      messenger:$("#cl-messenger").value.trim(),source:$("#cl-source").value,status:$("#cl-status").value,
+      consent:$("#cl-consent").checked?1:0,note:$("#cl-note").value.trim()};
+    if(!payload.name||!payload.phone){$("#clModalErr").textContent="Вкажіть імʼя і телефон.";return;}
+    if(editClientId)payload.id=editClientId;
+    try{var r=await api("/admin/client-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      await loadClientsPets();editClientId=r.id||editClientId;
+      var updated=clients.filter(function(x){return x.id===editClientId;})[0];
+      if(updated)openClientModal(updated); else $("#clientModal").classList.remove("open");
+      renderClientList();
+    }catch(e){$("#clModalErr").textContent="Не вдалося зберегти.";}
+  });
+  $("#cl-del").addEventListener("click",async function(){
+    if(!editClientId||!confirm("Видалити клієнта разом з улюбленцями?"))return;
+    try{await api("/admin/client-delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:editClientId})});
+      await loadClientsPets();$("#clientModal").classList.remove("open");renderClientList();
+    }catch(e){alert("Не вдалося видалити");}
+  });
+
+  (function(){
+    if($("#ptBreeds"))$("#ptBreeds").innerHTML=(CFG.dogBreeds||[]).map(function(b){return '<option>'+esc(b)+'</option>';}).join("");
+    if($("#pt-weight"))$("#pt-weight").innerHTML='<option value="">—</option>'+(CFG.weightOptions||[]).map(function(w){return '<option>'+esc(w)+'</option>';}).join("");
+  })();
+  function openPetModal(p,clientId){
+    editPetId=p?p.id:null; petClientId=p?p.client_id:clientId;
+    $("#petModalTitle").textContent=p?"Картка улюбленця":"Новий улюбленець";
+    $("#pt-name").value=p?p.name||"":"";$("#pt-species").value=p?(p.species||"dog"):"dog";
+    $("#pt-breed").value=p?p.breed||"":"";$("#pt-birthdate").value=p?p.birthdate||"":"";
+    $("#pt-weight").value=p?p.weight||"":"";$("#pt-sex").value=p?p.sex||"":"";$("#pt-color").value=p?p.color||"":"";
+    $("#pt-special").checked=p?!!p.special:false;$("#pt-allergies").value=p?p.allergies||"":"";
+    $("#pt-behavior").value=p?p.behavior||"":"";$("#pt-reactions").value=p?p.reactions||"":"";
+    $("#pt-prefs").value=p?p.prefs||"":"";$("#pt-vet").value=p?p.vet_notes||"":"";$("#pt-warnings").value=p?p.warnings||"":"";
+    $("#pt-del").hidden=!p;$("#petModalErr").textContent="";$("#petModal").classList.add("open");
+  }
+  $("#pt-cancel").addEventListener("click",function(){$("#petModal").classList.remove("open");});
+  $("#petModal").addEventListener("click",function(e){if(e.target===$("#petModal"))$("#petModal").classList.remove("open");});
+  $("#pt-save").addEventListener("click",async function(){
+    var payload={client_id:petClientId,name:$("#pt-name").value.trim(),species:$("#pt-species").value,
+      breed:$("#pt-breed").value.trim(),birthdate:$("#pt-birthdate").value,weight:$("#pt-weight").value,
+      sex:$("#pt-sex").value,color:$("#pt-color").value.trim(),special:$("#pt-special").checked?1:0,
+      allergies:$("#pt-allergies").value.trim(),behavior:$("#pt-behavior").value,reactions:$("#pt-reactions").value.trim(),
+      prefs:$("#pt-prefs").value.trim(),vet_notes:$("#pt-vet").value.trim(),warnings:$("#pt-warnings").value.trim()};
+    if(!payload.name){$("#petModalErr").textContent="Вкажіть кличку.";return;}
+    if(editPetId)payload.id=editPetId;
+    try{await api("/admin/pet-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      await loadClientsPets();$("#petModal").classList.remove("open");
+      var c=clients.filter(function(x){return x.id===petClientId;})[0];
+      if(c){renderClientPets(c);renderClientHistory(c);}
+      renderClientList();
+    }catch(e){$("#petModalErr").textContent="Не вдалося зберегти.";}
+  });
+  $("#pt-del").addEventListener("click",async function(){
+    if(!editPetId||!confirm("Видалити улюбленця?"))return;
+    try{await api("/admin/pet-delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:editPetId})});
+      await loadClientsPets();$("#petModal").classList.remove("open");
+      var c=clients.filter(function(x){return x.id===petClientId;})[0];if(c){renderClientPets(c);renderClientHistory(c);}
+      renderClientList();
+    }catch(e){alert("Не вдалося видалити");}
+  });
 
   if(token){tryLogin(token);}else{showLogin("");}
 })();

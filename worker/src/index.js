@@ -71,6 +71,24 @@ export default {
       if (url.pathname === "/admin/delete" && request.method === "POST") {
         return json(await adminDelete(request, env), cors);
       }
+      if (url.pathname === "/admin/clients" && request.method === "GET") {
+        return json(await adminClients(request, env), cors);
+      }
+      if (url.pathname === "/admin/pets" && request.method === "GET") {
+        return json(await adminPets(request, env), cors);
+      }
+      if (url.pathname === "/admin/client-save" && request.method === "POST") {
+        return json(await clientSave(request, env), cors);
+      }
+      if (url.pathname === "/admin/client-delete" && request.method === "POST") {
+        return json(await clientDelete(request, env), cors);
+      }
+      if (url.pathname === "/admin/pet-save" && request.method === "POST") {
+        return json(await petSave(request, env), cors);
+      }
+      if (url.pathname === "/admin/pet-delete" && request.method === "POST") {
+        return json(await petDelete(request, env), cors);
+      }
       return json({ ok: false, error: "not found" }, cors, 404);
     } catch (e) {
       return json({ ok: false, error: String(e && e.message || e) }, cors, e && e.status || 500);
@@ -241,7 +259,7 @@ async function getSlots(url, env) {
 }
 
 async function book(body, env) {
-  const { pet, service, breed, name, phone, date, time, note, weight } = body || {};
+  const { pet, pet_name, service, breed, name, phone, date, time, note, weight } = body || {};
   let staff = (body && body.staff) || "";
   if (!name || !phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
   if (staff && !STAFF.includes(staff)) staff = "";      // ignore unknown master
@@ -268,13 +286,13 @@ async function book(body, env) {
     }
     if (!staff) staff = pickFreeStaff(events, start.getTime(), end.getTime()) || "";  // auto-assign a free master
 
-    const ev = await calCreate(env, token, { pet, service, breed, weight, name, phone, note, date, time, staff, source: "site" });
+    const ev = await calCreate(env, token, { pet, pet_name, service, breed, weight, name, phone, note, date, time, staff, source: "site" });
     eventLink = ev.htmlLink;
     eventId = ev.id;
   }
 
   await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest, staff });
-  await saveBooking(env, { pet, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff });
+  await saveBooking(env, { pet, pet_name, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff, source: "site" });
   return { ok: true, request: isRequest, staff };
 }
 
@@ -288,7 +306,7 @@ function calEventBody(b) {
   const price = (b.price != null && b.price !== "") ? `\nСума: ${b.price} ₴` : "";
   const petLine = [b.breed, b.weight].filter(Boolean).join(", ") || "—";
   return {
-    summary: `${b.pet || "🐾"} · ${b.service || "грумінг"} — ${b.name || ""}${b.staff ? " · " + b.staff : ""}`,
+    summary: `${b.pet || "🐾"}${b.pet_name ? " " + b.pet_name : ""} · ${b.service || "грумінг"} — ${b.name || ""}${b.staff ? " · " + b.staff : ""}`,
     description: `Тварина: ${b.pet || "—"}\nПорода/вага: ${petLine}\nПослуга: ${b.service || "—"}\nМайстер: ${b.staff || "—"}\nТелефон: ${b.phone || "—"}${price}\nКоментар: ${b.note || "—"}\n\n(джерело: ${src})`,
     start: { dateTime: wallToRFC(y, m, d, startMin, BUSINESS.tz), timeZone: BUSINESS.tz },
     end: { dateTime: wallToRFC(y, m, d, startMin + duration, BUSINESS.tz), timeZone: BUSINESS.tz },
@@ -322,14 +340,16 @@ async function calDelete(env, token, id) {
 async function saveBooking(env, b) {
   if (!env.DB) return;
   try {
+    const link = await linkClientPet(env, b);
     await env.DB.prepare(
-      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'new', 'site', ?, ?, ?, ?)`
+      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight,client_id,pet_id,pet_name)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'new', 'site', ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
       b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
       b.isRequest ? 1 : 0, b.eventLink || null, b.eventId || null,
-      (b.price != null && b.price !== "") ? b.price : null, b.staff || "", b.weight || ""
+      (b.price != null && b.price !== "") ? b.price : null, b.staff || "", b.weight || "",
+      link.client_id, link.pet_id, b.pet_name || ""
     ).run();
   } catch (e) { /* CRM logging must never break a booking */ }
 }
@@ -350,7 +370,7 @@ async function adminList(request, env) {
   return { ok: true, bookings: results || [] };
 }
 
-const EDITABLE = ["pet", "service", "breed", "name", "phone", "date", "time", "note", "status", "source", "price", "staff", "weight"];
+const EDITABLE = ["pet", "pet_name", "service", "breed", "name", "phone", "date", "time", "note", "status", "source", "price", "staff", "weight", "client_id", "pet_id"];
 
 async function adminUpdate(request, env) {
   requireAdmin(request, env);
@@ -384,16 +404,114 @@ async function adminCreate(request, env) {
       eventId = ev.id; eventLink = ev.htmlLink;
     } catch (e) { /* keep the record even if calendar fails */ }
   }
+  const link = await linkClientPet(env, b);
   const r = await env.DB.prepare(
-    `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight,client_id,pet_id,pet_name)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
     b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
     hasTime ? 0 : 1, eventLink, b.status || "new", b.source || "phone", eventId,
-    (b.price != null && b.price !== "") ? b.price : null, b.staff || "", b.weight || ""
+    (b.price != null && b.price !== "") ? b.price : null, b.staff || "", b.weight || "",
+    link.client_id, link.pet_id, b.pet_name || ""
   ).run();
   return { ok: true, id: r.meta && r.meta.last_row_id };
+}
+
+/* ----------------------------- Clients & Pets ----------------------------- */
+function normPhone(p) { return (p || "").replace(/\D/g, "").slice(-9); }
+
+// Find/create the client (by phone) and pet (by name under client) for a booking.
+async function linkClientPet(env, b) {
+  if (!env.DB) return { client_id: null, pet_id: null };
+  let clientId = null, petId = null;
+  const np = normPhone(b.phone);
+  if (np) {
+    const cs = await env.DB.prepare(`SELECT id, phone FROM clients`).all();
+    const found = (cs.results || []).find(c => normPhone(c.phone) === np);
+    if (found) clientId = found.id;
+    else {
+      const r = await env.DB.prepare(
+        `INSERT INTO clients (created_at,name,phone,source,status) VALUES (?,?,?,?, 'active')`
+      ).bind(new Date().toISOString(), b.name || "", b.phone || "", b.source || "site").run();
+      clientId = r.meta && r.meta.last_row_id;
+    }
+  }
+  const petName = (b.pet_name || "").trim();
+  if (clientId && petName) {
+    const ps = await env.DB.prepare(`SELECT id, name FROM pets WHERE client_id=?`).bind(clientId).all();
+    const pf = (ps.results || []).find(p => (p.name || "").trim().toLowerCase() === petName.toLowerCase());
+    if (pf) petId = pf.id;
+    else {
+      const species = b.pet === "Кіт" ? "cat" : b.pet === "Собака" ? "dog" : "other";
+      const r = await env.DB.prepare(
+        `INSERT INTO pets (client_id,created_at,name,species,breed,weight) VALUES (?,?,?,?,?,?)`
+      ).bind(clientId, new Date().toISOString(), petName, species, b.breed || "", b.weight || "").run();
+      petId = r.meta && r.meta.last_row_id;
+    }
+  }
+  return { client_id: clientId, pet_id: petId };
+}
+
+async function adminClients(request, env) {
+  requireAdmin(request, env);
+  const { results } = await env.DB.prepare(`SELECT * FROM clients ORDER BY name COLLATE NOCASE`).all();
+  return { ok: true, clients: results || [] };
+}
+async function adminPets(request, env) {
+  requireAdmin(request, env);
+  const { results } = await env.DB.prepare(`SELECT * FROM pets ORDER BY name COLLATE NOCASE`).all();
+  return { ok: true, pets: results || [] };
+}
+const CLIENT_FIELDS = ["name", "phone", "email", "messenger", "source", "note", "consent", "status"];
+async function clientSave(request, env) {
+  requireAdmin(request, env);
+  const b = await request.json();
+  if (b.id) {
+    const sets = [], vals = [];
+    for (const f of CLIENT_FIELDS) if (b[f] != null) { sets.push(`${f}=?`); vals.push(b[f]); }
+    if (sets.length) { vals.push(b.id); await env.DB.prepare(`UPDATE clients SET ${sets.join(",")} WHERE id=?`).bind(...vals).run(); }
+    return { ok: true, id: b.id };
+  }
+  const r = await env.DB.prepare(
+    `INSERT INTO clients (created_at,name,phone,email,messenger,source,note,consent,status) VALUES (?,?,?,?,?,?,?,?,?)`
+  ).bind(new Date().toISOString(), b.name || "", b.phone || "", b.email || "", b.messenger || "",
+    b.source || "site", b.note || "", b.consent ? 1 : 0, b.status || "active").run();
+  return { ok: true, id: r.meta && r.meta.last_row_id };
+}
+async function clientDelete(request, env) {
+  requireAdmin(request, env);
+  const { id } = await request.json();
+  if (!id) return { ok: false, error: "id required" };
+  await env.DB.prepare(`DELETE FROM pets WHERE client_id=?`).bind(id).run();
+  await env.DB.prepare(`DELETE FROM clients WHERE id=?`).bind(id).run();
+  return { ok: true };
+}
+const PET_FIELDS = ["client_id", "name", "species", "breed", "birthdate", "weight", "sex", "color",
+  "allergies", "behavior", "reactions", "prefs", "vet_notes", "warnings", "special"];
+async function petSave(request, env) {
+  requireAdmin(request, env);
+  const b = await request.json();
+  if (b.id) {
+    const sets = [], vals = [];
+    for (const f of PET_FIELDS) if (b[f] != null) { sets.push(`${f}=?`); vals.push(b[f]); }
+    if (sets.length) { vals.push(b.id); await env.DB.prepare(`UPDATE pets SET ${sets.join(",")} WHERE id=?`).bind(...vals).run(); }
+    return { ok: true, id: b.id };
+  }
+  if (!b.client_id) return { ok: false, error: "client_id required" };
+  const cols = ["client_id", "created_at"].concat(PET_FIELDS.filter(f => f !== "client_id"));
+  const vals = [b.client_id, new Date().toISOString()].concat(
+    PET_FIELDS.filter(f => f !== "client_id").map(f => f === "special" ? (b[f] ? 1 : 0) : (b[f] != null ? b[f] : "")));
+  const ph = cols.map(() => "?").join(",");
+  const r = await env.DB.prepare(`INSERT INTO pets (${cols.join(",")}) VALUES (${ph})`).bind(...vals).run();
+  return { ok: true, id: r.meta && r.meta.last_row_id };
+}
+async function petDelete(request, env) {
+  requireAdmin(request, env);
+  const { id } = await request.json();
+  if (!id) return { ok: false, error: "id required" };
+  await env.DB.prepare(`DELETE FROM pets WHERE id=?`).bind(id).run();
+  return { ok: true };
 }
 
 // Keep the Google Calendar event in sync with the CRM row (source of truth).
