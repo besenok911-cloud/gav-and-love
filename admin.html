@@ -177,6 +177,8 @@
   tbody tr{border-top:1px solid var(--line)}
   tbody tr:hover{background:#faf8ff}
   td.client .nm{font-weight:800}
+  td.client .nm-link{cursor:pointer;display:inline-block}
+  td.client .nm-link:hover{color:var(--violet);text-decoration:underline}
   td.client .ph a{color:var(--violet);text-decoration:none;font-weight:700;font-size:.82rem;word-break:break-all}
   .muted{color:var(--ink-soft)}
   .when{white-space:nowrap;font-weight:700}
@@ -1226,7 +1228,7 @@
       var opts=STATUS.map(function(s){return '<option value="'+s.v+'"'+(s.v===st?" selected":"")+'>'+s.label+'</option>';}).join("");
       var noteic=b.note?'<span class="noteic" title="'+esc(b.note)+'">💬</span>':'';
       tr.innerHTML=
-        '<td class="client"><div class="nm">'+esc(b.name)+'</div><div class="ph"><a href="tel:'+esc(b.phone)+'">'+esc(b.phone)+'</a></div></td>'+
+        '<td class="client"><div class="nm nm-link" title="Відкрити картку клієнта">'+esc(b.name)+'</div><div class="ph"><a href="tel:'+esc(b.phone)+'">'+esc(b.phone)+'</a></div></td>'+
         '<td>'+esc(b.pet)+(b.pet_name?' <b>'+esc(b.pet_name)+'</b>':'')+(function(){var pd=[b.breed,b.weight].filter(Boolean).join(", ");return pd?'<span class="muted"> · '+esc(pd)+'</span>':'';})()+'</td>'+
         '<td>'+esc(b.service)+(String(b.is_request)==="1"?'<span class="req">заявка</span>':'')+noteic+'</td>'+
         '<td class="when">'+created+'</td>'+
@@ -1240,6 +1242,7 @@
         try{await api("/admin/update",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:b.id,status:v})});
           b.status=v;renderPills();render();}catch(err){alert("Не вдалося оновити статус");}});
       tr.querySelector("button.edit").addEventListener("click",function(){openModal(b);});
+      var nml=tr.querySelector(".nm-link");if(nml)nml.addEventListener("click",function(){var c=clientOf(b);if(c)openClientModal(c);else toast("Картку клієнта не знайдено",true);});
       tr.querySelector("button.del").addEventListener("click",async function(){if(!confirm("Видалити запис "+(b.name||"")+"?"))return;
         try{await api("/admin/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:b.id})});
           all=all.filter(function(x){return x.id!==b.id;});renderPills();render();}catch(err){alert("Не вдалося видалити");}});
@@ -1286,6 +1289,7 @@
   /* ---------- clients & pets ---------- */
   function normPhone(p){return (p||"").replace(/\D/g,"").slice(-9);}
   function bookingsOf(c){var np=normPhone(c.phone);return all.filter(function(b){return (c.id&&b.client_id===c.id)||(np&&normPhone(b.phone)===np);});}
+  function clientOf(b){var np=normPhone(b.phone);return clients.filter(function(c){return (b.client_id&&c.id===b.client_id)||(np&&normPhone(c.phone)===np);})[0];}
   function petsOf(cid){return pets.filter(function(p){return p.client_id===cid;});}
   var STCOLOR={new:"var(--new)",confirmed:"var(--confirmed)",arrived:"#0ea5b7",in_progress:"#e6912b",done:"var(--done)",paid:"#1a7f37",no_show:"#8a8a8a",waitlist:"var(--gold)",cancelled:"var(--cancelled)"};
   function stLabel(v){var s=STATUS.filter(function(x){return x.v===v;})[0];return s?s.label:v;}
