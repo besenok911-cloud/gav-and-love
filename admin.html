@@ -108,6 +108,28 @@
   .mrow.off{opacity:.6}
   .mrow .m2{color:var(--ink-soft);font-size:.82rem;margin-top:2px}
   .mtag{font-size:.7rem;font-weight:800;padding:.22em .62em;border-radius:999px;background:var(--bg-2);color:var(--ink-soft);white-space:nowrap;flex:none}
+  /* services & catalog editor */
+  .btn.primary{background:var(--violet);color:#fff;border-color:var(--violet)}
+  .svc-head,.svc-row{display:grid;grid-template-columns:1.7fr .9fr .8fr .8fr auto auto auto;gap:8px;align-items:center}
+  .svc-head{font-size:.7rem;font-weight:800;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;padding:0 0 6px}
+  .svc-row{padding:8px 0;border-top:1px solid var(--line-soft)}
+  .svc-row input,.svc-row select{width:100%;padding:.42em .5em;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--paper);color:var(--ink);min-width:0}
+  .svc-row label{display:flex;align-items:center;gap:5px;font-size:.78rem;color:var(--ink-soft);white-space:nowrap}
+  .svc-row .rowact{display:flex;gap:5px}
+  .catcard{border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0;background:var(--bg-2)}
+  .catcard-head{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+  .catcard-head input{flex:1;font-weight:800;padding:.45em .6em;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--paper);color:var(--ink)}
+  .cat-table{width:100%;border-collapse:collapse}
+  .cat-table th,.cat-table td{padding:3px;vertical-align:middle}
+  .cat-table input{width:100%;padding:.35em .45em;border:1px solid var(--line);border-radius:6px;font:inherit;background:var(--paper);color:var(--ink);min-width:0}
+  .cat-table th input{font-weight:800;background:var(--violet-soft)}
+  .cat-rowact{display:flex;gap:3px}
+  .cat-rowact button{border:1px solid var(--line);background:var(--paper);border-radius:6px;cursor:pointer;padding:.2em .45em;font-size:.85rem;line-height:1;color:var(--ink)}
+  .cat-notes{display:grid;gap:6px;margin-bottom:12px}
+  .cat-notes textarea{width:100%;min-height:50px;padding:.5em .6em;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--paper);color:var(--ink);resize:vertical}
+  .cat-notes label{font-size:.75rem;font-weight:800;color:var(--ink-soft)}
+  .svc-actions{display:flex;gap:12px;align-items:center;margin-top:14px}
+  .svc-actions .msg{font-weight:800}
 
   /* toolbar + table */
   .toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:20px 0}
@@ -233,6 +255,7 @@
     <button class="tabbtn" data-view="cal">Розклад</button>
     <button class="tabbtn" data-view="clients">Клієнти</button>
     <button class="tabbtn" data-view="reports">Звіти</button>
+    <button class="tabbtn" data-view="services">Послуги</button>
   </div>
   <span class="sp"></span>
   <button class="btn ghost sm" id="remindBtn" hidden title="Нагадування">🔔</button>
@@ -275,6 +298,7 @@
 <div class="wrap" id="calView" hidden></div>
 <div class="wrap" id="clientsView" hidden></div>
 <div class="wrap" id="reportsView" hidden></div>
+<div class="wrap" id="servicesView" hidden></div>
 
 <div class="modal" id="modal">
   <div class="sheet">
@@ -414,6 +438,7 @@
   var all=[], filter="all", q="", view="dash", editId=null, dateFrom="", dateTo="", calRef=null;
   var clients=[], pets=[], clientQ="", editClientId=null, editPetId=null, petClientId=null, mastersList=[];
   var repFrom="", repTo="";
+  var svcList=[], catalog=null;
 
   var STATUS=[{v:"new",label:"Нова"},{v:"confirmed",label:"Підтверджена"},{v:"done",label:"Виконана"},{v:"waitlist",label:"Лист очікування"},{v:"cancelled",label:"Скасована"}];
   var FILTERS=[{v:"all",label:"Усі"}].concat(STATUS);
@@ -442,9 +467,9 @@
   function showLogin(msg){$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;$("#loginErr").textContent=msg||"";}
   function showApp(){$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;$("#remindBtn").hidden=false;setView(view);}
-  function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");$("#reportsView").hidden=(v!=="reports");
+  function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");$("#reportsView").hidden=(v!=="reports");$("#servicesView").hidden=(v!=="services");
     [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.classList.toggle("on",b.dataset.view===v);});
-    if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else if(v==="reports")renderReports(); else render();}
+    if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else if(v==="reports")renderReports(); else if(v==="services")renderServices(); else render();}
   [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.addEventListener("click",function(){setView(b.dataset.view);});});
 
   async function loadClientsPets(){
@@ -622,6 +647,93 @@
     $("#rep-from").addEventListener("change",function(e){repFrom=e.target.value;renderReports();});
     $("#rep-to").addEventListener("change",function(e){repTo=e.target.value;renderReports();});
     $("#rep-export").addEventListener("click",function(){exportBookingsList(bk.slice().sort(function(a,b){return (a.date||"").localeCompare(b.date||"")||(a.time||"").localeCompare(b.time||"");}),"gavlove-zvit-"+repFrom+"_"+repTo);});
+  }
+
+  /* ---------- services & price catalog (Послуги) ---------- */
+  var svcWired=false;
+  function speciesOpts(v){return [["both","Всі"],["dog","Собаки"],["cat","Коти"]].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===(v||"both")?" selected":"")+'>'+o[1]+'</option>';}).join("");}
+  function svcRowHtml(s){s=s||{};
+    return '<div class="svc-row" data-id="'+(s.id||"")+'" data-sort="'+(s.sort||0)+'">'+
+      '<input class="s-name" value="'+esc(s.name||"")+'" placeholder="Назва послуги">'+
+      '<select class="s-species">'+speciesOpts(s.species)+'</select>'+
+      '<input class="s-dur" type="number" min="0" step="10" value="'+(s.duration||0)+'" title="тривалість, хв">'+
+      '<input class="s-price" type="number" min="0" step="50" value="'+(s.price!=null&&s.price!==""?s.price:"")+'" placeholder="—" title="базова ціна, ₴">'+
+      '<label><input type="checkbox" class="s-req"'+(s.is_request?" checked":"")+'>заявка</label>'+
+      '<label><input type="checkbox" class="s-active"'+(s.active==null||s.active?" checked":"")+'>активна</label>'+
+      '<div class="rowact"><button class="btn primary sm s-save">Зберегти</button>'+(s.id?'<button class="btn danger sm s-del" title="Видалити">✕</button>':'')+'</div>'+
+    '</div>';}
+  function catCardHtml(cat,ci){var cols=cat.columns||[];
+    var thead='<tr>'+cols.map(function(c,j){return '<th><input class="cat-col" data-ci="'+ci+'" data-col="'+j+'" value="'+esc(c)+'"></th>';}).join("")+'<th></th></tr>';
+    var tbody=(cat.rows||[]).map(function(row,ri){
+      return '<tr>'+cols.map(function(c,j){return '<td><input class="cat-cell" data-ci="'+ci+'" data-ri="'+ri+'" data-col="'+j+'" value="'+esc(row[j]!=null?row[j]:"")+'"></td>';}).join("")+
+        '<td><div class="cat-rowact"><button class="cat-up" data-ci="'+ci+'" data-ri="'+ri+'" title="вгору">↑</button><button class="cat-down" data-ci="'+ci+'" data-ri="'+ri+'" title="вниз">↓</button><button class="cat-delrow" data-ci="'+ci+'" data-ri="'+ri+'" title="видалити рядок">✕</button></div></td></tr>';}).join("");
+    return '<div class="catcard" data-ci="'+ci+'">'+
+      '<div class="catcard-head"><input class="cat-title" data-ci="'+ci+'" value="'+esc(cat.title||"")+'" placeholder="Назва категорії"><button class="btn danger sm cat-delcat" data-ci="'+ci+'">Видалити</button></div>'+
+      '<div style="overflow-x:auto"><table class="cat-table"><thead>'+thead+'</thead><tbody>'+tbody+'</tbody></table></div>'+
+      '<button class="btn ghost sm cat-addrow" data-ci="'+ci+'" style="margin-top:8px">+ Рядок</button>'+
+    '</div>';}
+  function drawServices(){
+    $("#servicesView").innerHTML=
+      '<div class="panel full"><h3>Послуги для запису <span class="tag">форма + слоти</span></h3>'+
+        '<p class="repnote">Тривалість задає довжину слоту та блок у календарі. Базова ціна (необовʼязково) підставляється в нові замовлення. Зміни одразу діють на сайті.</p>'+
+        '<div class="svc-head"><span>Назва</span><span>Вид</span><span>Хв</span><span>Ціна ₴</span><span>Заявка</span><span>Активна</span><span></span></div>'+
+        '<div id="svc-rows">'+svcList.map(svcRowHtml).join("")+'</div>'+
+        '<button class="btn ghost sm" id="svc-add" style="margin-top:10px">+ Додати послугу</button>'+
+      '</div>'+
+      '<div class="panel full"><h3>Прайс сайту <span class="tag">сторінка «Ціни»</span></h3>'+
+        '<div class="cat-notes"><label>Примітка про подарунок</label><textarea id="cat-note-gift">'+esc(catalog.note_gift||"")+'</textarea>'+
+          '<label>Примітка (виводиться після *)</label><textarea id="cat-note-big">'+esc(catalog.note_big||"")+'</textarea></div>'+
+        '<div id="cat-cards">'+(catalog.categories||[]).map(catCardHtml).join("")+'</div>'+
+        '<button class="btn ghost sm" id="cat-addcat">+ Категорія</button>'+
+        '<div class="svc-actions"><button class="btn primary" id="cat-save">💾 Зберегти прайс сайту</button><span class="msg" id="cat-status"></span></div>'+
+      '</div>';
+  }
+  function redrawCats(){$("#cat-cards").innerHTML=(catalog.categories||[]).map(catCardHtml).join("");}
+  function reloadSvcRows(){return api("/admin/services").then(function(d){svcList=(d&&d.services)||[];var el=$("#svc-rows");if(el)el.innerHTML=svcList.map(svcRowHtml).join("");});}
+  function saveSvcRow(row){
+    var pr=row.querySelector(".s-price").value.trim();
+    var payload={name:row.querySelector(".s-name").value.trim(),species:row.querySelector(".s-species").value,
+      duration:+row.querySelector(".s-dur").value||0,price:pr===""?"":(+pr||0),
+      is_request:row.querySelector(".s-req").checked?1:0,active:row.querySelector(".s-active").checked?1:0,sort:+row.dataset.sort||0};
+    if(!payload.name){alert("Вкажіть назву послуги");return;}
+    if(row.dataset.id)payload.id=+row.dataset.id;
+    api("/admin/service-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
+      .then(function(){return reloadSvcRows();}).catch(function(){alert("Не вдалося зберегти послугу");});
+  }
+  function delSvcRow(row){if(!row.dataset.id){row.remove();return;}
+    if(!confirm("Видалити послугу «"+(row.querySelector(".s-name").value||"")+"»?"))return;
+    api("/admin/service-delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:+row.dataset.id})})
+      .then(function(){return reloadSvcRows();}).catch(function(){alert("Не вдалося видалити");});
+  }
+  function saveCatalogEdits(){var st=$("#cat-status");if(st){st.textContent="Збереження…";st.style.color="var(--ink-soft)";}
+    api("/admin/catalog-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prices:catalog})})
+      .then(function(d){if(d&&d.prices)catalog=d.prices;if(st){st.textContent="Збережено ✓ — вже на сайті";st.style.color="var(--confirmed)";}})
+      .catch(function(){if(st){st.textContent="Помилка збереження";st.style.color="var(--cancelled)";}});
+  }
+  function moveRow(ci,ri,dir){var rows=catalog.categories[ci].rows;var nj=ri+dir;if(nj<0||nj>=rows.length)return;var t=rows[ri];rows[ri]=rows[nj];rows[nj]=t;redrawCats();}
+  function wireServices(){if(svcWired)return;svcWired=true;var root=$("#servicesView");
+    root.addEventListener("input",function(e){var t=e.target;if(!catalog)return;
+      if(t.classList.contains("cat-title")){catalog.categories[+t.dataset.ci].title=t.value;}
+      else if(t.classList.contains("cat-col")){catalog.categories[+t.dataset.ci].columns[+t.dataset.col]=t.value;}
+      else if(t.classList.contains("cat-cell")){catalog.categories[+t.dataset.ci].rows[+t.dataset.ri][+t.dataset.col]=t.value;}
+      else if(t.id==="cat-note-gift"){catalog.note_gift=t.value;}
+      else if(t.id==="cat-note-big"){catalog.note_big=t.value;}});
+    root.addEventListener("click",function(e){var b=e.target.closest("button");if(!b)return;
+      if(b.classList.contains("s-save")){saveSvcRow(b.closest(".svc-row"));}
+      else if(b.classList.contains("s-del")){delSvcRow(b.closest(".svc-row"));}
+      else if(b.id==="svc-add"){$("#svc-rows").insertAdjacentHTML("beforeend",svcRowHtml({species:"both",duration:90,active:1}));}
+      else if(b.classList.contains("cat-addrow")){var ci=+b.dataset.ci;var n=(catalog.categories[ci].columns||[]).length||2;catalog.categories[ci].rows.push(new Array(n).fill(""));redrawCats();}
+      else if(b.classList.contains("cat-delrow")){catalog.categories[+b.dataset.ci].rows.splice(+b.dataset.ri,1);redrawCats();}
+      else if(b.classList.contains("cat-up")){moveRow(+b.dataset.ci,+b.dataset.ri,-1);}
+      else if(b.classList.contains("cat-down")){moveRow(+b.dataset.ci,+b.dataset.ri,1);}
+      else if(b.classList.contains("cat-delcat")){if(confirm("Видалити всю категорію?")){catalog.categories.splice(+b.dataset.ci,1);redrawCats();}}
+      else if(b.id==="cat-addcat"){catalog.categories.push({id:"cat"+Date.now(),title:"Нова категорія",icon:"star",columns:["Послуга","Ціна, грн"],searchable:false,rows:[["",""]]});redrawCats();}
+      else if(b.id==="cat-save"){saveCatalogEdits();}});
+  }
+  function renderServices(){wireServices();$("#servicesView").innerHTML='<p class="nodata">Завантаження…</p>';
+    Promise.all([api("/admin/services"),api("/admin/catalog")]).then(function(res){
+      svcList=(res[0]&&res[0].services)||[];catalog=(res[1]&&res[1].prices)||{categories:[]};if(!catalog.categories)catalog.categories=[];drawServices();
+    }).catch(function(){$("#servicesView").innerHTML='<p class="nodata">Не вдалося завантажити каталог. Перевірте з’єднання.</p>';});
   }
 
   /* ---------- schedule (день / тиждень / місяць) ---------- */
