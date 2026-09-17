@@ -39,6 +39,19 @@ const REQUEST_SERVICES = new Set(["Міні-готель", "Денний сад�
 // Майстри (roster) — keep in sync with data/config.js `staff`
 const STAFF = ["Дар'я", "Катерина", "Марія"];
 
+// Послуги для запису (fallback / seed). The `services` D1 table is the source
+// of truth once seeded; edit it from the CRM. duration=хв, price=базова ціна
+// (null → визначає майстер), is_request=1 → заявка без слоту (готель/садочок).
+const DEFAULT_SERVICES = [
+  { name: "Гігієнічний комплекс", species: "both", duration: 120, price: null, is_request: 0 },
+  { name: "Повний комплекс (зі стрижкою)", species: "dog", duration: 150, price: null, is_request: 0 },
+  { name: "Стрижка", species: "dog", duration: 90, price: null, is_request: 0 },
+  { name: "Вичісування / експрес-линька", species: "both", duration: 90, price: null, is_request: 0 },
+  { name: "Догляд для котиків", species: "cat", duration: 120, price: null, is_request: 0 },
+  { name: "Міні-готель", species: "both", duration: 0, price: null, is_request: 1 },
+  { name: "Денний садочок", species: "both", duration: 0, price: null, is_request: 1 },
+];
+
 /* ----------------------------- HTTP entry ----------------------------- */
 export default {
   async fetch(request, env) {
@@ -91,6 +104,24 @@ export default {
       }
       if (url.pathname === "/masters" && request.method === "GET") {
         return json(await publicMasters(env), cors);   // public: for the booking form
+      }
+      if (url.pathname === "/catalog" && request.method === "GET") {
+        return json(await publicCatalog(env), { ...cors, "Cache-Control": "public, max-age=60" });
+      }
+      if (url.pathname === "/admin/services" && request.method === "GET") {
+        return json(await adminServices(request, env), cors);
+      }
+      if (url.pathname === "/admin/service-save" && request.method === "POST") {
+        return json(await serviceSave(request, env), cors);
+      }
+      if (url.pathname === "/admin/service-delete" && request.method === "POST") {
+        return json(await serviceDelete(request, env), cors);
+      }
+      if (url.pathname === "/admin/catalog" && request.method === "GET") {
+        return json(await adminCatalog(request, env), cors);
+      }
+      if (url.pathname === "/admin/catalog-save" && request.method === "POST") {
+        return json(await catalogSave(request, env), cors);
       }
       if (url.pathname === "/admin/masters" && request.method === "GET") {
         return json(await adminMasters(request, env), cors);
@@ -289,7 +320,8 @@ async function getSlots(url, env) {
   const { y, m, d } = parseDate(iso);
   const service = url.searchParams.get("service") || "";
   const reqStaff = url.searchParams.get("staff") || "";     // "" = будь-який майстер
-  const duration = SERVICE_DURATIONS[service] || DEFAULT_DURATION;
+  const svc = (await loadServices(env)).find(s => s.name === service);
+  const duration = (svc && svc.duration) ? svc.duration : (SERVICE_DURATIONS[service] || DEFAULT_DURATION);
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 
   const masters = await loadMasters(env);
@@ -329,7 +361,7 @@ async function book(body, env) {
   const masters = await loadMasters(env);
   if (staff && !masters.some(mst => mst.name === staff)) staff = "";  // ignore unknown master
 
-  const isRequest = REQUEST_SERVICES.has(service) || !time || waitlist;
+  const isRequest = (await serviceIsRequest(env, service)) || !time || waitlist;
   let eventLink = null, eventId = null;
 
   if (!isRequest) {
@@ -337,7 +369,7 @@ async function book(body, env) {
     const tm = /^(\d{2}):(\d{2})$/.exec(time);
     if (!tm) return { ok: false, error: "bad time" };
     const startMin = (+tm[1]) * 60 + (+tm[2]);
-    const duration = SERVICE_DURATIONS[service] || DEFAULT_DURATION;
+    const duration = await serviceDuration(env, service);
     const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 
     const token = await getAccessToken(env);
@@ -369,11 +401,11 @@ async function book(body, env) {
 }
 
 /* ----------------------------- Calendar events ----------------------------- */
-function calEventBody(b) {
+function calEventBody(b, dur) {
   const { y, m, d } = parseDate(b.date);
   const tm = /^(\d{1,2}):(\d{2})$/.exec(b.time || "");
   const startMin = (+tm[1]) * 60 + (+tm[2]);
-  const duration = SERVICE_DURATIONS[b.service] || DEFAULT_DURATION;
+  const duration = dur || SERVICE_DURATIONS[b.service] || DEFAULT_DURATION;
   const src = { site: "сайт", phone: "телефон", instagram: "Instagram", manual: "вручну", other: "вручну" }[b.source] || b.source || "—";
   const price = (b.price != null && b.price !== "") ? `\nСума: ${b.price} ₴` : "";
   const petLine = [b.breed, b.weight].filter(Boolean).join(", ") || "—";
@@ -389,17 +421,19 @@ const calUrl = (env, id) =>
   `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.CALENDAR_ID)}/events` +
   (id ? "/" + encodeURIComponent(id) : "");
 async function calCreate(env, token, b) {
+  const dur = await serviceDuration(env, b.service);
   const res = await fetch(calUrl(env), { method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(calEventBody(b)) });
+    body: JSON.stringify(calEventBody(b, dur)) });
   const ev = await res.json();
   if (!ev.id) throw new Error("event insert failed: " + JSON.stringify(ev));
   return ev;
 }
 async function calPatch(env, token, id, b) {
+  const dur = await serviceDuration(env, b.service);
   const res = await fetch(calUrl(env, id), { method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(calEventBody(b)) });
+    body: JSON.stringify(calEventBody(b, dur)) });
   const ev = await res.json();
   if (!ev.id) throw new Error("event patch failed: " + JSON.stringify(ev));
   return ev;
@@ -412,6 +446,7 @@ async function calDelete(env, token, id) {
 async function saveBooking(env, b) {
   if (!env.DB) return;
   try {
+    if (b.price == null || b.price === "") { const si = await serviceInfo(env, b.service); if (si && si.price != null && si.price !== "") b.price = si.price; }
     const link = await linkClientPet(env, b);
     await env.DB.prepare(
       `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight,client_id,pet_id,pet_name)
@@ -467,6 +502,7 @@ async function adminCreate(request, env) {
   requireAdmin(request, env);
   const b = await request.json();
   if (!b || !b.name || !b.phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
+  if (b.price == null || b.price === "") { const si = await serviceInfo(env, b.service); if (si && si.price != null && si.price !== "") b.price = si.price; }
   const hasTime = !!(b.date && b.time);
   let eventId = null, eventLink = null;
   if (hasTime && (b.status || "new") !== "cancelled") {
@@ -620,6 +656,85 @@ async function masterDelete(request, env) {
   return { ok: true };
 }
 
+/* ----------------------------- Services & price catalog ----------------------------- */
+function svcRow(r) {
+  return {
+    id: r.id, name: r.name, species: r.species || "both",
+    duration: r.duration || 0, price: (r.price === 0 || r.price) ? r.price : null,
+    is_request: r.is_request ? 1 : 0, active: r.active == null ? 1 : (r.active ? 1 : 0), sort: r.sort || 0,
+  };
+}
+const svcDefaults = () => DEFAULT_SERVICES.map((s, i) => ({ id: null, ...s, active: 1, sort: i }));
+async function seedServices(env) {
+  for (let i = 0; i < DEFAULT_SERVICES.length; i++) {
+    const s = DEFAULT_SERVICES[i];
+    await env.DB.prepare(`INSERT INTO services (name,species,duration,price,is_request,active,sort) VALUES (?,?,?,?,?,1,?)`)
+      .bind(s.name, s.species, s.duration, s.price, s.is_request, i).run();
+  }
+}
+async function loadServices(env) {
+  if (!env.DB) return svcDefaults();
+  try {
+    let r = await env.DB.prepare(`SELECT * FROM services ORDER BY sort, id`).all();
+    if (!r.results || !r.results.length) { await seedServices(env); r = await env.DB.prepare(`SELECT * FROM services ORDER BY sort, id`).all(); }
+    return (r.results || []).map(svcRow);
+  } catch (e) { return svcDefaults(); }
+}
+async function serviceInfo(env, name) { return (await loadServices(env)).find(s => s.name === name) || null; }
+async function serviceDuration(env, name) { const s = await serviceInfo(env, name); return (s && s.duration) ? s.duration : (SERVICE_DURATIONS[name] || DEFAULT_DURATION); }
+async function serviceIsRequest(env, name) { const s = await serviceInfo(env, name); return s ? !!s.is_request : REQUEST_SERVICES.has(name); }
+
+async function loadCatalog(env) {
+  if (!env.DB) return DEFAULT_PRICES;
+  try {
+    const { results } = await env.DB.prepare(`SELECT data FROM catalog WHERE id=1`).all();
+    if (results && results[0] && results[0].data) { try { return JSON.parse(results[0].data); } catch (e) { } }
+  } catch (e) { }
+  return DEFAULT_PRICES;
+}
+async function saveCatalog(env, data) {
+  const s = JSON.stringify(data), now = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO catalog (id,data,updated) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET data=?, updated=?`)
+    .bind(s, now, s, now).run();
+}
+// Public: booking services + price catalog for the site (single fetch).
+async function publicCatalog(env) {
+  const services = (await loadServices(env)).filter(s => s.active)
+    .map(s => ({ name: s.name, species: s.species, duration: s.duration, price: s.price, is_request: s.is_request }));
+  return { ok: true, services, prices: await loadCatalog(env) };
+}
+async function adminServices(request, env) { requireAdmin(request, env); return { ok: true, services: await loadServices(env) }; }
+const SERVICE_FIELDS = ["name", "species", "duration", "price", "is_request", "active", "sort"];
+async function serviceSave(request, env) {
+  requireAdmin(request, env);
+  const b = await request.json();
+  if (b.id) {
+    const sets = [], vals = [];
+    for (const f of SERVICE_FIELDS) if (b[f] != null) { sets.push(`${f}=?`); vals.push(f === "price" && b[f] === "" ? null : b[f]); }
+    if (sets.length) { vals.push(b.id); await env.DB.prepare(`UPDATE services SET ${sets.join(",")} WHERE id=?`).bind(...vals).run(); }
+    return { ok: true, id: b.id };
+  }
+  if (!b.name) return { ok: false, error: "name required" };
+  const r = await env.DB.prepare(`INSERT INTO services (name,species,duration,price,is_request,active,sort) VALUES (?,?,?,?,?,?,?)`)
+    .bind(b.name, b.species || "both", b.duration || 0, (b.price === "" || b.price == null) ? null : b.price, b.is_request ? 1 : 0, b.active == null ? 1 : (b.active ? 1 : 0), b.sort || 0).run();
+  return { ok: true, id: r.meta && r.meta.last_row_id };
+}
+async function serviceDelete(request, env) {
+  requireAdmin(request, env);
+  const { id } = await request.json();
+  if (!id) return { ok: false, error: "id required" };
+  await env.DB.prepare(`DELETE FROM services WHERE id=?`).bind(id).run();
+  return { ok: true };
+}
+async function adminCatalog(request, env) { requireAdmin(request, env); return { ok: true, prices: await loadCatalog(env) }; }
+async function catalogSave(request, env) {
+  requireAdmin(request, env);
+  const b = await request.json();
+  if (!b || !b.prices) return { ok: false, error: "prices required" };
+  await saveCatalog(env, b.prices);
+  return { ok: true, prices: await loadCatalog(env) };
+}
+
 /* ----------------------------- Settings & reminders ----------------------------- */
 async function loadSettings(env) {
   const def = { reminders_enabled: "1", repeat_weeks: "6" };
@@ -767,3 +882,85 @@ async function notifyTelegram(env, b) {
     body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text, parse_mode: "HTML" }),
   });
 }
+
+/* ----------------------------- Default price catalog -----------------------------
+   Fallback / seed for the site's «Ціни» section. Edited from the CRM → stored in
+   the `catalog` D1 table; this constant is served only until the first CRM save. */
+const DEFAULT_PRICES = {
+  currency: "грн",
+  note_gift: "За умови проживання в готелі від 7 діб — гігієнічний комплекс у подарунок для вашого улюбленця! 🎁",
+  note_big: "Перша година очікування після грумінгу — безкоштовно, кожна наступна — 100 ₴/год. Ціна може залежати від стану шерсті та розміру улюбленця.",
+  categories: [
+    {
+      id: "hygiene-dogs", title: "Повний гігієнічний догляд для песиків", icon: "paw",
+      columns: ["Порода", "Ціна, грн"], searchable: true,
+      rows: [
+        ["Чихуахуа", "1000"], ["Чихуахуа довгошерста", "1100"], ["Йорк тер'єр", "1100"], ["Бівер тер'єр", "1200"],
+        ["Той тер'єр", "1000"], ["Такса", "1200"], ["Такса довгошерста", "1200"], ["Шпіц до 4 кг", "1200"],
+        ["Шпіц від 4 кг", "1300"], ["Пудель до 4 кг", "1350"], ["Пудель 4–7 кг", "1500"], ["Пудель від 7 кг", "1700"],
+        ["Лабрадудль до 15 кг", "2500"], ["Лабрадудль від 15 кг", "2700"], ["Мальтійська болонка", "1200"],
+        ["Мальтіпу, Кавапу до 4 кг", "1500"], ["Мальтіпу, Кавапу від 4 кг", "1550"], ["Бішон, Пушон", "1600"],
+        ["Ши-тцу до 5 кг", "1200"], ["Ши-тцу від 5 кг", "1400"], ["Пекінес до 5 кг", "1100"], ["Пекінес від 5 кг", "1250"],
+        ["Китайська чубата", "1000"], ["Папільйон", "1100"], ["Мопс", "1200"], ["Бігль", "1400"],
+        ["Грифон короткошерстий", "1100"], ["Французький бульдог", "1200"], ["Англійський бульдог", "1400"],
+        ["Амстафф", "1400"], ["Бультер'єр", "1300"], ["Вельш-коргі до 15 кг", "1300"], ["Вельш-коргі від 15 кг", "1500"],
+        ["Спанієль", "1350"], ["Кавалер Кінг Чарльз", "1200"], ["Цвергшнауцер", "1300"], ["Фокстер'єр", "1500"],
+        ["Вест-хайленд-тер'єр", "1200"], ["Мітельшнауцер", "1500"], ["Шелті", "1500"], ["Шиба-іну", "1300"],
+        ["Лабрадор", "1500"], ["Кане-корсо", "1800"], ["Ретривер", "1600"], ["Малінуа", "1300"], ["Вівчарка Аусі", "1500"],
+        ["Вівчарка довгошерста", "1800"], ["Хаскі", "1800"], ["Маламут", "2300"], ["Акіта", "1900"], ["Чау-чау", "2500"],
+        ["Самоїд", "2500"], ["Бернський Зенненхунд", "2500"], ["Мікси (метиси) до 10 кг", "1300"],
+        ["Мікси від 10 до 20 кг", "1500"], ["Мікси від 20 кг", "1800"],
+      ],
+    },
+    {
+      id: "haircut-dogs", title: "Комплексний догляд + стрижка для песиків", icon: "scissors",
+      columns: ["Порода", "Ціна, грн"], searchable: true,
+      rows: [
+        ["Чихуахуа довгошерста", "1200"], ["Йорк тер'єр", "1300"], ["Бівер тер'єр", "1300"], ["Такса довгошерста", "1300"],
+        ["Шпіц до 4 кг", "1300"], ["Шпіц від 4 кг", "1600"], ["Пудель до 4 кг", "1600"], ["Пудель 4–7 кг", "1800"],
+        ["Пудель від 7 кг", "2000"], ["Лабрадудль до 15 кг", "2800"], ["Лабрадудль від 15 кг", "3000"],
+        ["Мальтійська болонка", "1350"], ["Мальтіпу, Кавапу до 4 кг", "1600"], ["Мальтіпу, Кавапу від 4 кг", "1800"],
+        ["Бішон, Пушон", "1700"], ["Ши-тцу до 5 кг", "1350"], ["Ши-тцу від 5 кг", "1600"], ["Пекінес до 5 кг", "1300"],
+        ["Пекінес від 5 кг", "1400"], ["Китайська чубата", "1200"], ["Папільйон", "1200"], ["Спанієль (коротка)", "1300"],
+        ["Спанієль (модельна)", "1700"], ["Кавалер Кінг Чарльз", "1400"], ["Вельш-коргі до 15 кг", "1400"],
+        ["Вельш-коргі від 15 кг", "1500"], ["Цвергшнауцер", "1600"], ["Фокстер'єр", "1700"], ["Вест-хайленд-тер'єр", "1600"],
+        ["Мітельшнауцер", "2100"], ["Шелті", "1600"], ["Ретривер", "1900"], ["Вівчарка Аусі", "1600"],
+        ["Вівчарка довгошерста", "2000"], ["Чау-чау", "2800"], ["Самоїд", "2900"], ["Мікси (метиси) до 10 кг", "1500"],
+        ["Мікси від 10 до 20 кг", "1700"], ["Мікси від 20 кг", "2000"],
+      ],
+    },
+    {
+      id: "cats", title: "Догляд для котиків", icon: "cat",
+      columns: ["Послуга", "Вага до 5 кг", "Вага від 5 кг"], searchable: false,
+      rows: [
+        ["Вичісування (45 хв)", "1100", "1200"], ["Купання + сушіння (1 год 30 хв)", "1000", "1200"],
+        ["Вичісування ковтунів (15 хв)", "250–450", "250–450"], ["Гігієнічний комплекс (2 год 30 хв)", "1700", "2000"],
+        ["Комплекс: вичісування + кігті + вушка (1 год 20 хв)", "1250", "1450"], ["Підстригання кігтів", "200", "250"],
+        ["Чищення вушок", "250", "300"], ["Підстригання кігтів + чищення вушок", "350", "400"],
+        ["Чищення зубів (щітка + паста)", "300", "350"],
+      ],
+    },
+    {
+      id: "extra", title: "Окремі види послуг", icon: "star",
+      columns: ["Послуга", "Ціна, грн"], searchable: false,
+      rows: [
+        ["Трімінг (стрипінг) жорсткошерсних порід", "1000 / година"], ["Вичісування ковтунів", "+ 20%"],
+        ["Застосування лікувальних шампунів (вартість шампуню)", "+ 300"], ["Зрізання і шліфування кігтиків", "200"],
+        ["Зрізання кігтиків (адаптаційні візити)", "300"], ["Чищення вушок", "250"], ["Зрізання кігтиків + чищення вушок", "400"],
+        ["Чищення зубів (щітка + паста)", "300"], ["Підстригання шерсті навколо очей", "250"],
+        ["Вистригання шерсті в інтимних зонах", "350"], ["Вистригання шерсті між подушечок лап + окантування", "400"],
+        ["Стрижка мордочки", "300–600"],
+      ],
+    },
+    {
+      id: "hotel", title: "Міні-готель 24/7", icon: "home",
+      columns: ["", "Собаки до 10 кг", "Котики"], searchable: false,
+      rows: [["1 доба", "1300", "700"], ["Від 10 діб і більше", "1200", "600"], ["Друга тварина з родини", "−20%", "−20%"]],
+    },
+    {
+      id: "daycare", title: "Денний садочок (погодинно)", icon: "play",
+      columns: ["Тариф", "Ціна, грн"], searchable: false,
+      rows: [["1 година", "220"], ["Половина дня (5 годин)", "1000"], ["Повний день (10 годин)", "1800"], ["Друга тварина з родини", "−20%"]],
+    },
+  ],
+};
