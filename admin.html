@@ -140,6 +140,8 @@
   .sv-flat input{padding:.45em .6em;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--paper);color:var(--ink)}
   .sv-flat .sv-price{max-width:240px}
   .sv-flat .sv-unit{max-width:90px}
+  .sv-addrow{border:1.5px dashed var(--violet);color:var(--violet);background:var(--violet-soft);font-weight:800;padding:.5em 1em}
+  .sv-addrow:hover{background:var(--violet);color:#fff;border-style:solid}
 
   /* toolbar + table */
   .toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:20px 0}
@@ -721,7 +723,7 @@
         return '<tr>'+cols.map(function(c,j){return '<td><input class="sv-cell" data-si="'+si+'" data-ri="'+ri+'" data-col="'+j+'" value="'+esc(row[j]!=null?row[j]:"")+'"></td>';}).join("")+
           '<td><div class="cat-rowact"><button class="sv-up" data-si="'+si+'" data-ri="'+ri+'" title="вгору">↑</button><button class="sv-down" data-si="'+si+'" data-ri="'+ri+'" title="вниз">↓</button><button class="sv-delrow" data-si="'+si+'" data-ri="'+ri+'" title="видалити рядок">✕</button></div></td></tr>';}).join("");
       priceEd='<div style="overflow-x:auto"><table class="cat-table"><thead>'+thead+'</thead><tbody>'+tbody+'</tbody></table></div>'+
-        '<button class="btn ghost sm sv-addrow" data-si="'+si+'" style="margin-top:6px">+ Рядок</button>';}
+        '<button class="btn sm sv-addrow" data-si="'+si+'" style="margin-top:8px">＋ Додати рядок</button>';}
     return '<div class="catcard" data-si="'+si+'">'+
       '<div class="catcard-head"><input class="sv-name" data-si="'+si+'" value="'+esc(s.name||"")+'" placeholder="Назва послуги">'+
         '<button class="btn primary sm sv-save" data-si="'+si+'">Зберегти</button>'+
