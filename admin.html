@@ -471,18 +471,34 @@
     $("#f-breed").innerHTML='<option value="">Оберіть породу…</option>'+(CFG.dogBreeds||[]).map(function(b){return '<option>'+esc(b)+'</option>';}).join("");
     $("#f-weight").innerHTML='<option value="">Оберіть вагу…</option>'+(CFG.weightOptions||[]).map(function(w){return '<option>'+esc(w)+'</option>';}).join("");
   })();
-  function applyPetModal(){var isCat=$("#f-pet").value==="Кіт";$("#f-breed").hidden=isCat;$("#f-breed").disabled=isCat;$("#f-breed-note").hidden=!isCat;autoPrice();}
-  $("#f-pet").addEventListener("change",applyPetModal);
-  // auto-price the modal from the catalog (service + breed), only if empty
-  function mNormBreed(x){return String(x||"").toLowerCase().replace(/[’'ʼ`]/g,"'").replace(/\s+/g," ").trim();}
-  function mMatchBreed(rows,breed){var b=mNormBreed(breed);if(!b)return null;var row=(rows||[]).find(function(r){return mNormBreed(r[0])===b;});if(row)return row;return (rows||[]).find(function(r){var l=mNormBreed(r[0]);return l&&(b.indexOf(l)>=0||l.indexOf(b)>=0);})||null;}
-  function catPrice(name,breed){var s=(svcCatalog||[]).find(function(x){return x.name===name;});if(!s)return null;
-    if(s.price_type==="breed"&&breed){var row=mMatchBreed(s.rows,breed);if(row&&/^\d+$/.test(String(row[1]).trim()))return +row[1];return null;}
+  // модалка: услуга → порода → вес из справочника, авто-цена по совпадению
+  function mNorm(x){return String(x||"").toLowerCase().replace(/[’'ʼ`]/g,"'").replace(/\s+/g," ").trim();}
+  function mNormW(x){return String(x||"").toLowerCase().replace(/\s+/g," ").replace(/грн|кг/g,"").trim();}
+  function mBreedRows(rows,breed){var b=mNorm(breed);if(!b)return [];return (rows||[]).filter(function(r){var l=mNorm(r[0]);return l&&(l===b||b.indexOf(l)>=0||l.indexOf(b)>=0);});}
+  function mPickRow(rows,breed,weight){var bm=mBreedRows(rows,breed);if(!bm.length)return null;if(bm.length===1)return bm[0];var w=mNormW(weight);return (w&&bm.find(function(r){return mNormW(r[1])===w;}))||bm.find(function(r){return !String(r[1]||"").trim();})||null;}
+  function mDistinct(a){var seen={},out=[];a.forEach(function(v){if(v!==""&&v!=null&&!seen[v]){seen[v]=1;out.push(v);}});return out;}
+  function mSvc(){return (svcCatalog||[]).find(function(x){return x.name===$("#f-service").value.trim();});}
+  function mIsBreed(s){return s&&s.price_type==="breed"&&s.rows&&s.rows.length;}
+  function fillSel(sel,cur,opts,ph){if(cur&&opts.indexOf(cur)<0)opts=[cur].concat(opts);$(sel).innerHTML='<option value="">'+ph+'</option>'+opts.map(function(o){return '<option>'+esc(o)+'</option>';}).join("");if(cur)$(sel).value=cur;}
+  function setSelVal(sel,val){var el=$(sel);if(!el)return;if(val&&![].some.call(el.options,function(o){return o.value===val||o.text===val;})){var o=document.createElement("option");o.textContent=val;el.appendChild(o);}el.value=val;}
+  function syncModalBreed(){var s=mSvc(),cur=$("#f-breed").value;
+    if(mIsBreed(s)){fillSel("#f-breed",cur,mDistinct(s.rows.map(function(r){return r[0];})),"Оберіть породу…");$("#f-breed").disabled=false;$("#f-breed").hidden=false;if($("#f-breed-note"))$("#f-breed-note").hidden=true;}
+    else{fillSel("#f-breed",cur,(CFG.dogBreeds||[]),"Оберіть породу…");var isCat=$("#f-pet").value==="Кіт";$("#f-breed").disabled=isCat;$("#f-breed").hidden=isCat;if($("#f-breed-note"))$("#f-breed-note").hidden=!isCat;}
+    syncModalWeight();}
+  function syncModalWeight(){var s=mSvc(),cur=$("#f-weight").value;
+    if(mIsBreed(s)){var ws=mDistinct(s.rows.filter(function(r){return r[0]===$("#f-breed").value;}).map(function(r){return r[1];}));
+      if(ws.length)fillSel("#f-weight",cur,ws,"Оберіть вагу…"); else $("#f-weight").innerHTML='<option value="">— будь-яка —</option>';}
+    else fillSel("#f-weight",cur,(CFG.weightOptions||[]),"Оберіть вагу…");}
+  function catPrice(){var s=mSvc();if(!s)return null;
+    if(s.price_type==="breed"){var row=mPickRow(s.rows,$("#f-breed").value,$("#f-weight").value);if(row){var p=row[row.length-1];if(/^\d+$/.test(String(p).trim()))return +p;}return null;}
     if(s.price_type==="flat"&&/^\d+$/.test(String(s.price).trim()))return +s.price;return null;}
-  function autoPrice(){var el=$("#f-price");if(!el||el.value.trim()!=="")return;var isCat=$("#f-pet").value==="Кіт";var p=catPrice($("#f-service").value.trim(),isCat?"":$("#f-breed").value);if(p!=null)el.value=p;}
-  $("#f-service").addEventListener("input",autoPrice);
-  $("#f-service").addEventListener("change",autoPrice);
-  $("#f-breed").addEventListener("change",autoPrice);
+  function autoPrice(){var el=$("#f-price");if(!el||el.value.trim()!=="")return;var p=catPrice();if(p!=null)el.value=p;}
+  function applyPetModal(){syncModalBreed();autoPrice();}
+  $("#f-pet").addEventListener("change",applyPetModal);
+  $("#f-service").addEventListener("change",function(){syncModalBreed();autoPrice();});
+  $("#f-service").addEventListener("input",function(){autoPrice();});
+  $("#f-breed").addEventListener("change",function(){syncModalWeight();autoPrice();});
+  $("#f-weight").addEventListener("change",autoPrice);
 
   function showLogin(msg){$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;$("#loginErr").textContent=msg||"";}
@@ -676,8 +692,10 @@
   function speciesOpts(v){return [["both","Всі"],["dog","Собаки"],["cat","Коти"]].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===(v||"both")?" selected":"")+'>'+o[1]+'</option>';}).join("");}
   function ptypeOpts(v){return [["flat","Фіксована"],["breed","За породою"],["options","Список варіантів"],["table","Таблиця"]].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===(v||"flat")?" selected":"")+'>'+o[1]+'</option>';}).join("");}
   function normType(s){var pt=s.price_type||"flat";
-    if(pt==="breed"||pt==="options"){if(!s.columns||s.columns.length!==2)s.columns=(pt==="breed")?["Порода","Ціна, ₴"]:["Послуга","Ціна, ₴"];
-      if(!s.rows||!s.rows.length)s.rows=[["",""]];else s.rows=s.rows.map(function(r){return [r[0]!=null?r[0]:"",r[1]!=null?r[1]:""];});}
+    if(pt==="breed"){if(!s.columns||s.columns.length<3)s.columns=["Порода","Вага","Ціна, ₴"];
+      if(!s.rows||!s.rows.length)s.rows=[["","",""]];else s.rows=s.rows.map(function(r){return r.length>=3?[r[0]||"",r[1]||"",r[2]||""]:[r[0]||"","",r[1]||""];});}
+    else if(pt==="options"){if(!s.columns||s.columns.length!==2)s.columns=["Послуга","Ціна, ₴"];
+      if(!s.rows||!s.rows.length)s.rows=[["",""]];else s.rows=s.rows.map(function(r){return [r[0]!=null?r[0]:"",r[r.length-1]!=null?r[r.length-1]:""];});}
     else if(pt==="table"){if(!s.columns||s.columns.length<2)s.columns=["Послуга","Ціна"];if(!s.rows||!s.rows.length)s.rows=[new Array(s.columns.length).fill("")];}
   }
   function svcCardHtml(s,si){var pt=s.price_type||"flat",priceEd="";
@@ -963,7 +981,8 @@
     $("#f-pet").value=b&&["Собака","Кіт"].indexOf(b.pet)>=0?b.pet:(b?"Інше":"Собака");
     $("#f-petname").value=b?b.pet_name||"":"";
     $("#f-service").value=b?b.service||"":"";
-    $("#f-breed").value=b?b.breed||"":"";$("#f-weight").value=b?b.weight||"":"";
+    syncModalBreed();
+    setSelVal("#f-breed",b?b.breed||"":"");syncModalWeight();setSelVal("#f-weight",b?b.weight||"":"");
     $("#f-staff").value=b?b.staff||"":"";
     $("#f-source").value=b?(b.source||"site"):"phone";
     $("#f-date").value=b?b.date||"":"";$("#f-time").value=b?b.time||"":"";

@@ -655,6 +655,22 @@ function svcRow(r) {
     note: r.note || "", columns: jparse(r.columns, []), rows: jparse(r.rows, []),
   };
 }
+// Split a legacy breed label into [breed, weight]: "Пудель 4–7 кг" → ["Пудель","4–7 кг"].
+function splitBreedWeight(label) {
+  const s = String(label == null ? "" : label).trim();
+  const m = s.match(/^(.*?)\s+(від\s+\d+\s+до\s+\d+\s*кг|до\s+\d+\s*кг|від\s+\d+\s*кг|\d+\s*[–-]\s*\d+\s*кг)$/i);
+  if (m && m[1]) return [m[1].trim(), m[2].replace(/\s+/g, " ").trim()];
+  return [s, ""];
+}
+// Breed services are stored as [Порода, Ціна] (legacy) or [Порода, Вага, Ціна].
+// Normalize on read to 3 columns so breed & weight are separate dimensions.
+function migrateBreedService(s) {
+  if (s.price_type !== "breed") return s;
+  if ((s.columns || []).length >= 3) return s;
+  s.columns = ["Порода", "Вага", "Ціна, ₴"];
+  s.rows = (s.rows || []).map(r => { const bw = splitBreedWeight(r[0]); return [bw[0], bw[1], (r[1] != null ? r[1] : "")]; });
+  return s;
+}
 const svcDefaults = () => DEFAULT_SERVICES.map((s, i) => ({ id: null, sort: i, ...s }));
 const SVC_COLS = ["name", "species", "duration", "is_request", "bookable", "active", "sort", "price_type", "price", "unit", "note", "columns", "rows"];
 function svcBind(s) {
@@ -670,12 +686,12 @@ async function seedServices(env) {
   }
 }
 async function loadServices(env) {
-  if (!env.DB) return svcDefaults().map(svcRow);
+  if (!env.DB) return svcDefaults().map(s => migrateBreedService(svcRow(s)));
   try {
     let r = await env.DB.prepare(`SELECT * FROM services ORDER BY sort, id`).all();
     if (!r.results || !r.results.length) { await seedServices(env); r = await env.DB.prepare(`SELECT * FROM services ORDER BY sort, id`).all(); }
-    return (r.results || []).map(svcRow);
-  } catch (e) { return svcDefaults().map(svcRow); }
+    return (r.results || []).map(row => migrateBreedService(svcRow(row)));
+  } catch (e) { return svcDefaults().map(s => migrateBreedService(svcRow(s))); }
 }
 async function serviceInfo(env, name) { return (await loadServices(env)).find(s => s.name === name) || null; }
 async function serviceDuration(env, name) { const s = await serviceInfo(env, name); return (s && s.duration) ? s.duration : (SERVICE_DURATIONS[name] || DEFAULT_DURATION); }
@@ -689,10 +705,21 @@ function matchBreedRow(rows, breed) {
   if (row) return row;
   return (rows || []).find(r => { const l = normBreed(r[0]); return l && (b.includes(l) || l.includes(b)); }) || null;
 }
+const normW = x => String(x || "").toLowerCase().replace(/\s+/g, " ").replace(/грн|кг/g, "").trim();
+// Pick the price row for a breed (+optional weight). Rows are [breed, weight, price].
+function pickBreedRow(rows, breed, weight) {
+  const b = normBreed(breed); if (!b) return null;
+  const bm = (rows || []).filter(r => { const l = normBreed(r[0]); return l && (l === b || b.includes(l) || l.includes(b)); });
+  if (!bm.length) return null;
+  if (bm.length === 1) return bm[0];
+  const w = normW(weight);
+  return (w && bm.find(r => normW(r[1]) === w)) || bm.find(r => !String(r[1] || "").trim()) || null;
+}
+const rowPrice = r => (r ? r[r.length - 1] : null);
 // Auto-price a booking from its service (only when unambiguous & numeric).
 async function priceForBooking(env, b) {
   const s = await serviceInfo(env, b.service); if (!s) return null;
-  if (s.price_type === "breed" && b.breed) { const row = matchBreedRow(s.rows, b.breed); if (row && /^\d+$/.test(String(row[1]).trim())) return +row[1]; }
+  if (s.price_type === "breed" && b.breed) { const p = rowPrice(pickBreedRow(s.rows, b.breed, b.weight)); if (p != null && /^\d+$/.test(String(p).trim())) return +p; }
   if (s.price_type === "flat" && /^\d+$/.test(String(s.price).trim())) return +s.price;
   return null;
 }

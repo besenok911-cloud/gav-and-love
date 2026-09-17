@@ -131,11 +131,17 @@
   // --- unified catalog: services carry their own prices ---
   const numOf = v => { const m = /\d+/.exec(String(v == null ? "" : v)); return m ? +m[0] : null; };
   const normBreed = x => String(x || "").toLowerCase().replace(/[’'ʼ`]/g, "'").replace(/\s+/g, " ").trim();
-  function matchBreedRow(rows, breed) {
-    const b = normBreed(breed); if (!b) return null;
-    let row = (rows || []).find(r => normBreed(r[0]) === b);
-    if (row) return row;
-    return (rows || []).find(r => { const l = normBreed(r[0]); return l && (b.includes(l) || l.includes(b)); }) || null;
+  const normW = x => String(x || "").toLowerCase().replace(/\s+/g, " ").replace(/грн|кг/g, "").trim();
+  // Rows of a breed service are [breed, weight, price]. Pick the row for breed(+weight).
+  function breedRows(rows, breed) {
+    const b = normBreed(breed); if (!b) return [];
+    return (rows || []).filter(r => { const l = normBreed(r[0]); return l && (l === b || b.includes(l) || l.includes(b)); });
+  }
+  function pickBreedRow(rows, breed, weight) {
+    const bm = breedRows(rows, breed); if (!bm.length) return null;
+    if (bm.length === 1) return bm[0];
+    const w = normW(weight);
+    return (w && bm.find(r => normW(r[1]) === w)) || bm.find(r => !String(r[1] || "").trim()) || null;
   }
   function iconForSvc(s) {
     const n = (s.name || "").toLowerCase();
@@ -160,13 +166,22 @@
     });
     return { note_gift: (notes && notes.gift) || "", note_big: (notes && notes.big) || "", categories: cats };
   }
-  // Orientative price shown in the booking form for the chosen service (+breed).
-  function priceHint(s, breed) {
+  // Orientative price shown in the booking form for the chosen service (+breed, +weight).
+  function priceHint(s, breed, weight) {
     if (!s) return "";
     if (s.price_type === "breed") {
-      if (breed) { const row = matchBreedRow(s.rows, breed); if (row && row[1]) return `Орієнтовна ціна для «${esc(breed)}»: <b>${esc(row[1])} ₴</b>`; }
-      const nums = (s.rows || []).map(r => numOf(r[1])).filter(n => n != null);
-      return nums.length ? `Ціна залежить від породи — <b>від ${Math.min.apply(null, nums)} ₴</b>` : "";
+      const rows = s.rows || [], last = r => r[r.length - 1];
+      if (breed) {
+        const bm = breedRows(rows, breed);
+        if (bm.length) {
+          const row = pickBreedRow(rows, breed, weight), p = row ? last(row) : null;
+          if (p != null && /^\d+$/.test(String(p).trim())) return `Орієнтовна ціна: <b>${esc(p)} ₴</b>`;
+          const nums = bm.map(r => numOf(last(r))).filter(n => n != null);
+          if (nums.length) { const mn = Math.min.apply(null, nums), mx = Math.max.apply(null, nums); return mn === mx ? `Орієнтовна ціна: <b>${mn} ₴</b>` : `Ціна для «${esc(breed)}»: <b>${mn}–${mx} ₴</b> — залежить від ваги`; }
+        }
+      }
+      const all = rows.map(r => numOf(last(r))).filter(n => n != null);
+      return all.length ? `Ціна залежить від породи — <b>від ${Math.min.apply(null, all)} ₴</b>` : "";
     }
     if (s.price_type === "flat") {
       if (s.price) return `Ціна: <b>${esc(s.price)}${/^\d/.test(String(s.price)) ? (" " + esc(s.unit || "₴")) : ""}</b>`;
@@ -314,7 +329,7 @@
   const fmtDur = window.GL_FMT_DUR || (() => "");
   const petHidden = $("#bf-pet");
   const breedField = $("#bf-breed-field"), breedSel = $("#bf-breed"), breedNote = $("#bf-breed-note"),
-    weightSel = $("#bf-weight"), staffSel = $("#bf-staff");
+    weightSel = $("#bf-weight"), weightField = $("#bf-weight-field"), staffSel = $("#bf-staff");
 
   // populate selects from config
   (function initBookingConfig() {
@@ -339,12 +354,9 @@
     }).catch(() => { });
   }
 
-  function applyPet() {
-    const isCat = petHidden.value === "Кіт";
-    if (breedSel) { breedSel.hidden = isCat; breedSel.disabled = isCat; }  // cats: no breed → excluded from submit
-    if (breedNote) breedNote.hidden = !isCat;
-  }
-  applyPet();
+  // Breed/weight are driven by the selected service (see syncBreedWeight); pet
+  // segment stays as record metadata only.
+  function applyPet() { }
 
   const petSeg = $("#bf-pet-seg");
   if (petSeg) petSeg.addEventListener("click", e => {
@@ -402,17 +414,48 @@
   staffSel && staffSel.addEventListener("change", refreshSlots);
 
   // Live unified catalog from the CRM: one service list drives the form's
-  // service select, the in-form price hint, and the site «Ціни» tables.
+  // service select, breed & weight options, price hint, and the «Ціни» tables.
   let SERVICES = [];
+  const svcByName = n => SERVICES.find(x => x.name === n);
+  const isBreedSvc = s => s && s.price_type === "breed" && s.rows && s.rows.length;
+  const distinctNE = a => { const seen = {}, out = []; a.forEach(v => { if (v !== "" && v != null && !seen[v]) { seen[v] = 1; out.push(v); } }); return out; };
+  // Breed dropdown = the service's breeds; weight dropdown = that breed's variants.
+  function syncBreedWeight() {
+    if (!SERVICES.length) return;                       // keep config fallback if catalog not loaded
+    const s = svcByName(serviceSel.value);
+    if (isBreedSvc(s)) {
+      const breeds = distinctNE(s.rows.map(r => r[0])), cur = breedSel.value;
+      breedSel.innerHTML = '<option value="">Оберіть породу…</option>' + breeds.map(b => `<option>${esc(b)}</option>`).join("");
+      if (cur && breeds.indexOf(cur) >= 0) breedSel.value = cur;
+      if (breedField) breedField.hidden = false; breedSel.disabled = false; if (breedNote) breedNote.hidden = true;
+      syncWeightForBreed();
+    } else {
+      if (breedField) breedField.hidden = true; breedSel.disabled = true; breedSel.value = "";
+      if (weightField) weightField.hidden = false;
+      weightSel.innerHTML = '<option value="">Оберіть вагу…</option>' + (CFG.weightOptions || []).map(w => `<option>${esc(w)}</option>`).join("");
+    }
+  }
+  function syncWeightForBreed() {
+    const s = svcByName(serviceSel.value); if (!isBreedSvc(s)) return;
+    const weights = distinctNE(s.rows.filter(r => r[0] === breedSel.value).map(r => r[1]));
+    if (weights.length) {
+      const cur = weightSel.value;
+      weightSel.innerHTML = '<option value="">Оберіть вагу…</option>' + weights.map(w => `<option>${esc(w)}</option>`).join("");
+      if (cur && weights.indexOf(cur) >= 0) weightSel.value = cur;
+      if (weightField) weightField.hidden = false;
+    } else { weightSel.innerHTML = ""; weightSel.value = ""; if (weightField) weightField.hidden = true; }
+  }
   function updatePriceHint() {
     const el = $("#bf-price-hint"); if (!el || !serviceSel) return;
-    const s = SERVICES.find(x => x.name === serviceSel.value);
+    const s = svcByName(serviceSel.value);
     const breed = (breedSel && !breedSel.disabled) ? breedSel.value : "";
-    const h = priceHint(s, breed);
+    const weight = weightSel ? weightSel.value : "";
+    const h = priceHint(s, breed, weight);
     el.innerHTML = h; el.hidden = !h;
   }
-  serviceSel && serviceSel.addEventListener("change", updatePriceHint);
-  breedSel && breedSel.addEventListener("change", updatePriceHint);
+  serviceSel && serviceSel.addEventListener("change", () => { syncBreedWeight(); updatePriceHint(); });
+  breedSel && breedSel.addEventListener("change", () => { syncWeightForBreed(); updatePriceHint(); });
+  weightSel && weightSel.addEventListener("change", updatePriceHint);
   if (CONFIG.bookingEndpoint) {
     fetch(`${CONFIG.bookingEndpoint}/catalog`).then(r => r.json()).then(d => {
       if (!d) return;
@@ -426,7 +469,7 @@
           `<option value="${esc(s.name)}">${esc(s.name)}${s.duration ? " · ~" + fmtDur(s.duration) : ""}</option>`).join("");
         if (prev && bookable.some(s => s.name === prev)) serviceSel.value = prev;
         REQUEST_SVC = bookable.filter(s => s.is_request).map(s => s.name);
-        updatePriceHint();
+        syncBreedWeight(); updatePriceHint();
       }
       renderPrices(servicesToCatalog(SERVICES, d.notes));
     }).catch(() => { });
