@@ -525,7 +525,7 @@
     else if(p==="7"){repTo=localISO(t);repFrom=localISO(new Date(t.getFullYear(),t.getMonth(),t.getDate()-6));}
     else if(p==="30"){repTo=localISO(t);repFrom=localISO(new Date(t.getFullYear(),t.getMonth(),t.getDate()-29));}
     else if(p==="month"){repFrom=localISO(new Date(t.getFullYear(),t.getMonth(),1));repTo=localISO(t);}
-    else if(p==="all"){var ds=all.filter(function(b){return b.date;}).map(function(b){return b.date;}).sort();repFrom=ds[0]||localISO(t);repTo=localISO(t);}
+    else if(p==="all"){var today=localISO(t);var ds=all.filter(function(b){return b.date;}).map(function(b){return b.date;}).sort();repFrom=ds[0]||today;repTo=ds.length?(ds[ds.length-1]>today?ds[ds.length-1]:today):today;}
   }
   function repBookings(){return all.filter(function(b){return b.service!=="Блокування"&&b.date&&b.date>=repFrom&&b.date<=repTo;});}
   function repBars(map,money_){var keys=Object.keys(map).sort(function(a,b){return map[b]-map[a];});var max=Math.max(1,Math.max.apply(null,keys.map(function(k){return map[k]||0;})));
