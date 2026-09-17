@@ -111,6 +111,13 @@
   .mrow.off{opacity:.6}
   .mrow .m2{color:var(--ink-soft);font-size:.82rem;margin-top:2px}
   .mtag{font-size:.7rem;font-weight:800;padding:.22em .62em;border-radius:999px;background:var(--bg-2);color:var(--ink-soft);white-space:nowrap;flex:none}
+  /* finance */
+  .exp-add{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .exp-add .search{padding:.5em .7em;font-size:.88rem}
+  .exp-row{display:flex;align-items:center;gap:10px;padding:9px 2px;border-top:1px solid var(--line-soft)}
+  .exp-row .exp-date{font-weight:700;color:var(--ink-soft);min-width:46px;font-size:.85rem}
+  .exp-cat{font-size:.7rem;font-weight:800;background:var(--violet-soft);color:var(--violet);border-radius:999px;padding:.2em .6em;white-space:nowrap}
+  .fin-total{display:flex;justify-content:space-between;align-items:center;padding:11px 2px 2px;margin-top:8px;border-top:2px solid var(--line);font-weight:800}
   /* services & catalog editor */
   .btn.primary{background:var(--violet);color:#fff;border-color:var(--violet)}
   .svc-head,.svc-row{display:grid;grid-template-columns:1.7fr .9fr .8fr .8fr auto auto auto;gap:8px;align-items:center}
@@ -305,6 +312,7 @@
     <button class="tabbtn" data-view="clients">Клієнти</button>
     <button class="tabbtn" data-view="reports">Звіти</button>
     <button class="tabbtn" data-view="services">Послуги</button>
+    <button class="tabbtn" data-view="finance">Фінанси</button>
   </div>
   <span class="sp"></span>
   <button class="btn ghost sm" id="remindBtn" hidden title="Нагадування">🔔</button>
@@ -358,6 +366,7 @@
 <div class="wrap" id="clientsView" hidden></div>
 <div class="wrap" id="reportsView" hidden></div>
 <div class="wrap" id="servicesView" hidden></div>
+<div class="wrap" id="financeView" hidden></div>
 
 <div class="modal" id="modal">
   <div class="sheet">
@@ -378,6 +387,7 @@
       <div class="fld"><label>Дата візиту</label><input id="f-date" type="date" /></div>
       <div class="fld"><label>Час</label><input id="f-time" type="time" /></div>
       <div class="fld"><label>Сума, ₴</label><input id="f-price" type="number" min="0" step="10" placeholder="напр. 1200" /></div>
+      <div class="fld"><label>Оплата</label><select id="f-paymethod"><option value="">—</option><option value="cash">Готівка</option><option value="card">Картка</option><option value="transfer">Переказ</option></select></div>
       <div class="fld"><label>Джерело</label><select id="f-source"><option value="phone">Телефон</option><option value="instagram">Instagram</option><option value="site">Сайт</option><option value="other">Інше</option></select></div>
       <div class="fld"><label>Статус</label><select id="f-status"><option value="new">Нова</option><option value="confirmed">Підтверджена</option><option value="done">Виконана</option><option value="waitlist">Лист очікування</option><option value="cancelled">Скасована</option></select></div>
       <div class="fld wide"><label>Коментар</label><textarea id="f-note" rows="2" placeholder="Особливості тварини, побажання…"></textarea></div>
@@ -500,6 +510,7 @@
   var clients=[], pets=[], clientQ="", editClientId=null, editPetId=null, petClientId=null, mastersList=[];
   var repFrom="", repTo="";
   var svcList=[], notesState={gift:"",big:""}, svcCatalog=[];
+  var finFrom="", finTo="", expenses=[], PAYM={cash:"Готівка",card:"Картка",transfer:"Переказ"};
 
   var STATUS=[{v:"new",label:"Нова"},{v:"confirmed",label:"Підтверджена"},{v:"arrived",label:"Прибув"},{v:"in_progress",label:"У процесі"},{v:"done",label:"Готово"},{v:"paid",label:"Оплачено"},{v:"no_show",label:"Не прийшов"},{v:"waitlist",label:"Лист очікування"},{v:"cancelled",label:"Скасована"}];
   // statuses counted as completed revenue
@@ -571,9 +582,9 @@
   function showLogin(msg){$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;$("#loginErr").textContent=msg||"";}
   function showApp(){$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;$("#remindBtn").hidden=false;setView(view);}
-  function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");$("#reportsView").hidden=(v!=="reports");$("#servicesView").hidden=(v!=="services");
+  function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");$("#reportsView").hidden=(v!=="reports");$("#servicesView").hidden=(v!=="services");$("#financeView").hidden=(v!=="finance");
     [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.classList.toggle("on",b.dataset.view===v);});
-    if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else if(v==="reports")renderReports(); else if(v==="services")renderServices(); else render();}
+    if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else if(v==="reports")renderReports(); else if(v==="services")renderServices(); else if(v==="finance")renderFinance(); else render();}
   [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.addEventListener("click",function(){setView(b.dataset.view);});});
 
   async function loadClientsPets(){
@@ -875,6 +886,86 @@
     }).catch(function(){$("#servicesView").innerHTML='<p class="nodata">Не вдалося завантажити. Перевірте з’єднання.</p>';});
   }
 
+  /* ---------- finance / P&L (Фінанси) ---------- */
+  function finDefaults(){if(!finTo){var t=new Date();finTo=localISO(t);finFrom=localISO(new Date(t.getFullYear(),t.getMonth(),1));}}
+  function finSetPreset(p){var t=new Date();
+    if(p==="today"){finFrom=finTo=localISO(t);}
+    else if(p==="7"){finTo=localISO(t);finFrom=localISO(new Date(t.getFullYear(),t.getMonth(),t.getDate()-6));}
+    else if(p==="30"){finTo=localISO(t);finFrom=localISO(new Date(t.getFullYear(),t.getMonth(),t.getDate()-29));}
+    else if(p==="month"){finFrom=localISO(new Date(t.getFullYear(),t.getMonth(),1));finTo=localISO(t);}
+    else if(p==="all"){var ds=all.filter(function(b){return b.date;}).map(function(b){return b.date;}).sort();finFrom=ds[0]||localISO(t);finTo=localISO(t);}
+  }
+  function finBookings(){return all.filter(function(b){return b.service!=="Блокування"&&b.date&&b.date>=finFrom&&b.date<=finTo;});}
+  function salaryFor(m,rev,visits){var type=m.salary_type||"",val=Number(m.salary_value)||0;
+    if(type==="percent")return Math.round(rev*val/100);if(type==="per_visit")return visits*val;if(type==="fixed")return val;return 0;}
+  function salaryLabel(m){var type=m.salary_type||"",val=Number(m.salary_value)||0;
+    if(type==="percent")return val+"% від виручки";if(type==="per_visit")return val+" ₴/візит";if(type==="fixed")return "фікс "+money(val);return "не задано";}
+  function renderFinance(){finDefaults();$("#financeView").innerHTML='<p class="nodata">Завантаження…</p>';
+    api("/admin/expenses").then(function(d){expenses=(d&&d.expenses)||[];drawFinance();}).catch(function(){expenses=[];drawFinance();});}
+  function drawFinance(){
+    var bk=finBookings();
+    var rev=0,methodMap={};
+    bk.forEach(function(b){if(isRevenue(b)){var p=Number(b.price)||0;rev+=p;var m=PAYM[b.pay_method]||"Не вказано";methodMap[m]=(methodMap[m]||0)+p;}});
+    var sal={};bk.forEach(function(b){if(isRevenue(b)){var s=(b.staff||"").trim();if(!s)return;var a=sal[s]||(sal[s]={rev:0,visits:0});a.rev+=Number(b.price)||0;a.visits++;}});
+    var masters=(mastersList||[]),salaryRows=[],salaryTotal=0;
+    masters.forEach(function(m){var a=sal[m.name]||{rev:0,visits:0};var pay=salaryFor(m,a.rev,a.visits);salaryTotal+=pay;salaryRows.push({name:m.name,rev:a.rev,visits:a.visits,pay:pay,label:salaryLabel(m)});});
+    Object.keys(sal).forEach(function(s){if(!masters.some(function(m){return m.name===s;})){var a=sal[s];salaryRows.push({name:s,rev:a.rev,visits:a.visits,pay:0,label:"не задано"});}});
+    salaryRows.sort(function(a,b){return b.pay-a.pay||b.rev-a.rev;});
+    var exp=expenses.filter(function(e){return e.date&&e.date>=finFrom&&e.date<=finTo;});
+    var expTotal=exp.reduce(function(s,e){return s+(Number(e.amount)||0);},0);
+    var catMap={};exp.forEach(function(e){var c=e.category||"Інше";catMap[c]=(catMap[c]||0)+(Number(e.amount)||0);});
+    var profit=rev-salaryTotal-expTotal;
+    var maxRev=Math.max(1,Math.max.apply(null,salaryRows.map(function(r){return r.pay;})));
+    var ctrl='<div class="toolbar" style="align-items:center"><span style="font-weight:800">Період:</span>'+
+      [["today","Сьогодні"],["7","7 днів"],["30","30 днів"],["month","Місяць"],["all","Весь час"]].map(function(p){return '<button class="pill fin-preset" data-p="'+p[0]+'">'+p[1]+'</button>';}).join("")+
+      '<span class="repdates" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">'+
+        '<label style="display:inline-flex;align-items:center;gap:6px;color:var(--ink-soft);font-weight:700">від <input type="date" id="fin-from" class="search" style="max-width:160px;min-width:0" value="'+finFrom+'"></label>'+
+        '<label style="display:inline-flex;align-items:center;gap:6px;color:var(--ink-soft);font-weight:700">до <input type="date" id="fin-to" class="search" style="max-width:160px;min-width:0" value="'+finTo+'"></label>'+
+      '</span></div>';
+    var salaryHtml=salaryRows.length?salaryRows.map(function(r,i){
+      return '<div class="staff-row"><div class="staff-head"><span class="avatar c'+((i%4)+1)+'">'+esc(initials(r.name))+'</span>'+
+        '<div class="staff-meta"><div class="staff-name">'+esc(r.name)+'</div><div class="staff-sub">'+esc(r.label)+' · '+r.visits+' візит. · виручка '+money(r.rev)+'</div></div>'+
+        '<div class="staff-rev">'+money(r.pay)+'</div></div><div class="staff-bar"><i style="width:'+(r.pay/maxRev*100)+'%"></i></div></div>';}).join("")+
+      '<div class="fin-total"><span>Разом зарплати</span><b>'+money(salaryTotal)+'</b></div>'
+      :nodataP("Немає даних");
+    var expHtml='<div class="exp-add"><input type="date" id="exp-date" class="search" style="max-width:150px;min-width:0" value="'+localISO(new Date())+'">'+
+      '<input id="exp-cat" class="search" list="expCats" placeholder="Категорія" style="max-width:150px;min-width:0">'+
+      '<input id="exp-title" class="search" placeholder="Опис (необовʼязково)" style="flex:1;min-width:120px">'+
+      '<input id="exp-amount" type="number" min="0" class="search" placeholder="Сума ₴" style="max-width:120px;min-width:0">'+
+      '<button class="btn" id="exp-add-btn">+ Додати</button>'+
+      '<datalist id="expCats"><option>Оренда</option><option>Комуналка</option><option>Матеріали / витратники</option><option>Реклама</option><option>Податки</option><option>Обладнання</option><option>Інше</option></datalist></div>'+
+      (exp.length?exp.slice().sort(function(a,b){return (b.date||"").localeCompare(a.date||"")||b.id-a.id;}).map(function(e){
+        return '<div class="exp-row"><span class="exp-date">'+esc(fmtD(e.date))+'</span><span class="exp-cat">'+esc(e.category||"—")+'</span>'+
+          '<span style="flex:1">'+esc(e.title||"")+'</span><b>'+money(e.amount)+'</b>'+
+          '<button class="btn danger sm exp-del" data-eid="'+e.id+'" title="Видалити">✕</button></div>';}).join("")+
+        '<div class="fin-total"><span>Разом витрати</span><b>'+money(expTotal)+'</b></div>'
+        :nodataP("Витрат за період немає"));
+    $("#financeView").innerHTML=ctrl+
+      '<div class="kpis">'+
+        '<div class="kpi green"><div class="ic">💰</div><div class="k">Дохід</div><div class="v">'+money(rev)+'</div><div class="sub">виконано / оплачено</div></div>'+
+        '<div class="kpi gold"><div class="ic">👥</div><div class="k">Зарплати</div><div class="v">'+money(salaryTotal)+'</div></div>'+
+        '<div class="kpi rose"><div class="ic">🧾</div><div class="k">Витрати</div><div class="v">'+money(expTotal)+'</div></div>'+
+        '<div class="kpi'+(profit>=0?" green":" rose")+'"><div class="ic">📈</div><div class="k">Прибуток (P&L)</div><div class="v">'+money(profit)+'</div><div class="sub">дохід − зарплати − витрати</div></div>'+
+      '</div>'+
+      '<div class="dash-grid"><div class="panel"><h3>Дохід за способом оплати</h3>'+repBars(methodMap,true)+'</div>'+
+        '<div class="panel"><h3>Витрати за категоріями</h3>'+repBars(catMap,true)+'</div></div>'+
+      '<div class="panel full"><h3>Зарплати майстрів <span class="tag">за період</span></h3>'+salaryHtml+
+        '<p class="repnote">Схему зарплати задайте в Розклад → 👥 Майстри (% від виручки / фікс / за візит).</p></div>'+
+      '<div class="panel full"><h3>Витрати</h3>'+expHtml+'</div>';
+    [].forEach.call($("#financeView").querySelectorAll(".fin-preset"),function(b){b.addEventListener("click",function(){finSetPreset(b.dataset.p);drawFinance();});});
+    $("#fin-from").addEventListener("change",function(e){finFrom=e.target.value;drawFinance();});
+    $("#fin-to").addEventListener("change",function(e){finTo=e.target.value;drawFinance();});
+    $("#exp-add-btn").addEventListener("click",addExpense);
+    [].forEach.call($("#financeView").querySelectorAll(".exp-del"),function(b){b.addEventListener("click",function(){delExpense(b.dataset.eid);});});
+  }
+  function addExpense(){var amount=$("#exp-amount").value.trim();if(!amount||!(Number(amount)>0)){alert("Вкажіть суму витрати");return;}
+    var payload={date:$("#exp-date").value,category:$("#exp-cat").value.trim(),title:$("#exp-title").value.trim(),amount:Number(amount)};
+    api("/admin/expense-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
+      .then(function(){return api("/admin/expenses");}).then(function(d){expenses=(d&&d.expenses)||[];drawFinance();}).catch(function(){alert("Не вдалося зберегти витрату");});}
+  function delExpense(id){if(!confirm("Видалити витрату?"))return;
+    api("/admin/expense-delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:+id})})
+      .then(function(){return api("/admin/expenses");}).then(function(d){expenses=(d&&d.expenses)||[];drawFinance();}).catch(function(){alert("Не вдалося видалити");});}
+
   /* ---------- schedule (день / тиждень / місяць) ---------- */
   var schMode="day";
   var SCH={open:600,close:1200,step:30,rowH:44};
@@ -1102,7 +1193,7 @@
     $("#f-staff").value=b?b.staff||"":"";
     $("#f-source").value=b?(b.source||"site"):"phone";
     $("#f-date").value=b?b.date||"":"";$("#f-time").value=b?b.time||"":"";
-    $("#f-price").value=(b&&b.price!=null)?b.price:"";
+    $("#f-price").value=(b&&b.price!=null)?b.price:"";$("#f-paymethod").value=b?(b.pay_method||""):"";
     $("#f-status").value=b?(b.status||"new"):"new";$("#f-note").value=b?b.note||"":"";
     applyPetModal();
     $("#modalErr").textContent="";$("#modal").classList.add("open");$("#f-name").focus();}
@@ -1117,7 +1208,7 @@
     var payload={name:$("#f-name").value.trim(),phone:$("#f-phone").value.trim(),pet:$("#f-pet").value,pet_name:$("#f-petname").value.trim(),
       service:$("#f-service").value.trim(),breed:isCat?"":$("#f-breed").value,weight:$("#f-weight").value.trim(),
       staff:$("#f-staff").value,source:$("#f-source").value,date:$("#f-date").value,time:$("#f-time").value,
-      price:pv===""?"":Number(pv),status:$("#f-status").value,note:$("#f-note").value.trim(),addons:mChecked()};
+      price:pv===""?"":Number(pv),status:$("#f-status").value,note:$("#f-note").value.trim(),addons:mChecked(),pay_method:$("#f-paymethod").value};
     if(!payload.name||!payload.phone){$("#modalErr").textContent="Вкажіть ім'я і телефон.";return;}
     try{
       if(editId){payload.id=editId;await api("/admin/update",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});}
@@ -1274,6 +1365,10 @@
         '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Вихідні:</span>'+
           DOW.map(function(d){return '<label style="font-size:.8rem;font-weight:700;display:flex;gap:3px;align-items:center"><input type="checkbox" class="mm-dow" data-n="'+d.n+'"'+(off.indexOf(String(d.n))>=0?" checked":"")+' style="width:auto">'+d.l+'</label>';}).join("")+
         '</div>'+
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Зарплата:</span>'+
+          '<select class="mm-saltype" style="'+ib+'"><option value="">—</option><option value="percent"'+(m.salary_type==="percent"?" selected":"")+'>% від виручки</option><option value="fixed"'+(m.salary_type==="fixed"?" selected":"")+'>Фіксована</option><option value="per_visit"'+(m.salary_type==="per_visit"?" selected":"")+'>За візит</option></select>'+
+          '<input type="number" min="0" class="mm-salval" value="'+(m.salary_value!=null?m.salary_value:"")+'" placeholder="напр. 40 або 15000" style="'+ib+';max-width:150px">'+
+        '</div>'+
         '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Відпустка:</span><input type="date" class="mm-vfrom" value="'+esc(v0.from||"")+'" style="'+ib+'"> – <input type="date" class="mm-vto" value="'+esc(v0.to||"")+'" style="'+ib+'">'+
           '<span style="flex:1"></span><button class="btn sm mm-save">Зберегти</button><button class="btn danger sm mm-del">✕</button></div>'+
       '</div>';
@@ -1286,9 +1381,11 @@
   function collectRow(row){
     var off=[].filter.call(row.querySelectorAll(".mm-dow"),function(c){return c.checked;}).map(function(c){return c.dataset.n;}).join(",");
     var vf=row.querySelector(".mm-vfrom").value,vt=row.querySelector(".mm-vto").value;
+    var sv=row.querySelector(".mm-salval").value;
     var p={name:row.querySelector(".mm-name").value.trim(),active:row.querySelector(".mm-active").checked?1:0,
       work_start:row.querySelector(".mm-start").value||"10:00",work_end:row.querySelector(".mm-end").value||"20:00",
-      days_off:off,vacations:(vf&&vt)?JSON.stringify([{from:vf,to:vt}]):""};
+      days_off:off,vacations:(vf&&vt)?JSON.stringify([{from:vf,to:vt}]):"",
+      salary_type:row.querySelector(".mm-saltype").value,salary_value:(sv===""?null:Number(sv))};
     if(+row.dataset.id)p.id=+row.dataset.id;
     return p;
   }

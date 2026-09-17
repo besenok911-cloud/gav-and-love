@@ -106,6 +106,15 @@ export default {
       if (url.pathname === "/admin/service-delete" && request.method === "POST") {
         return json(await serviceDelete(request, env), cors);
       }
+      if (url.pathname === "/admin/expenses" && request.method === "GET") {
+        return json(await adminExpenses(request, env), cors);
+      }
+      if (url.pathname === "/admin/expense-save" && request.method === "POST") {
+        return json(await expenseSave(request, env), cors);
+      }
+      if (url.pathname === "/admin/expense-delete" && request.method === "POST") {
+        return json(await expenseDelete(request, env), cors);
+      }
       if (url.pathname === "/admin/masters" && request.method === "GET") {
         return json(await adminMasters(request, env), cors);
       }
@@ -460,7 +469,7 @@ async function adminList(request, env) {
   return { ok: true, bookings: results || [] };
 }
 
-const EDITABLE = ["pet", "pet_name", "service", "breed", "name", "phone", "date", "time", "note", "status", "source", "price", "staff", "weight", "client_id", "pet_id"];
+const EDITABLE = ["pet", "pet_name", "service", "breed", "name", "phone", "date", "time", "note", "status", "source", "price", "staff", "weight", "client_id", "pet_id", "pay_method"];
 
 async function adminUpdate(request, env) {
   requireAdmin(request, env);
@@ -615,7 +624,7 @@ async function adminMasters(request, env) {
   const { results } = await env.DB.prepare(`SELECT * FROM masters ORDER BY sort, id`).all();
   return { ok: true, masters: results || [] };
 }
-const MASTER_FIELDS = ["name", "active", "work_start", "work_end", "days_off", "vacations", "sort"];
+const MASTER_FIELDS = ["name", "active", "work_start", "work_end", "days_off", "vacations", "sort", "salary_type", "salary_value"];
 async function masterSave(request, env) {
   requireAdmin(request, env);
   const b = await request.json();
@@ -627,8 +636,8 @@ async function masterSave(request, env) {
   }
   if (!b.name) return { ok: false, error: "name required" };
   const r = await env.DB.prepare(
-    `INSERT INTO masters (name,active,work_start,work_end,days_off,vacations,sort) VALUES (?,?,?,?,?,?,?)`
-  ).bind(b.name, b.active ? 1 : 0, b.work_start || "10:00", b.work_end || "20:00", b.days_off || "", b.vacations || "", b.sort || 0).run();
+    `INSERT INTO masters (name,active,work_start,work_end,days_off,vacations,sort,salary_type,salary_value) VALUES (?,?,?,?,?,?,?,?,?)`
+  ).bind(b.name, b.active ? 1 : 0, b.work_start || "10:00", b.work_end || "20:00", b.days_off || "", b.vacations || "", b.sort || 0, b.salary_type || "", (b.salary_value == null || b.salary_value === "") ? null : Number(b.salary_value)).run();
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }
 async function masterDelete(request, env) {
@@ -784,6 +793,34 @@ async function serviceDelete(request, env) {
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
   await env.DB.prepare(`DELETE FROM services WHERE id=?`).bind(id).run();
+  return { ok: true };
+}
+
+/* ----------------------------- Expenses (P&L) ----------------------------- */
+async function adminExpenses(request, env) {
+  requireAdmin(request, env);
+  const { results } = await env.DB.prepare(`SELECT * FROM expenses ORDER BY date DESC, id DESC`).all();
+  return { ok: true, expenses: results || [] };
+}
+const EXPENSE_FIELDS = ["date", "category", "title", "amount", "note"];
+async function expenseSave(request, env) {
+  requireAdmin(request, env);
+  const b = await request.json();
+  if (b.id) {
+    const sets = [], vals = [];
+    for (const f of EXPENSE_FIELDS) if (b[f] != null) { sets.push(`${f}=?`); vals.push(f === "amount" ? (Number(b[f]) || 0) : b[f]); }
+    if (sets.length) { vals.push(b.id); await env.DB.prepare(`UPDATE expenses SET ${sets.join(",")} WHERE id=?`).bind(...vals).run(); }
+    return { ok: true, id: b.id };
+  }
+  const r = await env.DB.prepare(`INSERT INTO expenses (date,category,title,amount,note) VALUES (?,?,?,?,?)`)
+    .bind(b.date || "", b.category || "", b.title || "", Number(b.amount) || 0, b.note || "").run();
+  return { ok: true, id: r.meta && r.meta.last_row_id };
+}
+async function expenseDelete(request, env) {
+  requireAdmin(request, env);
+  const { id } = await request.json();
+  if (!id) return { ok: false, error: "id required" };
+  await env.DB.prepare(`DELETE FROM expenses WHERE id=?`).bind(id).run();
   return { ok: true };
 }
 
