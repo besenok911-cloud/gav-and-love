@@ -54,19 +54,28 @@
   const ICONS = { paw:"i-paw", scissors:"i-scissors", cat:"i-cat", star:"i-star", home:"i-home", play:"i-play" };
   const bookLink = svc => `#booking`;
 
-  (function initPrices() {
-    const data = window.LP_PRICES;
-    if (!data) { $("#pricePanels").innerHTML = '<p class="price-empty">Прайс тимчасово недоступний.</p>'; return; }
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  // Rebuildable: renders from bundled LP_PRICES first, then from the live catalog.
+  function renderPrices(data) {
+    if (!data || !data.categories) return;
     const tabs = $("#priceTabs"), panels = $("#pricePanels");
-    $("#noteGift").textContent = data.note_gift || "";
-    $("#noteBig").textContent = data.note_big ? "* " + data.note_big : "";
+    if (!tabs || !panels) return;
+    if ($("#noteGift")) $("#noteGift").textContent = data.note_gift || "";
+    if ($("#noteBig")) $("#noteBig").textContent = data.note_big ? "* " + data.note_big : "";
+    tabs.innerHTML = ""; panels.innerHTML = "";
+
+    function selectTab(i) {
+      $$(".price-tab", tabs).forEach((t, j) => t.classList.toggle("is-active", j === i));
+      $$(".price-panel", panels).forEach((p, j) => p.classList.toggle("is-active", j === i));
+    }
 
     data.categories.forEach((cat, idx) => {
       const active = idx === 0 ? " is-active" : "";
       const tab = document.createElement("button");
       tab.className = "price-tab" + active;
       tab.setAttribute("role", "tab");
-      tab.innerHTML = `<svg class="i"><use href="#${ICONS[cat.icon]||"i-paw"}"/></svg>${cat.title}`;
+      tab.innerHTML = `<svg class="i"><use href="#${ICONS[cat.icon] || "i-paw"}"/></svg>${esc(cat.title)}`;
       tab.addEventListener("click", () => selectTab(idx));
       tabs.appendChild(tab);
 
@@ -76,23 +85,25 @@
 
       let html = "";
       if (cat.searchable) {
-        html += `<input type="search" class="price-search" placeholder="Пошук породи…" aria-label="Пошук породи" data-cat="${cat.id}">`;
+        html += `<input type="search" class="price-search" placeholder="Пошук породи…" aria-label="Пошук породи" data-cat="${esc(cat.id)}">`;
       }
       html += `<div class="price-table-wrap"><table class="price-table"><thead><tr>` +
-        cat.columns.map(c => `<th>${c}</th>`).join("") + `</tr></thead><tbody>` +
-        cat.rows.map(row => `<tr>` + row.map(c => `<td>${c}</td>`).join("") + `</tr>`).join("") +
+        (cat.columns || []).map(c => `<th>${esc(c)}</th>`).join("") + `</tr></thead><tbody>` +
+        (cat.rows || []).map(row => `<tr>` + row.map(c => `<td>${esc(c)}</td>`).join("") + `</tr>`).join("") +
         `</tbody></table></div>`;
       html += `<div class="price-cat-cta"><a href="#booking" class="btn btn-primary">Записатись на цю послугу</a></div>`;
       panel.innerHTML = html;
       panels.appendChild(panel);
     });
+  }
 
-    function selectTab(i) {
-      $$(".price-tab", tabs).forEach((t, j) => t.classList.toggle("is-active", j === i));
-      $$(".price-panel", panels).forEach((p, j) => p.classList.toggle("is-active", j === i));
-    }
+  (function initPrices() {
+    const panels = $("#pricePanels");
+    if (!panels) return;
+    if (!window.LP_PRICES) panels.innerHTML = '<p class="price-empty">Прайс тимчасово недоступний.</p>';
+    else renderPrices(window.LP_PRICES);   // instant render from bundled prices
 
-    // breed search
+    // breed search — delegated once on the container, survives re-renders
     panels.addEventListener("input", e => {
       const inp = e.target.closest(".price-search"); if (!inp) return;
       const q = inp.value.trim().toLowerCase();
@@ -300,7 +311,7 @@
   }
 
   // Slot picker (grooming services). Hotel/daycare are free-form requests.
-  const REQUEST_SVC = CFG.services.filter(s => s.request).map(s => s.name);
+  let REQUEST_SVC = CFG.services.filter(s => s.request).map(s => s.name);
   const serviceSel = $("#bf-service");
   const slotsField = $("#bf-slots-field"), slotsBox = $("#bf-slots"),
     slotsHint = $("#bf-slots-hint"), timeInput = $("#bf-time"),
@@ -336,6 +347,22 @@
   serviceSel && serviceSel.addEventListener("change", refreshSlots);
   dateInput && dateInput.addEventListener("change", refreshSlots);
   staffSel && staffSel.addEventListener("change", refreshSlots);
+
+  // Live catalog from the CRM: booking services (names + durations) and the
+  // price tables. Renders instantly from the bundled files first, then refreshes.
+  if (CONFIG.bookingEndpoint) {
+    fetch(`${CONFIG.bookingEndpoint}/catalog`).then(r => r.json()).then(d => {
+      if (!d) return;
+      if (d.services && d.services.length && serviceSel) {
+        const prev = serviceSel.value;
+        serviceSel.innerHTML = d.services.map(s =>
+          `<option value="${esc(s.name)}">${esc(s.name)}${s.duration ? " · ~" + fmtDur(s.duration) : ""}</option>`).join("");
+        if (prev && d.services.some(s => s.name === prev)) serviceSel.value = prev;
+        REQUEST_SVC = d.services.filter(s => s.is_request).map(s => s.name);
+      }
+      if (d.prices) renderPrices(d.prices);
+    }).catch(() => { });
+  }
 
   const form = $("#bookingForm"), status = $("#bfStatus");
   form && form.addEventListener("submit", async e => {
