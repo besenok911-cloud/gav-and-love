@@ -38,19 +38,8 @@ const DEFAULT_DURATION = 120;
 const REQUEST_SERVICES = new Set(["Міні-готель", "Денний садочок"]);
 // Майстри (roster) — keep in sync with data/config.js `staff`
 const STAFF = ["Дар'я", "Катерина", "Марія"];
-
-// Послуги для запису (fallback / seed). The `services` D1 table is the source
-// of truth once seeded; edit it from the CRM. duration=хв, price=базова ціна
-// (null → визначає майстер), is_request=1 → заявка без слоту (готель/садочок).
-const DEFAULT_SERVICES = [
-  { name: "Гігієнічний комплекс", species: "both", duration: 120, price: null, is_request: 0 },
-  { name: "Повний комплекс (зі стрижкою)", species: "dog", duration: 150, price: null, is_request: 0 },
-  { name: "Стрижка", species: "dog", duration: 90, price: null, is_request: 0 },
-  { name: "Вичісування / експрес-линька", species: "both", duration: 90, price: null, is_request: 0 },
-  { name: "Догляд для котиків", species: "cat", duration: 120, price: null, is_request: 0 },
-  { name: "Міні-готель", species: "both", duration: 0, price: null, is_request: 1 },
-  { name: "Денний садочок", species: "both", duration: 0, price: null, is_request: 1 },
-];
+// DEFAULT_SERVICES (unified: booking + price) is defined at the bottom of the
+// file, built from DEFAULT_PRICES so the seed data lives in one place.
 
 /* ----------------------------- HTTP entry ----------------------------- */
 export default {
@@ -116,12 +105,6 @@ export default {
       }
       if (url.pathname === "/admin/service-delete" && request.method === "POST") {
         return json(await serviceDelete(request, env), cors);
-      }
-      if (url.pathname === "/admin/catalog" && request.method === "GET") {
-        return json(await adminCatalog(request, env), cors);
-      }
-      if (url.pathname === "/admin/catalog-save" && request.method === "POST") {
-        return json(await catalogSave(request, env), cors);
       }
       if (url.pathname === "/admin/masters" && request.method === "GET") {
         return json(await adminMasters(request, env), cors);
@@ -446,7 +429,7 @@ async function calDelete(env, token, id) {
 async function saveBooking(env, b) {
   if (!env.DB) return;
   try {
-    if (b.price == null || b.price === "") { const si = await serviceInfo(env, b.service); if (si && si.price != null && si.price !== "") b.price = si.price; }
+    if (b.price == null || b.price === "") { const p = await priceForBooking(env, b); if (p != null) b.price = p; }
     const link = await linkClientPet(env, b);
     await env.DB.prepare(
       `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight,client_id,pet_id,pet_name)
@@ -502,7 +485,7 @@ async function adminCreate(request, env) {
   requireAdmin(request, env);
   const b = await request.json();
   if (!b || !b.name || !b.phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
-  if (b.price == null || b.price === "") { const si = await serviceInfo(env, b.service); if (si && si.price != null && si.price !== "") b.price = si.price; }
+  if (b.price == null || b.price === "") { const p = await priceForBooking(env, b); if (p != null) b.price = p; }
   const hasTime = !!(b.date && b.time);
   let eventId = null, eventLink = null;
   if (hasTime && (b.status || "new") !== "cancelled") {
@@ -656,67 +639,77 @@ async function masterDelete(request, env) {
   return { ok: true };
 }
 
-/* ----------------------------- Services & price catalog ----------------------------- */
+/* ----------------------------- Services (booking + price = one entity) ----------------------------- */
+// One service = a bookable item AND its price list. price_type:
+//   flat   → single `price` (may be "" / "від 1000")
+//   breed  → rows [[breed, price], …] (dog grooming); form matches breed → price
+//   options→ rows [[label, price], …] (sub-services / tariffs); form shows a sub-select
+//   table  → rows [[label, col1, col2, …]] with `columns` headers (weight / hotel); form shows a range
+function jparse(s, dflt) { try { const v = JSON.parse(s || ""); return v == null ? dflt : v; } catch (e) { return dflt; } }
 function svcRow(r) {
   return {
-    id: r.id, name: r.name, species: r.species || "both",
-    duration: r.duration || 0, price: (r.price === 0 || r.price) ? r.price : null,
-    is_request: r.is_request ? 1 : 0, active: r.active == null ? 1 : (r.active ? 1 : 0), sort: r.sort || 0,
+    id: r.id, name: r.name, species: r.species || "both", duration: r.duration || 0,
+    is_request: r.is_request ? 1 : 0, bookable: r.bookable == null ? 1 : (r.bookable ? 1 : 0),
+    active: r.active == null ? 1 : (r.active ? 1 : 0), sort: r.sort || 0,
+    price_type: r.price_type || "flat", price: (r.price == null ? "" : String(r.price)), unit: r.unit || "₴",
+    note: r.note || "", columns: jparse(r.columns, []), rows: jparse(r.rows, []),
   };
 }
-const svcDefaults = () => DEFAULT_SERVICES.map((s, i) => ({ id: null, ...s, active: 1, sort: i }));
+const svcDefaults = () => DEFAULT_SERVICES.map((s, i) => ({ id: null, sort: i, ...s }));
+const SVC_COLS = ["name", "species", "duration", "is_request", "bookable", "active", "sort", "price_type", "price", "unit", "note", "columns", "rows"];
+function svcBind(s) {
+  return [s.name || "", s.species || "both", +s.duration || 0, s.is_request ? 1 : 0,
+    s.bookable == null ? 1 : (s.bookable ? 1 : 0), s.active == null ? 1 : (s.active ? 1 : 0), +s.sort || 0,
+    s.price_type || "flat", (s.price == null ? "" : String(s.price)), s.unit || "₴", s.note || "",
+    JSON.stringify(s.columns || []), JSON.stringify(s.rows || [])];
+}
 async function seedServices(env) {
-  for (let i = 0; i < DEFAULT_SERVICES.length; i++) {
-    const s = DEFAULT_SERVICES[i];
-    await env.DB.prepare(`INSERT INTO services (name,species,duration,price,is_request,active,sort) VALUES (?,?,?,?,?,1,?)`)
-      .bind(s.name, s.species, s.duration, s.price, s.is_request, i).run();
+  const d = svcDefaults();
+  for (const s of d) {
+    await env.DB.prepare(`INSERT INTO services (${SVC_COLS.join(",")}) VALUES (${SVC_COLS.map(() => "?").join(",")})`).bind(...svcBind(s)).run();
   }
 }
 async function loadServices(env) {
-  if (!env.DB) return svcDefaults();
+  if (!env.DB) return svcDefaults().map(svcRow);
   try {
     let r = await env.DB.prepare(`SELECT * FROM services ORDER BY sort, id`).all();
     if (!r.results || !r.results.length) { await seedServices(env); r = await env.DB.prepare(`SELECT * FROM services ORDER BY sort, id`).all(); }
     return (r.results || []).map(svcRow);
-  } catch (e) { return svcDefaults(); }
+  } catch (e) { return svcDefaults().map(svcRow); }
 }
 async function serviceInfo(env, name) { return (await loadServices(env)).find(s => s.name === name) || null; }
 async function serviceDuration(env, name) { const s = await serviceInfo(env, name); return (s && s.duration) ? s.duration : (SERVICE_DURATIONS[name] || DEFAULT_DURATION); }
 async function serviceIsRequest(env, name) { const s = await serviceInfo(env, name); return s ? !!s.is_request : REQUEST_SERVICES.has(name); }
-
-async function loadCatalog(env) {
-  if (!env.DB) return DEFAULT_PRICES;
-  try {
-    const { results } = await env.DB.prepare(`SELECT data FROM catalog WHERE id=1`).all();
-    if (results && results[0] && results[0].data) { try { return JSON.parse(results[0].data); } catch (e) { } }
-  } catch (e) { }
-  return DEFAULT_PRICES;
+const numOf = v => { const m = /\d+/.exec(String(v == null ? "" : v)); return m ? +m[0] : null; };
+// Auto-price a booking from its service (only when unambiguous & numeric).
+async function priceForBooking(env, b) {
+  const s = await serviceInfo(env, b.service); if (!s) return null;
+  if (s.price_type === "breed" && b.breed) { const row = (s.rows || []).find(r => r[0] === b.breed); if (row && /^\d+$/.test(String(row[1]).trim())) return +row[1]; }
+  if (s.price_type === "flat" && /^\d+$/.test(String(s.price).trim())) return +s.price;
+  return null;
 }
-async function saveCatalog(env, data) {
-  const s = JSON.stringify(data), now = new Date().toISOString();
-  await env.DB.prepare(`INSERT INTO catalog (id,data,updated) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET data=?, updated=?`)
-    .bind(s, now, s, now).run();
-}
-// Public: booking services + price catalog for the site (single fetch).
+// Public: the full service+price list for the site (form + «Ціни»), single fetch.
 async function publicCatalog(env) {
-  const services = (await loadServices(env)).filter(s => s.active)
-    .map(s => ({ name: s.name, species: s.species, duration: s.duration, price: s.price, is_request: s.is_request }));
-  return { ok: true, services, prices: await loadCatalog(env) };
+  const services = (await loadServices(env)).filter(s => s.active);
+  const st = await loadSettings(env);
+  return { ok: true, services, notes: { gift: st.note_gift || DEFAULT_PRICES.note_gift, big: st.note_big || DEFAULT_PRICES.note_big } };
 }
 async function adminServices(request, env) { requireAdmin(request, env); return { ok: true, services: await loadServices(env) }; }
-const SERVICE_FIELDS = ["name", "species", "duration", "price", "is_request", "active", "sort"];
 async function serviceSave(request, env) {
   requireAdmin(request, env);
   const b = await request.json();
   if (b.id) {
     const sets = [], vals = [];
-    for (const f of SERVICE_FIELDS) if (b[f] != null) { sets.push(`${f}=?`); vals.push(f === "price" && b[f] === "" ? null : b[f]); }
+    for (const f of SVC_COLS) {
+      if (b[f] == null) continue;
+      sets.push(`${f}=?`);
+      vals.push((f === "columns" || f === "rows") ? (typeof b[f] === "string" ? b[f] : JSON.stringify(b[f])) : b[f]);
+    }
     if (sets.length) { vals.push(b.id); await env.DB.prepare(`UPDATE services SET ${sets.join(",")} WHERE id=?`).bind(...vals).run(); }
     return { ok: true, id: b.id };
   }
   if (!b.name) return { ok: false, error: "name required" };
-  const r = await env.DB.prepare(`INSERT INTO services (name,species,duration,price,is_request,active,sort) VALUES (?,?,?,?,?,?,?)`)
-    .bind(b.name, b.species || "both", b.duration || 0, (b.price === "" || b.price == null) ? null : b.price, b.is_request ? 1 : 0, b.active == null ? 1 : (b.active ? 1 : 0), b.sort || 0).run();
+  const r = await env.DB.prepare(`INSERT INTO services (${SVC_COLS.join(",")}) VALUES (${SVC_COLS.map(() => "?").join(",")})`).bind(...svcBind(b)).run();
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }
 async function serviceDelete(request, env) {
@@ -725,14 +718,6 @@ async function serviceDelete(request, env) {
   if (!id) return { ok: false, error: "id required" };
   await env.DB.prepare(`DELETE FROM services WHERE id=?`).bind(id).run();
   return { ok: true };
-}
-async function adminCatalog(request, env) { requireAdmin(request, env); return { ok: true, prices: await loadCatalog(env) }; }
-async function catalogSave(request, env) {
-  requireAdmin(request, env);
-  const b = await request.json();
-  if (!b || !b.prices) return { ok: false, error: "prices required" };
-  await saveCatalog(env, b.prices);
-  return { ok: true, prices: await loadCatalog(env) };
 }
 
 /* ----------------------------- Settings & reminders ----------------------------- */
@@ -752,7 +737,7 @@ async function adminSettings(request, env) {
 async function settingsSave(request, env) {
   requireAdmin(request, env);
   const b = await request.json();
-  for (const k of ["reminders_enabled", "repeat_weeks"]) {
+  for (const k of ["reminders_enabled", "repeat_weeks", "note_gift", "note_big"]) {
     if (b[k] != null) await env.DB.prepare(`INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(k, String(b[k]), String(b[k])).run();
   }
   return { ok: true, settings: await loadSettings(env) };
@@ -964,3 +949,17 @@ const DEFAULT_PRICES = {
     },
   ],
 };
+
+// Unified seed: each service = a bookable item + its own price list (from DEFAULT_PRICES).
+const DEFAULT_SERVICES = (() => {
+  const cat = id => (DEFAULT_PRICES.categories.find(c => c.id === id) || { columns: [], rows: [] });
+  return [
+    { name: "Гігієнічний комплекс (собаки)", species: "dog", duration: 120, is_request: 0, bookable: 1, active: 1, price_type: "breed", price: "", unit: "₴", note: "", columns: ["Порода", "Ціна, ₴"], rows: cat("hygiene-dogs").rows },
+    { name: "Комплекс зі стрижкою (собаки)", species: "dog", duration: 150, is_request: 0, bookable: 1, active: 1, price_type: "breed", price: "", unit: "₴", note: "", columns: ["Порода", "Ціна, ₴"], rows: cat("haircut-dogs").rows },
+    { name: "Догляд для котиків", species: "cat", duration: 120, is_request: 0, bookable: 1, active: 1, price_type: "table", price: "", unit: "₴", note: "", columns: cat("cats").columns, rows: cat("cats").rows },
+    { name: "Вичісування / експрес-линька", species: "both", duration: 90, is_request: 0, bookable: 1, active: 1, price_type: "flat", price: "", unit: "₴", note: "Ціна залежить від стану шерсті та розміру улюбленця.", columns: [], rows: [] },
+    { name: "Окремі види послуг", species: "both", duration: 0, is_request: 0, bookable: 0, active: 1, price_type: "options", price: "", unit: "₴", note: "", columns: cat("extra").columns, rows: cat("extra").rows },
+    { name: "Міні-готель", species: "both", duration: 0, is_request: 1, bookable: 1, active: 1, price_type: "table", price: "", unit: "₴/доба", note: "", columns: cat("hotel").columns, rows: cat("hotel").rows },
+    { name: "Денний садочок", species: "both", duration: 0, is_request: 1, bookable: 1, active: 1, price_type: "options", price: "", unit: "₴", note: "", columns: cat("daycare").columns, rows: cat("daycare").rows },
+  ];
+})();
