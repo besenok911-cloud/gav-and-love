@@ -629,7 +629,7 @@ async function adminMasters(request, env) {
   const { results } = await env.DB.prepare(`SELECT * FROM masters ORDER BY sort, id`).all();
   return { ok: true, masters: results || [] };
 }
-const MASTER_FIELDS = ["name", "active", "work_start", "work_end", "days_off", "vacations", "sort", "salary_type", "salary_value", "break_start", "break_end"];
+const MASTER_FIELDS = ["name", "active", "work_start", "work_end", "days_off", "vacations", "sort", "salary_type", "salary_value", "salary_base", "break_start", "break_end"];
 async function masterSave(request, env) {
   requireAdmin(request, env);
   const b = await request.json();
@@ -641,8 +641,8 @@ async function masterSave(request, env) {
   }
   if (!b.name) return { ok: false, error: "name required" };
   const r = await env.DB.prepare(
-    `INSERT INTO masters (name,active,work_start,work_end,days_off,vacations,sort,salary_type,salary_value,break_start,break_end) VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-  ).bind(b.name, b.active ? 1 : 0, b.work_start || "10:00", b.work_end || "20:00", b.days_off || "", b.vacations || "", b.sort || 0, b.salary_type || "", (b.salary_value == null || b.salary_value === "") ? null : Number(b.salary_value), b.break_start || "", b.break_end || "").run();
+    `INSERT INTO masters (name,active,work_start,work_end,days_off,vacations,sort,salary_type,salary_value,salary_base,break_start,break_end) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(b.name, b.active ? 1 : 0, b.work_start || "10:00", b.work_end || "20:00", b.days_off || "", b.vacations || "", b.sort || 0, b.salary_type || "", (b.salary_value == null || b.salary_value === "") ? null : Number(b.salary_value), (b.salary_base == null || b.salary_base === "") ? null : Number(b.salary_base), b.break_start || "", b.break_end || "").run();
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }
 async function masterDelete(request, env) {

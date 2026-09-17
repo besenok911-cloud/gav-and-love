@@ -914,10 +914,12 @@
     else if(p==="all"){var ds=all.filter(function(b){return b.date;}).map(function(b){return b.date;}).sort();finFrom=ds[0]||localISO(t);finTo=localISO(t);}
   }
   function finBookings(){return all.filter(function(b){return b.service!=="Блокування"&&b.date&&b.date>=finFrom&&b.date<=finTo;});}
-  function salaryFor(m,rev,visits){var type=m.salary_type||"",val=Number(m.salary_value)||0;
-    if(type==="percent")return Math.round(rev*val/100);if(type==="per_visit")return visits*val;if(type==="fixed")return val;return 0;}
-  function salaryLabel(m){var type=m.salary_type||"",val=Number(m.salary_value)||0;
-    if(type==="percent")return val+"% від виручки";if(type==="per_visit")return val+" ₴/візит";if(type==="fixed")return "фікс "+money(val);return "не задано";}
+  function salaryFor(m,rev,visits){var type=m.salary_type||"",val=Number(m.salary_value)||0,base=Number(m.salary_base)||0;
+    if(type==="percent")return Math.round(rev*val/100);if(type==="per_visit")return visits*val;if(type==="fixed")return val;
+    if(type==="base_pct")return Math.round(base+rev*val/100);return 0;}
+  function salaryLabel(m){var type=m.salary_type||"",val=Number(m.salary_value)||0,base=Number(m.salary_base)||0;
+    if(type==="percent")return val+"% від виручки";if(type==="per_visit")return val+" ₴/візит";if(type==="fixed")return "фікс "+money(val);
+    if(type==="base_pct")return money(base)+" + "+val+"%";return "не задано";}
   function renderFinance(){finDefaults();$("#financeView").innerHTML='<p class="nodata">Завантаження…</p>';
     api("/admin/expenses").then(function(d){expenses=(d&&d.expenses)||[];drawFinance();}).catch(function(){expenses=[];drawFinance();});}
   function drawFinance(){
@@ -968,7 +970,7 @@
       '<div class="dash-grid"><div class="panel"><h3>Дохід за способом оплати</h3>'+repBars(methodMap,true)+'</div>'+
         '<div class="panel"><h3>Витрати за категоріями</h3>'+repBars(catMap,true)+'</div></div>'+
       '<div class="panel full"><h3>Зарплати майстрів <span class="tag">за період</span></h3>'+salaryHtml+
-        '<p class="repnote">Схему зарплати задайте в Розклад → 👥 Майстри (% від виручки / фікс / за візит).</p></div>'+
+        '<p class="repnote">Схему зарплати задайте в Розклад → 👥 Майстри (% від виручки / фікс / за візит / ставка + %).</p></div>'+
       '<div class="panel full"><h3>Витрати</h3>'+expHtml+'</div>';
     [].forEach.call($("#financeView").querySelectorAll(".fin-preset"),function(b){b.addEventListener("click",function(){finSetPreset(b.dataset.p);drawFinance();});});
     $("#fin-from").addEventListener("change",function(e){finFrom=e.target.value;drawFinance();});
@@ -1383,14 +1385,16 @@
           '<label style="font-weight:700;font-size:.85rem;display:flex;gap:5px;align-items:center"><input type="checkbox" class="mm-active"'+(m.active?" checked":"")+' style="width:auto"> Активний</label>'+
           '<span style="font-size:.85rem;color:var(--ink-soft)">Години:</span><input type="time" class="mm-start" value="'+esc(m.work_start||"10:00")+'" style="'+ib+'"> – <input type="time" class="mm-end" value="'+esc(m.work_end||"20:00")+'" style="'+ib+'">'+
         '</div>'+
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Обідня перерва:</span><input type="time" class="mm-brstart" value="'+esc(m.break_start||"")+'" style="'+ib+'"> – <input type="time" class="mm-brend" value="'+esc(m.break_end||"")+'" style="'+ib+'"><span style="font-size:.76rem;color:var(--ink-soft)">(у цей час слоти закриті)</span></div>'+
         '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Вихідні:</span>'+
           DOW.map(function(d){return '<label style="font-size:.8rem;font-weight:700;display:flex;gap:3px;align-items:center"><input type="checkbox" class="mm-dow" data-n="'+d.n+'"'+(off.indexOf(String(d.n))>=0?" checked":"")+' style="width:auto">'+d.l+'</label>';}).join("")+
         '</div>'+
         '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Зарплата:</span>'+
-          '<select class="mm-saltype" style="'+ib+'"><option value="">—</option><option value="percent"'+(m.salary_type==="percent"?" selected":"")+'>% від виручки</option><option value="fixed"'+(m.salary_type==="fixed"?" selected":"")+'>Фіксована</option><option value="per_visit"'+(m.salary_type==="per_visit"?" selected":"")+'>За візит</option></select>'+
+          '<select class="mm-saltype" style="'+ib+'"><option value="">—</option><option value="percent"'+(m.salary_type==="percent"?" selected":"")+'>% від виручки</option><option value="fixed"'+(m.salary_type==="fixed"?" selected":"")+'>Фіксована</option><option value="per_visit"'+(m.salary_type==="per_visit"?" selected":"")+'>За візит</option><option value="base_pct"'+(m.salary_type==="base_pct"?" selected":"")+'>Ставка + %</option></select>'+
+          '<input type="number" min="0" class="mm-salbase" value="'+(m.salary_base!=null?m.salary_base:"")+'" placeholder="ставка, ₴" style="'+ib+';max-width:120px">'+
           '<input type="number" min="0" class="mm-salval" value="'+(m.salary_value!=null?m.salary_value:"")+'" placeholder="напр. 40 або 15000" style="'+ib+';max-width:150px">'+
+          '<span class="mm-salhint" style="font-size:.76rem;color:var(--ink-soft)"></span>'+
         '</div>'+
-        '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Обідня перерва:</span><input type="time" class="mm-brstart" value="'+esc(m.break_start||"")+'" style="'+ib+'"> – <input type="time" class="mm-brend" value="'+esc(m.break_end||"")+'" style="'+ib+'"><span style="font-size:.76rem;color:var(--ink-soft)">(у цей час слоти закриті)</span></div>'+
         '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Відпустка:</span><input type="date" class="mm-vfrom" value="'+esc(v0.from||"")+'" style="'+ib+'"> – <input type="date" class="mm-vto" value="'+esc(v0.to||"")+'" style="'+ib+'"></div>'+
         '<div style="display:flex;gap:10px;align-items:center;margin-top:12px;border-top:1px solid var(--line);padding-top:12px"><button class="btn save-main mm-save">💾 Зберегти майстра</button><span style="flex:1"></span><button class="btn danger sm mm-del">✕ Видалити</button></div>'+
       '</div>';
@@ -1399,16 +1403,29 @@
       var sb=row.querySelector(".mm-save");
       sb.addEventListener("click",function(){saveMasterRow(row,sb);});
       row.querySelector(".mm-del").addEventListener("click",function(){delMasterRow(row);});
+      var sel=row.querySelector(".mm-saltype");
+      sel.addEventListener("change",function(){syncSal(row);});
+      syncSal(row);
     });
+  }
+  function syncSal(row){
+    var t=row.querySelector(".mm-saltype").value;
+    var base=row.querySelector(".mm-salbase"),val=row.querySelector(".mm-salval"),hint=row.querySelector(".mm-salhint");
+    var combo=(t==="base_pct");
+    base.style.display=combo?"":"none";
+    if(combo){val.placeholder="%";val.style.maxWidth="90px";hint.textContent="ставка ₴ + % від виручки майстра";}
+    else{val.style.maxWidth="150px";
+      val.placeholder=(t==="percent")?"%":(t==="per_visit")?"₴ за візит":(t==="fixed")?"₴ на місяць":"значення";
+      hint.textContent=(t==="percent")?"% від виручки майстра":(t==="per_visit")?"фікс. сума за кожен візит":(t==="fixed")?"фікс. сума за період":"";}
   }
   function collectRow(row){
     var off=[].filter.call(row.querySelectorAll(".mm-dow"),function(c){return c.checked;}).map(function(c){return c.dataset.n;}).join(",");
     var vf=row.querySelector(".mm-vfrom").value,vt=row.querySelector(".mm-vto").value;
-    var sv=row.querySelector(".mm-salval").value;
+    var sv=row.querySelector(".mm-salval").value,sbv=row.querySelector(".mm-salbase").value;
     var p={name:row.querySelector(".mm-name").value.trim(),active:row.querySelector(".mm-active").checked?1:0,
       work_start:row.querySelector(".mm-start").value||"10:00",work_end:row.querySelector(".mm-end").value||"20:00",
       days_off:off,vacations:(vf&&vt)?JSON.stringify([{from:vf,to:vt}]):"",
-      salary_type:row.querySelector(".mm-saltype").value,salary_value:(sv===""?null:Number(sv)),
+      salary_type:row.querySelector(".mm-saltype").value,salary_value:(sv===""?null:Number(sv)),salary_base:(sbv===""?null:Number(sbv)),
       break_start:row.querySelector(".mm-brstart").value||"",break_end:row.querySelector(".mm-brend").value||""};
     if(+row.dataset.id)p.id=+row.dataset.id;
     return p;
