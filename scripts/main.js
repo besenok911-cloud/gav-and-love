@@ -84,6 +84,7 @@
       panel.id = "panel-" + cat.id;
 
       let html = "";
+      if (cat.note) html += `<p class="price-cat-note muted" style="margin:0 0 10px">${esc(cat.note)}</p>`;
       if (cat.searchable) {
         html += `<input type="search" class="price-search" placeholder="Пошук породи…" aria-label="Пошук породи" data-cat="${esc(cat.id)}">`;
       }
@@ -126,6 +127,50 @@
       } else if (empty) empty.style.display = "none";
     });
   })();
+
+  // --- unified catalog: services carry their own prices ---
+  const numOf = v => { const m = /\d+/.exec(String(v == null ? "" : v)); return m ? +m[0] : null; };
+  function iconForSvc(s) {
+    const n = (s.name || "").toLowerCase();
+    if (/готел|hotel/.test(n)) return "home";
+    if (/садоч|погодин|daycare/.test(n)) return "play";
+    if (/окрем|додатк/.test(n)) return "star";
+    if (/стриж/.test(n)) return "scissors";
+    if (s.species === "cat" || /кот|кіт/.test(n)) return "cat";
+    return "paw";
+  }
+  // Build the «Ціни» view (renderPrices shape) from the service list.
+  function servicesToCatalog(services, notes) {
+    const cats = (services || []).filter(s => s.active !== 0).map((s, i) => {
+      let columns = (s.columns && s.columns.length) ? s.columns.slice() : null;
+      let rows = (s.rows && s.rows.length) ? s.rows.map(r => r.slice()) : [];
+      if (!rows.length) {
+        columns = ["Послуга", "Ціна"];
+        const p = s.price ? (String(s.price) + (/^\d/.test(String(s.price)) ? (" " + (s.unit || "₴")) : "")) : "за домовленістю";
+        rows = [[s.name, p]];
+      } else if (!columns) { columns = ["Послуга", "Ціна, ₴"]; }
+      return { id: "svc-" + i, title: s.name, icon: iconForSvc(s), searchable: s.price_type === "breed", columns, rows, note: s.note };
+    });
+    return { note_gift: (notes && notes.gift) || "", note_big: (notes && notes.big) || "", categories: cats };
+  }
+  // Orientative price shown in the booking form for the chosen service (+breed).
+  function priceHint(s, breed) {
+    if (!s) return "";
+    if (s.price_type === "breed") {
+      if (breed) { const row = (s.rows || []).find(r => String(r[0]) === String(breed)); if (row && row[1]) return `Орієнтовна ціна для «${esc(breed)}»: <b>${esc(row[1])} ₴</b>`; }
+      const nums = (s.rows || []).map(r => numOf(r[1])).filter(n => n != null);
+      return nums.length ? `Ціна залежить від породи — <b>від ${Math.min.apply(null, nums)} ₴</b>` : "";
+    }
+    if (s.price_type === "flat") {
+      if (s.price) return `Ціна: <b>${esc(s.price)}${/^\d/.test(String(s.price)) ? (" " + esc(s.unit || "₴")) : ""}</b>`;
+      return s.note ? esc(s.note) : "";
+    }
+    const nums = [];
+    (s.rows || []).forEach(r => r.forEach((c, i) => { if (i > 0) { const n = numOf(c); if (n != null) nums.push(n); } }));
+    let h = s.note ? esc(s.note) : "";
+    if (nums.length) { if (h) h += "<br>"; h += `Ціна: <b>від ${Math.min.apply(null, nums)} ${esc(s.unit || "₴")}</b>`; }
+    return h;
+  }
 
   /* ============================================================
      GALLERY
@@ -300,6 +345,7 @@
     $$(".seg-btn", petSeg).forEach(x => x.classList.toggle("is-active", x === b));
     petHidden.value = b.dataset.val;
     applyPet();
+    if (typeof updatePriceHint === "function") updatePriceHint();
   });
 
   // Date bounds: today .. +30 days
@@ -348,21 +394,34 @@
   dateInput && dateInput.addEventListener("change", refreshSlots);
   staffSel && staffSel.addEventListener("change", refreshSlots);
 
-  // Live catalog from the CRM: booking services (names + durations) and the
-  // price tables. Renders instantly from the bundled files first, then refreshes.
+  // Live unified catalog from the CRM: one service list drives the form's
+  // service select, the in-form price hint, and the site «Ціни» tables.
+  let SERVICES = [];
+  function updatePriceHint() {
+    const el = $("#bf-price-hint"); if (!el || !serviceSel) return;
+    const s = SERVICES.find(x => x.name === serviceSel.value);
+    const breed = (breedSel && !breedSel.disabled) ? breedSel.value : "";
+    const h = priceHint(s, breed);
+    el.innerHTML = h; el.hidden = !h;
+  }
+  serviceSel && serviceSel.addEventListener("change", updatePriceHint);
+  breedSel && breedSel.addEventListener("change", updatePriceHint);
   if (CONFIG.bookingEndpoint) {
     fetch(`${CONFIG.bookingEndpoint}/catalog`).then(r => r.json()).then(d => {
       if (!d) return;
-      if (d.services && d.services.length && serviceSel) {
+      SERVICES = d.services || [];
+      const bookable = SERVICES.filter(s => s.bookable !== 0);
+      if (bookable.length && serviceSel) {
         const prev = serviceSel.value;
         const ph = serviceSel.querySelector('option[value=""]');
         const phHtml = ph ? ph.outerHTML : '<option value="">Оберіть послугу…</option>';
-        serviceSel.innerHTML = phHtml + d.services.map(s =>
+        serviceSel.innerHTML = phHtml + bookable.map(s =>
           `<option value="${esc(s.name)}">${esc(s.name)}${s.duration ? " · ~" + fmtDur(s.duration) : ""}</option>`).join("");
-        if (prev && d.services.some(s => s.name === prev)) serviceSel.value = prev;
-        REQUEST_SVC = d.services.filter(s => s.is_request).map(s => s.name);
+        if (prev && bookable.some(s => s.name === prev)) serviceSel.value = prev;
+        REQUEST_SVC = bookable.filter(s => s.is_request).map(s => s.name);
+        updatePriceHint();
       }
-      if (d.prices) renderPrices(d.prices);
+      renderPrices(servicesToCatalog(SERVICES, d.notes));
     }).catch(() => { });
   }
 
