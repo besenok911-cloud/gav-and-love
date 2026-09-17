@@ -1026,7 +1026,8 @@
   }
   function gridBody(){
     var cols=schCols(),N=cols.length,rows=(SCH.close-SCH.open)/SCH.step;
-    var h='<div class="sch-grid" style="grid-template-columns:52px repeat('+N+',minmax(104px,1fr))">';
+    var minw=N>=6?58:(N>=4?74:96);
+    var h='<div class="sch-grid" style="grid-template-columns:44px repeat('+N+',minmax('+minw+'px,1fr))">';
     h+='<div class="sch-colhead tcorner"></div>'+cols.map(function(c){return '<div class="sch-colhead">'+esc(c.label)+'</div>';}).join("");
     h+='<div class="sch-times">';
     for(var r=0;r<rows;r++)h+='<div class="sch-time">'+hhmm2(SCH.open+r*SCH.step)+'</div>';
