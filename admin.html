@@ -114,7 +114,7 @@
   .src{display:inline-block;font-size:.7rem;font-weight:800;padding:.2em .55em;border-radius:999px}
   .src-site{background:#eef7ff;color:#2a6fb0}.src-phone{background:#eafaf0;color:#2f8f5b}.src-instagram{background:#fdeef6;color:#bc1888}.src-other{background:var(--bg-2);color:var(--ink-soft)}
   select.status{font-family:var(--font-body);font-weight:700;font-size:.8rem;border:1.5px solid var(--line);border-radius:9px;padding:.35em .3em;cursor:pointer;background:#fff;max-width:118px}
-  .s-new{color:var(--new)}.s-confirmed{color:var(--confirmed)}.s-done{color:var(--done)}.s-cancelled{color:var(--cancelled)}
+  .s-new{color:var(--new)}.s-confirmed{color:var(--confirmed)}.s-done{color:var(--done)}.s-waitlist{color:var(--gold)}.s-cancelled{color:var(--cancelled)}
   .rowact{display:flex;gap:5px}
   .empty{text-align:center;color:var(--ink-soft);padding:40px}
   .meta{color:var(--ink-soft);font-size:.82rem;margin:10px 2px}
@@ -139,7 +139,7 @@
   .cal-daynum{font-weight:800;font-size:.8rem;color:var(--ink-soft)}
   .cal-cell.today .cal-daynum{color:var(--violet)}
   .cal-ev{font-size:.7rem;font-weight:700;padding:.2em .45em;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff}
-  .cal-ev.st-new{background:var(--violet)}.cal-ev.st-confirmed{background:var(--confirmed)}.cal-ev.st-done{background:var(--done)}.cal-ev.st-cancelled{background:var(--cancelled);text-decoration:line-through}
+  .cal-ev.st-new{background:var(--violet)}.cal-ev.st-confirmed{background:var(--confirmed)}.cal-ev.st-done{background:var(--done)}.cal-ev.st-waitlist{background:var(--gold)}.cal-ev.st-cancelled{background:var(--cancelled);text-decoration:line-through}
   .cal-more{font-size:.68rem;color:var(--ink-soft);font-weight:700}
   @media(max-width:700px){.cal-cell{min-height:76px}.cal-ev{font-size:.62rem}}
   /* schedule (day/week) */
@@ -156,7 +156,7 @@
   .sch-cell.drop{background:var(--violet-soft)}
   .sch-block{position:absolute;left:3px;right:3px;border-radius:8px;padding:4px 7px;color:#fff;font-size:.72rem;line-height:1.2;font-weight:700;overflow:hidden;cursor:grab;box-shadow:var(--shadow-sm);z-index:2}
   .sch-block:active{cursor:grabbing}
-  .sch-block.st-new{background:var(--violet)}.sch-block.st-confirmed{background:var(--confirmed)}.sch-block.st-done{background:var(--done)}.sch-block.st-cancelled{background:var(--cancelled)}
+  .sch-block.st-new{background:var(--violet)}.sch-block.st-confirmed{background:var(--confirmed)}.sch-block.st-done{background:var(--done)}.sch-block.st-waitlist{background:var(--gold)}.sch-block.st-cancelled{background:var(--cancelled)}
   .sch-block.blk{background:repeating-linear-gradient(45deg,#8a83a3,#8a83a3 7px,#6f6a86 7px,#6f6a86 14px)}
   .sch-block .bt{font-weight:800}
   .sch-block small{opacity:.85;font-weight:600}
@@ -266,7 +266,7 @@
       <div class="fld"><label>Час</label><input id="f-time" type="time" /></div>
       <div class="fld"><label>Сума, ₴</label><input id="f-price" type="number" min="0" step="10" placeholder="напр. 1200" /></div>
       <div class="fld"><label>Джерело</label><select id="f-source"><option value="phone">Телефон</option><option value="instagram">Instagram</option><option value="site">Сайт</option><option value="other">Інше</option></select></div>
-      <div class="fld"><label>Статус</label><select id="f-status"><option value="new">Нова</option><option value="confirmed">Підтверджена</option><option value="done">Виконана</option><option value="cancelled">Скасована</option></select></div>
+      <div class="fld"><label>Статус</label><select id="f-status"><option value="new">Нова</option><option value="confirmed">Підтверджена</option><option value="done">Виконана</option><option value="waitlist">Лист очікування</option><option value="cancelled">Скасована</option></select></div>
       <div class="fld wide"><label>Коментар</label><textarea id="f-note" rows="2" placeholder="Особливості тварини, побажання…"></textarea></div>
     </div>
     <p class="modal-err" id="modalErr"></p>
@@ -345,7 +345,18 @@
   </div>
 </div>
 
-<script src="data/config.js?v=14"></script>
+<!-- Masters (schedule) -->
+<div class="modal" id="mastersModal">
+  <div class="sheet" style="width:min(720px,100%)">
+    <h2>Майстри та графік</h2>
+    <p class="muted" style="font-size:.86rem;margin:0 0 14px">Робочі години, вихідні дні тижня та відпустки. Це впливає на доступний час для запису.</p>
+    <div id="mm-list"></div>
+    <div style="margin-top:14px"><button class="btn ghost sm" id="mm-add" style="border-color:var(--line);color:var(--ink)">+ Додати майстра</button></div>
+    <div class="sheet-act"><span style="flex:1"></span><button class="btn" id="mm-close">Готово</button></div>
+  </div>
+</div>
+
+<script src="data/config.js?v=15"></script>
 <script>
 (function(){
   "use strict";
@@ -355,9 +366,9 @@
   var $=function(s){return document.querySelector(s);};
   var token=""; try{token=localStorage.getItem(KEY)||"";}catch(e){}
   var all=[], filter="all", q="", view="dash", editId=null, dateFrom="", dateTo="", calRef=null;
-  var clients=[], pets=[], clientQ="", editClientId=null, editPetId=null, petClientId=null;
+  var clients=[], pets=[], clientQ="", editClientId=null, editPetId=null, petClientId=null, mastersList=[];
 
-  var STATUS=[{v:"new",label:"Нова"},{v:"confirmed",label:"Підтверджена"},{v:"done",label:"Виконана"},{v:"cancelled",label:"Скасована"}];
+  var STATUS=[{v:"new",label:"Нова"},{v:"confirmed",label:"Підтверджена"},{v:"done",label:"Виконана"},{v:"waitlist",label:"Лист очікування"},{v:"cancelled",label:"Скасована"}];
   var FILTERS=[{v:"all",label:"Усі"}].concat(STATUS);
   var SRC={site:"Сайт",phone:"Телефон",instagram:"Instagram",manual:"Інше",other:"Інше"};
 
@@ -392,6 +403,9 @@
   async function loadClientsPets(){
     try{clients=(await api("/admin/clients")).clients||[];}catch(e){clients=[];}
     try{pets=(await api("/admin/pets")).pets||[];}catch(e){pets=[];}
+    try{mastersList=(await api("/admin/masters")).masters||[];}catch(e){mastersList=[];}
+    var act=mastersList.filter(function(m){return m.active;}).map(function(m){return m.name;});
+    if(act.length){STAFF=act; if($("#f-staff"))$("#f-staff").innerHTML='<option value="">— не призначено —</option>'+STAFF.map(function(s){return '<option>'+esc(s)+'</option>';}).join("");}
   }
   async function tryLogin(t){token=t;
     try{var d=await api("/admin/list");try{localStorage.setItem(KEY,token);}catch(e){}all=d.bookings||[];await loadClientsPets();showApp();renderPills();}
@@ -552,12 +566,14 @@
     var head='<div class="cal-head"><div class="cal-title" id="schTitle" style="text-transform:capitalize">'+esc(schTitle())+'</div>'+
       '<div class="sch-switch">'+["day","week","month"].map(function(m){return '<button data-m="'+m+'"'+(m===schMode?' class="on"':'')+'>'+({day:"День",week:"Тиждень",month:"Місяць"})[m]+'</button>';}).join("")+'</div>'+
       '<div class="cal-nav"><button class="btn sm" id="schPrev">‹</button><button class="btn sm" id="schToday">Сьогодні</button><button class="btn sm" id="schNext">›</button>'+
-      (schMode!=="month"?'<button class="btn sm" id="schBlock">🔒 Блокувати</button>':'')+'</div></div>';
+      (schMode!=="month"?'<button class="btn sm" id="schBlock">🔒 Блокувати</button>':'')+
+      '<button class="btn sm" id="schMasters">👥 Майстри</button></div></div>';
     $("#calView").innerHTML=head+(schMode==="month"?monthBody():gridBody());
     [].forEach.call($("#calView").querySelectorAll(".sch-switch button"),function(b){b.onclick=function(){schMode=b.dataset.m;renderCal();};});
     $("#schPrev").onclick=function(){navSch(-1);};$("#schNext").onclick=function(){navSch(1);};
     $("#schToday").onclick=function(){calRef=new Date();renderCal();};
     if($("#schBlock"))$("#schBlock").onclick=blockTime;
+    if($("#schMasters"))$("#schMasters").onclick=openMastersModal;
     if(schMode==="month"){
       [].forEach.call($("#calView").querySelectorAll(".cal-ev"),function(el){el.addEventListener("click",function(){var b=all.filter(function(x){return String(x.id)===el.dataset.id;})[0];if(b)openModal(b);});});
       return;
@@ -665,7 +681,7 @@
   function normPhone(p){return (p||"").replace(/\D/g,"").slice(-9);}
   function bookingsOf(c){var np=normPhone(c.phone);return all.filter(function(b){return (c.id&&b.client_id===c.id)||(np&&normPhone(b.phone)===np);});}
   function petsOf(cid){return pets.filter(function(p){return p.client_id===cid;});}
-  var STCOLOR={new:"var(--new)",confirmed:"var(--confirmed)",done:"var(--done)",cancelled:"var(--cancelled)"};
+  var STCOLOR={new:"var(--new)",confirmed:"var(--confirmed)",done:"var(--done)",waitlist:"var(--gold)",cancelled:"var(--cancelled)"};
   function stLabel(v){var s=STATUS.filter(function(x){return x.v===v;})[0];return s?s.label:v;}
   var SPECIES_L={dog:"Собака",cat:"Кіт",other:"Тварина"};
 
@@ -789,6 +805,56 @@
       renderClientList();
     }catch(e){alert("Не вдалося видалити");}
   });
+
+  /* ---------- masters management ---------- */
+  var DOW=[{n:1,l:"Пн"},{n:2,l:"Вт"},{n:3,l:"Ср"},{n:4,l:"Чт"},{n:5,l:"Пт"},{n:6,l:"Сб"},{n:0,l:"Нд"}];
+  function openMastersModal(){renderMasterRows();$("#mastersModal").classList.add("open");}
+  function renderMasterRows(){
+    var box=$("#mm-list");var ib='border:1.5px solid var(--line);border-radius:8px;padding:.3em .5em';
+    box.innerHTML=mastersList.map(function(m){
+      var off=String(m.days_off||"").split(",").map(function(x){return x.trim();});
+      var vac=[];try{vac=JSON.parse(m.vacations||"[]");}catch(e){}var v0=vac[0]||{};
+      return '<div class="mm-row" data-id="'+(m.id||0)+'" style="border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px">'+
+        '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">'+
+          '<input class="mm-name" value="'+esc(m.name||"")+'" style="font-weight:800;'+ib+';min-width:120px">'+
+          '<label style="font-weight:700;font-size:.85rem;display:flex;gap:5px;align-items:center"><input type="checkbox" class="mm-active"'+(m.active?" checked":"")+' style="width:auto"> Активний</label>'+
+          '<span style="font-size:.85rem;color:var(--ink-soft)">Години:</span><input type="time" class="mm-start" value="'+esc(m.work_start||"10:00")+'" style="'+ib+'"> – <input type="time" class="mm-end" value="'+esc(m.work_end||"20:00")+'" style="'+ib+'">'+
+        '</div>'+
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Вихідні:</span>'+
+          DOW.map(function(d){return '<label style="font-size:.8rem;font-weight:700;display:flex;gap:3px;align-items:center"><input type="checkbox" class="mm-dow" data-n="'+d.n+'"'+(off.indexOf(String(d.n))>=0?" checked":"")+' style="width:auto">'+d.l+'</label>';}).join("")+
+        '</div>'+
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Відпустка:</span><input type="date" class="mm-vfrom" value="'+esc(v0.from||"")+'" style="'+ib+'"> – <input type="date" class="mm-vto" value="'+esc(v0.to||"")+'" style="'+ib+'">'+
+          '<span style="flex:1"></span><button class="btn sm mm-save">Зберегти</button><button class="btn danger sm mm-del">✕</button></div>'+
+      '</div>';
+    }).join("")||'<p class="muted">Майстрів немає.</p>';
+    [].forEach.call(box.querySelectorAll(".mm-row"),function(row){
+      row.querySelector(".mm-save").addEventListener("click",function(){saveMasterRow(row);});
+      row.querySelector(".mm-del").addEventListener("click",function(){delMasterRow(row);});
+    });
+  }
+  function collectRow(row){
+    var off=[].filter.call(row.querySelectorAll(".mm-dow"),function(c){return c.checked;}).map(function(c){return c.dataset.n;}).join(",");
+    var vf=row.querySelector(".mm-vfrom").value,vt=row.querySelector(".mm-vto").value;
+    var p={name:row.querySelector(".mm-name").value.trim(),active:row.querySelector(".mm-active").checked?1:0,
+      work_start:row.querySelector(".mm-start").value||"10:00",work_end:row.querySelector(".mm-end").value||"20:00",
+      days_off:off,vacations:(vf&&vt)?JSON.stringify([{from:vf,to:vt}]):""};
+    if(+row.dataset.id)p.id=+row.dataset.id;
+    return p;
+  }
+  async function saveMasterRow(row){
+    var p=collectRow(row);if(!p.name){alert("Вкажіть ім'я майстра");return;}
+    try{await api("/admin/master-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});
+      await loadClientsPets();renderMasterRows();setView(view);}catch(e){alert("Не вдалося зберегти");}
+  }
+  async function delMasterRow(row){
+    var id=+row.dataset.id;if(!id){row.remove();return;}
+    if(!confirm("Видалити майстра?"))return;
+    try{await api("/admin/master-delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id})});
+      await loadClientsPets();renderMasterRows();setView(view);}catch(e){alert("Не вдалося видалити");}
+  }
+  $("#mm-add").addEventListener("click",function(){mastersList.push({id:0,name:"",active:1,work_start:"10:00",work_end:"20:00",days_off:"",vacations:""});renderMasterRows();});
+  $("#mm-close").addEventListener("click",function(){$("#mastersModal").classList.remove("open");});
+  $("#mastersModal").addEventListener("click",function(e){if(e.target===$("#mastersModal"))$("#mastersModal").classList.remove("open");});
 
   if(token){tryLogin(token);}else{showLogin("");}
 })();

@@ -89,6 +89,18 @@ export default {
       if (url.pathname === "/admin/pet-delete" && request.method === "POST") {
         return json(await petDelete(request, env), cors);
       }
+      if (url.pathname === "/masters" && request.method === "GET") {
+        return json(await publicMasters(env), cors);   // public: for the booking form
+      }
+      if (url.pathname === "/admin/masters" && request.method === "GET") {
+        return json(await adminMasters(request, env), cors);
+      }
+      if (url.pathname === "/admin/master-save" && request.method === "POST") {
+        return json(await masterSave(request, env), cors);
+      }
+      if (url.pathname === "/admin/master-delete" && request.method === "POST") {
+        return json(await masterDelete(request, env), cors);
+      }
       return json({ ok: false, error: "not found" }, cors, 404);
     } catch (e) {
       return json({ ok: false, error: String(e && e.message || e) }, cors, e && e.status || 500);
@@ -232,14 +244,43 @@ function pickFreeStaff(events, start, end) {
   return STAFF.find(s => !busy.has(s)) || null;
 }
 
-async function getSlots(url, env) {
-  const { y, m, d } = parseDate(url.searchParams.get("date"));
-  const service = url.searchParams.get("service") || "";
-  const staff = url.searchParams.get("staff") || "";     // "" = будь-який майстер
-  const duration = SERVICE_DURATIONS[service] || DEFAULT_DURATION;
+/* ----------------------------- Masters & schedule ----------------------------- */
+function hmToMin(t) { const m = /^(\d{1,2}):(\d{2})$/.exec(t || ""); return m ? (+m[1]) * 60 + (+m[2]) : null; }
+function parseVac(s) { try { const a = JSON.parse(s || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+const DEFAULT_MASTERS = () => STAFF.map(n => ({ name: n, active: 1, startMin: 600, endMin: 1200, daysOff: [], vacations: [] }));
+async function loadMasters(env) {
+  if (!env.DB) return DEFAULT_MASTERS();
+  try {
+    const { results } = await env.DB.prepare(`SELECT * FROM masters ORDER BY sort, id`).all();
+    if (!results || !results.length) return DEFAULT_MASTERS();
+    return results.map(r => ({
+      name: r.name, active: r.active ? 1 : 0,
+      startMin: hmToMin(r.work_start) || 600, endMin: hmToMin(r.work_end) || 1200,
+      daysOff: String(r.days_off || "").split(",").map(x => x.trim()).filter(x => x !== "").map(Number),
+      vacations: parseVac(r.vacations),
+    }));
+  } catch (e) { return DEFAULT_MASTERS(); }
+}
+// Does this master work on the given date? dow = JS getDay() (0=Sun..6=Sat).
+function masterWorks(mst, iso, dow) {
+  if (!mst.active) return false;
+  if (mst.daysOff.includes(dow)) return false;
+  for (const v of mst.vacations) if (v && v.from && v.to && iso >= v.from && iso <= v.to) return false;
+  return true;
+}
 
+async function getSlots(url, env) {
+  const iso = url.searchParams.get("date");
+  const { y, m, d } = parseDate(iso);
+  const service = url.searchParams.get("service") || "";
+  const reqStaff = url.searchParams.get("staff") || "";     // "" = будь-який майстер
+  const duration = SERVICE_DURATIONS[service] || DEFAULT_DURATION;
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  if (!BUSINESS.workingDays.includes(dow)) return { ok: true, slots: [] };
+
+  const masters = await loadMasters(env);
+  let working = masters.filter(mst => masterWorks(mst, iso, dow));
+  if (reqStaff) working = working.filter(mst => mst.name === reqStaff);
+  if (!working.length) return { ok: true, slots: [] };      // day off / vacation / inactive
 
   const token = await getAccessToken(env);
   const dayStart = wallToUTC(y, m, d, 0, BUSINESS.tz);
@@ -248,12 +289,18 @@ async function getSlots(url, env) {
 
   const earliest = Date.now() + BUSINESS.minLeadMin * 60000;
   const maxTime = Date.now() + BUSINESS.maxAheadDays * 86400000;
+  const openMin = Math.min(...working.map(mst => mst.startMin));
+  const closeMin = Math.max(...working.map(mst => mst.endMin));
   const slots = [];
-  for (let t = BUSINESS.openMin; t + duration <= BUSINESS.closeMin; t += BUSINESS.slotStepMin) {
+  for (let t = openMin; t + duration <= closeMin; t += BUSINESS.slotStepMin) {
     const start = wallToUTC(y, m, d, t, BUSINESS.tz).getTime();
     const end = start + duration * 60000;
     if (start < earliest || start > maxTime) continue;
-    if (slotFree(events, start, end, staff)) slots.push(hhmm(t));
+    // available if some working master's window covers [t,t+dur] and they're free
+    const avail = working.some(mst =>
+      t >= mst.startMin && t + duration <= mst.endMin &&
+      !overlappingAt(events, start, end).some(ev => ev.staff === mst.name));
+    if (avail) slots.push(hhmm(t));
   }
   return { ok: true, slots };
 }
@@ -261,10 +308,13 @@ async function getSlots(url, env) {
 async function book(body, env) {
   const { pet, pet_name, service, breed, name, phone, date, time, note, weight } = body || {};
   let staff = (body && body.staff) || "";
+  const waitlist = !!(body && body.waitlist);
   if (!name || !phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
-  if (staff && !STAFF.includes(staff)) staff = "";      // ignore unknown master
 
-  const isRequest = REQUEST_SERVICES.has(service) || !time;
+  const masters = await loadMasters(env);
+  if (staff && !masters.some(mst => mst.name === staff)) staff = "";  // ignore unknown master
+
+  const isRequest = REQUEST_SERVICES.has(service) || !time || waitlist;
   let eventLink = null, eventId = null;
 
   if (!isRequest) {
@@ -273,27 +323,34 @@ async function book(body, env) {
     if (!tm) return { ok: false, error: "bad time" };
     const startMin = (+tm[1]) * 60 + (+tm[2]);
     const duration = SERVICE_DURATIONS[service] || DEFAULT_DURATION;
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 
     const token = await getAccessToken(env);
     const start = wallToUTC(y, m, d, startMin, BUSINESS.tz);
     const end = new Date(start.getTime() + duration * 60000);
-    // re-check availability (per chosen master, or capacity for "any")
     const events = await listEvents(env, token,
       new Date(start.getTime() - BUSINESS.bufferMin * 60000),
       new Date(end.getTime() + BUSINESS.bufferMin * 60000));
-    if (!slotFree(events, start.getTime(), end.getTime(), staff)) {
-      return { ok: false, error: "На жаль, цей час щойно зайняли. Оберіть інший, будь ласка." };
+    const isFree = mst => startMin >= mst.startMin && startMin + duration <= mst.endMin &&
+      masterWorks(mst, date, dow) &&
+      !overlappingAt(events, start.getTime(), end.getTime()).some(ev => ev.staff === mst.name);
+    if (staff) {
+      const mst = masters.find(x => x.name === staff);
+      if (!mst || !isFree(mst)) return { ok: false, error: "На жаль, цей час уже зайнятий у майстра. Оберіть інший." };
+    } else {
+      const freeM = masters.find(isFree);
+      if (!freeM) return { ok: false, error: "На жаль, цей час щойно зайняли. Оберіть інший, будь ласка." };
+      staff = freeM.name;
     }
-    if (!staff) staff = pickFreeStaff(events, start.getTime(), end.getTime()) || "";  // auto-assign a free master
 
     const ev = await calCreate(env, token, { pet, pet_name, service, breed, weight, name, phone, note, date, time, staff, source: "site" });
     eventLink = ev.htmlLink;
     eventId = ev.id;
   }
 
-  await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest, staff });
-  await saveBooking(env, { pet, pet_name, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff, source: "site" });
-  return { ok: true, request: isRequest, staff };
+  await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest, staff, waitlist });
+  await saveBooking(env, { pet, pet_name, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff, source: "site", waitlist });
+  return { ok: true, request: isRequest, staff, waitlist };
 }
 
 /* ----------------------------- Calendar events ----------------------------- */
@@ -343,11 +400,11 @@ async function saveBooking(env, b) {
     const link = await linkClientPet(env, b);
     await env.DB.prepare(
       `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight,client_id,pet_id,pet_name)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'new', 'site', ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?, ?, 'site', ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
       b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
-      b.isRequest ? 1 : 0, b.eventLink || null, b.eventId || null,
+      b.isRequest ? 1 : 0, b.eventLink || null, b.waitlist ? "waitlist" : "new", b.eventId || null,
       (b.price != null && b.price !== "") ? b.price : null, b.staff || "", b.weight || "",
       link.client_id, link.pet_id, b.pet_name || ""
     ).run();
@@ -514,6 +571,40 @@ async function petDelete(request, env) {
   return { ok: true };
 }
 
+/* ----------------------------- Masters (schedule) ----------------------------- */
+async function publicMasters(env) {
+  const masters = await loadMasters(env);
+  return { ok: true, masters: masters.filter(m => m.active).map(m => m.name) };
+}
+async function adminMasters(request, env) {
+  requireAdmin(request, env);
+  const { results } = await env.DB.prepare(`SELECT * FROM masters ORDER BY sort, id`).all();
+  return { ok: true, masters: results || [] };
+}
+const MASTER_FIELDS = ["name", "active", "work_start", "work_end", "days_off", "vacations", "sort"];
+async function masterSave(request, env) {
+  requireAdmin(request, env);
+  const b = await request.json();
+  if (b.id) {
+    const sets = [], vals = [];
+    for (const f of MASTER_FIELDS) if (b[f] != null) { sets.push(`${f}=?`); vals.push(b[f]); }
+    if (sets.length) { vals.push(b.id); await env.DB.prepare(`UPDATE masters SET ${sets.join(",")} WHERE id=?`).bind(...vals).run(); }
+    return { ok: true, id: b.id };
+  }
+  if (!b.name) return { ok: false, error: "name required" };
+  const r = await env.DB.prepare(
+    `INSERT INTO masters (name,active,work_start,work_end,days_off,vacations,sort) VALUES (?,?,?,?,?,?,?)`
+  ).bind(b.name, b.active ? 1 : 0, b.work_start || "10:00", b.work_end || "20:00", b.days_off || "", b.vacations || "", b.sort || 0).run();
+  return { ok: true, id: r.meta && r.meta.last_row_id };
+}
+async function masterDelete(request, env) {
+  requireAdmin(request, env);
+  const { id } = await request.json();
+  if (!id) return { ok: false, error: "id required" };
+  await env.DB.prepare(`DELETE FROM masters WHERE id=?`).bind(id).run();
+  return { ok: true };
+}
+
 // Keep the Google Calendar event in sync with the CRM row (source of truth).
 async function syncCalendar(env, id) {
   if (!env.DB || !env.CALENDAR_ID || !env.SA_EMAIL) return "skip";
@@ -555,10 +646,12 @@ async function adminDelete(request, env) {
 
 async function notifyTelegram(env, b) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
-  const head = b.isRequest ? "📩 <b>Нова заявка (готель/pawplay)</b>" : "🗓️ <b>Новий запис</b>";
+  const head = b.waitlist ? "⏳ <b>Лист очікування</b>"
+    : b.isRequest ? "📩 <b>Нова заявка (готель/садочок)</b>" : "🗓️ <b>Новий запис</b>";
   const when = b.isRequest ? (b.date ? `\n📅 Бажана дата: ${b.date}` : "") : `\n📅 ${b.date} о ${b.time}`;
   const text =
-    `${head}\n\n🐾 ${b.pet || "—"} · ${b.breed || ""}\n✂️ ${b.service}${when}\n👤 ${b.name}\n📞 ${b.phone}` +
+    `${head}\n\n🐾 ${b.pet || "—"} · ${b.breed || ""}\n✂️ ${b.service}${when}` +
+    (b.staff ? `\n👩‍🔧 ${b.staff}` : "") + `\n👤 ${b.name}\n📞 ${b.phone}` +
     (b.note ? `\n💬 ${b.note}` : "");
   await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",

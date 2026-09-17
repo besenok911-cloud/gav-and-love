@@ -268,6 +268,13 @@
     if (staffSel) staffSel.innerHTML = '<option value="">Будь-який майстер</option>' +
       (CFG.staff || []).map(s => `<option>${s}</option>`).join("");
   })();
+  // live master roster (reflects schedule/active state from the CRM)
+  if (staffSel && CONFIG.bookingEndpoint) {
+    fetch(`${CONFIG.bookingEndpoint}/masters`).then(r => r.json()).then(d => {
+      if (d && d.masters && d.masters.length)
+        staffSel.innerHTML = '<option value="">Будь-який майстер</option>' + d.masters.map(s => `<option>${s}</option>`).join("");
+    }).catch(() => { });
+  }
 
   function applyPet() {
     const isCat = petHidden.value === "Кіт";
@@ -296,13 +303,15 @@
   const REQUEST_SVC = CFG.services.filter(s => s.request).map(s => s.name);
   const serviceSel = $("#bf-service");
   const slotsField = $("#bf-slots-field"), slotsBox = $("#bf-slots"),
-    slotsHint = $("#bf-slots-hint"), timeInput = $("#bf-time");
+    slotsHint = $("#bf-slots-hint"), timeInput = $("#bf-time"),
+    waitBox = $("#bf-waitlist-box"), waitChk = $("#bf-waitlist");
   let slotsToken = 0;
   const needsSlot = () => serviceSel && serviceSel.value && !REQUEST_SVC.includes(serviceSel.value);
 
   async function refreshSlots() {
     if (!timeInput) return;
     timeInput.value = "";
+    if (waitBox) { waitBox.hidden = true; if (waitChk) waitChk.checked = false; }
     if (!CONFIG.bookingEndpoint || !needsSlot() || !dateInput.value) { slotsField.hidden = true; return; }
     slotsField.hidden = false; slotsBox.innerHTML = ""; slotsHint.textContent = "завантаження…";
     const my = ++slotsToken;
@@ -311,7 +320,7 @@
       const d = await r.json();
       if (my !== slotsToken) return;
       const slots = d.slots || [];
-      if (!slots.length) { slotsHint.textContent = "— на цей день вільних слотів немає"; return; }
+      if (!slots.length) { slotsHint.textContent = "— на цей день вільних слотів немає"; if (waitBox) waitBox.hidden = false; return; }
       slotsHint.textContent = "";
       slots.forEach(t => {
         const b = document.createElement("button");
@@ -333,7 +342,7 @@
     e.preventDefault();
     status.className = "form-status"; status.textContent = "";
     if (!form.checkValidity()) { form.reportValidity(); return; }
-    if (CONFIG.bookingEndpoint && needsSlot() && !timeInput.value) {
+    if (CONFIG.bookingEndpoint && needsSlot() && !timeInput.value && !(waitChk && waitChk.checked)) {
       status.className = "form-status err"; status.textContent = "Оберіть, будь ласка, вільний час.";
       return;
     }
@@ -348,7 +357,7 @@
         });
         const d = await res.json();
         if (!d.ok) throw new Error(d.error || "bad");
-        request = d.request; assignedStaff = d.staff || "";
+        request = d.request; assignedStaff = d.staff || ""; window._lastWait = d.waitlist;
       } else {
         await new Promise(r => setTimeout(r, 500)); // online-booking not activated yet
         demo = true;
@@ -356,9 +365,11 @@
       status.className = "form-status ok";
       status.textContent = demo
         ? "Дякуємо! Щоб миттєво підтвердити час, напишіть нам у Telegram / Viber або зателефонуйте 👇"
-        : request
-          ? "Дякуємо! Заявку надіслано — ми зв'яжемось для підтвердження."
-          : "Готово! Запис створено" + (assignedStaff ? " до майстра " + assignedStaff : "") + " — до зустрічі 🐾";
+        : window._lastWait
+          ? "Дякуємо! Ви у листі очікування — ми повідомимо, щойно звільниться місце ⏳"
+          : request
+            ? "Дякуємо! Заявку надіслано — ми зв'яжемось для підтвердження."
+            : "Готово! Запис створено" + (assignedStaff ? " до майстра " + assignedStaff : "") + " — до зустрічі 🐾";
       if (demo) { const c = document.getElementById("contacts"); if (c) c.scrollIntoView({ behavior: "smooth" }); }
       form.reset(); petHidden.value = "Собака";
       $$(".seg-btn", petSeg).forEach((x, i) => x.classList.toggle("is-active", i === 0));
