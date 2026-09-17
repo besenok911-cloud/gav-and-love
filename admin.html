@@ -324,6 +324,7 @@
       </datalist></div>
       <div class="fld" id="f-breed-fld"><label>Порода</label><select id="f-breed"></select><small id="f-breed-note" class="muted" hidden>Для котів порода не вибирається — вкажіть лише вагу.</small></div>
       <div class="fld"><label>Вага</label><select id="f-weight"></select></div>
+      <div class="fld wide" id="f-addons-fld" hidden><label>Допи</label><div id="f-addons"></div></div>
       <div class="fld"><label>Майстер</label><select id="f-staff"></select></div>
       <div class="fld"><label>Дата візиту</label><input id="f-date" type="date" /></div>
       <div class="fld"><label>Час</label><input id="f-time" type="time" /></div>
@@ -489,16 +490,28 @@
     if(mIsBreed(s)){var ws=mDistinct(s.rows.filter(function(r){return r[0]===$("#f-breed").value;}).map(function(r){return r[1];}));
       if(ws.length)fillSel("#f-weight",cur,ws,"Оберіть вагу…"); else $("#f-weight").innerHTML='<option value="">— будь-яка —</option>';}
     else fillSel("#f-weight",cur,(CFG.weightOptions||[]),"Оберіть вагу…");}
-  function catPrice(){var s=mSvc();if(!s)return null;
+  function mBaseNum(){var s=mSvc();if(!s)return null;
     if(s.price_type==="breed"){var row=mPickRow(s.rows,$("#f-breed").value,$("#f-weight").value);if(row){var p=row[row.length-1];if(/^\d+$/.test(String(p).trim()))return +p;}return null;}
     if(s.price_type==="flat"&&/^\d+$/.test(String(s.price).trim()))return +s.price;return null;}
-  function autoPrice(){var el=$("#f-price");if(!el||el.value.trim()!=="")return;var p=catPrice();if(p!=null)el.value=p;}
-  function applyPetModal(){syncModalBreed();autoPrice();}
+  function mAddonItems(){var out=[],seen={};(svcCatalog||[]).forEach(function(s){if(s.price_type==="addon"&&s.active!==0)(s.rows||[]).forEach(function(r){if(r[0]&&!seen[r[0]]){seen[r[0]]=1;out.push({name:r[0],price:r[r.length-1]});}});});return out;}
+  function mParseAddon(v){var t=String(v==null?"":v).trim();if(/%/.test(t)){var n=(/\d+/.exec(t)||[])[0];return n?{t:"pct",v:+n}:{t:"m"};}if(/^\+?\s*\d+$/.test(t))return {t:"abs",v:+t.replace(/[^\d]/g,"")};return {t:"m"};}
+  function mChecked(){var box=$("#f-addons");return box?[].map.call(box.querySelectorAll("input:checked"),function(c){return c.value;}):[];}
+  function modalTotal(){var base=mBaseNum();if(base==null)return null;var items={};mAddonItems().forEach(function(it){items[it.name]=it.price;});var add=0;mChecked().forEach(function(n){if(!(n in items))return;var p=mParseAddon(items[n]);if(p.t==="abs")add+=p.v;else if(p.t==="pct")add+=Math.round(base*p.v/100);});return base+add;}
+  function renderModalAddons(){var box=$("#f-addons"),fld=$("#f-addons-fld");if(!box)return;var s=mSvc();var items=(s&&!s.is_request)?mAddonItems():[];
+    if(!items.length){if(fld)fld.hidden=true;box.innerHTML="";return;}
+    var checked={};[].forEach.call(box.querySelectorAll("input:checked"),function(c){checked[c.value]=1;});
+    box.innerHTML=items.map(function(it){return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer"><input type="checkbox" value="'+esc(it.name)+'"'+(checked[it.name]?" checked":"")+'><span style="flex:1">'+esc(it.name)+'</span><b class="muted" style="white-space:nowrap">'+esc(it.price)+'</b></label>';}).join("");
+    if(fld)fld.hidden=false;}
+  var priceAuto=false;
+  function autoPrice(){var el=$("#f-price");if(!el)return;if(el.value.trim()!==""&&!priceAuto)return;var t=modalTotal();if(t!=null){el.value=t;priceAuto=true;}else if(priceAuto){el.value="";priceAuto=false;}}
+  function applyPetModal(){syncModalBreed();renderModalAddons();autoPrice();}
   $("#f-pet").addEventListener("change",applyPetModal);
-  $("#f-service").addEventListener("change",function(){syncModalBreed();autoPrice();});
+  $("#f-price").addEventListener("input",function(){priceAuto=false;});
+  $("#f-service").addEventListener("change",function(){syncModalBreed();renderModalAddons();autoPrice();});
   $("#f-service").addEventListener("input",function(){autoPrice();});
   $("#f-breed").addEventListener("change",function(){syncModalWeight();autoPrice();});
   $("#f-weight").addEventListener("change",autoPrice);
+  if($("#f-addons"))$("#f-addons").addEventListener("change",autoPrice);
 
   function showLogin(msg){$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;$("#loginErr").textContent=msg||"";}
@@ -976,7 +989,7 @@
   }
 
   /* ---------- modal ---------- */
-  function openModal(b){editId=b?b.id:null;
+  function openModal(b){editId=b?b.id:null;priceAuto=false;
     $("#modalTitle").textContent=b?"Редагувати заявку":"Нова заявка";
     $("#f-name").value=b?b.name||"":"";$("#f-phone").value=b?b.phone||"":"";
     $("#f-pet").value=b&&["Собака","Кіт"].indexOf(b.pet)>=0?b.pet:(b?"Інше":"Собака");
@@ -1002,7 +1015,7 @@
     var payload={name:$("#f-name").value.trim(),phone:$("#f-phone").value.trim(),pet:$("#f-pet").value,pet_name:$("#f-petname").value.trim(),
       service:$("#f-service").value.trim(),breed:isCat?"":$("#f-breed").value,weight:$("#f-weight").value.trim(),
       staff:$("#f-staff").value,source:$("#f-source").value,date:$("#f-date").value,time:$("#f-time").value,
-      price:pv===""?"":Number(pv),status:$("#f-status").value,note:$("#f-note").value.trim()};
+      price:pv===""?"":Number(pv),status:$("#f-status").value,note:$("#f-note").value.trim(),addons:mChecked()};
     if(!payload.name||!payload.phone){$("#modalErr").textContent="Вкажіть ім'я і телефон.";return;}
     try{
       if(editId){payload.id=editId;await api("/admin/update",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});}
