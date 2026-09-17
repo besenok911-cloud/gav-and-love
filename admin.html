@@ -199,6 +199,7 @@
   .cal-cell.today .cal-daynum{color:var(--violet)}
   .cal-ev{font-size:.7rem;font-weight:700;padding:.2em .45em;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff}
   .cal-ev.st-new{background:var(--violet)}.cal-ev.st-confirmed{background:var(--confirmed)}.cal-ev.st-done{background:var(--done)}.cal-ev.st-waitlist{background:var(--gold)}.cal-ev.st-cancelled{background:var(--cancelled);text-decoration:line-through}
+  .cal-ev.st-arrived{background:#0ea5b7}.cal-ev.st-in_progress{background:#e6912b}.cal-ev.st-paid{background:#1a7f37}.cal-ev.st-no_show{background:#8a8a8a;text-decoration:line-through}
   .cal-more{font-size:.68rem;color:var(--ink-soft);font-weight:700}
   @media(max-width:700px){.cal-cell{min-height:76px}.cal-ev{font-size:.62rem}}
   /* schedule (day/week) */
@@ -216,6 +217,7 @@
   .sch-block{position:absolute;left:3px;right:3px;border-radius:8px;padding:4px 7px;color:#fff;font-size:.72rem;line-height:1.2;font-weight:700;overflow:hidden;cursor:grab;box-shadow:var(--shadow-sm);z-index:2}
   .sch-block:active{cursor:grabbing}
   .sch-block.st-new{background:var(--violet)}.sch-block.st-confirmed{background:var(--confirmed)}.sch-block.st-done{background:var(--done)}.sch-block.st-waitlist{background:var(--gold)}.sch-block.st-cancelled{background:var(--cancelled)}
+  .sch-block.st-arrived{background:#0ea5b7}.sch-block.st-in_progress{background:#e6912b}.sch-block.st-paid{background:#1a7f37}.sch-block.st-no_show{background:#8a8a8a;text-decoration:line-through}
   .sch-block.blk{background:repeating-linear-gradient(45deg,#8a83a3,#8a83a3 7px,#6f6a86 7px,#6f6a86 14px)}
   .sch-block .bt{font-weight:800}
   .sch-block small{opacity:.85;font-weight:600}
@@ -1044,7 +1046,7 @@
     try{
       if(editId){payload.id=editId;await api("/admin/update",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});}
       else{await api("/admin/create",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});}
-      closeModal();await reload();setView("list");
+      closeModal();await reload();setView(editId?view:"list");
     }catch(err){$("#modalErr").textContent="Не вдалося зберегти. Спробуйте ще раз.";}
   });
   document.addEventListener("keydown",function(e){if(e.key==="Escape")closeModal();});
