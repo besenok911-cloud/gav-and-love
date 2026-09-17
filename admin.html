@@ -1442,6 +1442,7 @@
           '<span class="mm-salhint" style="font-size:.76rem;color:var(--ink-soft)"></span>'+
         '</div>'+
         '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Відпустка:</span><input type="date" class="mm-vfrom" value="'+esc(v0.from||"")+'" style="'+ib+'"> – <input type="date" class="mm-vto" value="'+esc(v0.to||"")+'" style="'+ib+'"></div>'+
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Код кабінету:</span><input class="mm-code" value="'+esc(m.access_code||"")+'" placeholder="код входу майстра" style="'+ib+';font-family:monospace;letter-spacing:.06em;max-width:150px"><button type="button" class="btn sm mm-gencode">Згенерувати</button><button type="button" class="btn icon mm-copycode" title="Скопіювати">⧉</button><a href="master.html" target="_blank" style="font-size:.78rem;color:var(--violet);font-weight:800">↗ сторінка майстра</a></div>'+
         '<div style="display:flex;gap:10px;align-items:center;margin-top:12px;border-top:1px solid var(--line);padding-top:12px"><button class="btn save-main mm-save">💾 Зберегти майстра</button><span style="flex:1"></span><button class="btn danger sm mm-del">✕ Видалити</button></div>'+
       '</div>';
     }).join("")||'<p class="muted">Майстрів немає.</p>';
@@ -1452,6 +1453,8 @@
       var sel=row.querySelector(".mm-saltype");
       sel.addEventListener("change",function(){syncSal(row);});
       syncSal(row);
+      var gc=row.querySelector(".mm-gencode");if(gc)gc.addEventListener("click",function(){row.querySelector(".mm-code").value="gl"+Math.random().toString(36).slice(2,8);});
+      var cc=row.querySelector(".mm-copycode");if(cc)cc.addEventListener("click",function(){var v=row.querySelector(".mm-code").value;if(!v){toast("Код порожній",true);return;}try{navigator.clipboard.writeText(v);toast("Код скопійовано");}catch(e){toast("Код: "+v);}});
     });
   }
   function syncSal(row){
@@ -1472,7 +1475,8 @@
       work_start:row.querySelector(".mm-start").value||"10:00",work_end:row.querySelector(".mm-end").value||"20:00",
       days_off:off,vacations:(vf&&vt)?JSON.stringify([{from:vf,to:vt}]):"",
       salary_type:row.querySelector(".mm-saltype").value,salary_value:(sv===""?null:Number(sv)),salary_base:(sbv===""?null:Number(sbv)),
-      break_start:row.querySelector(".mm-brstart").value||"",break_end:row.querySelector(".mm-brend").value||""};
+      break_start:row.querySelector(".mm-brstart").value||"",break_end:row.querySelector(".mm-brend").value||"",
+      access_code:row.querySelector(".mm-code").value.trim()};
     if(+row.dataset.id)p.id=+row.dataset.id;
     return p;
   }

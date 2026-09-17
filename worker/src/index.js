@@ -94,6 +94,13 @@ export default {
       if (url.pathname === "/masters" && request.method === "GET") {
         return json(await publicMasters(env), cors);   // public: for the booking form
       }
+      // ---- Master cabinet (per-master access code, no ADMIN_TOKEN) ----
+      if (url.pathname === "/master/data" && request.method === "GET") {
+        return json(await masterData(url, env), cors);
+      }
+      if (url.pathname === "/master/status" && request.method === "POST") {
+        return json(await masterStatus(await request.json(), env), cors);
+      }
       if (url.pathname === "/catalog" && request.method === "GET") {
         return json(await publicCatalog(env), { ...cors, "Cache-Control": "public, max-age=60" });
       }
@@ -629,7 +636,7 @@ async function adminMasters(request, env) {
   const { results } = await env.DB.prepare(`SELECT * FROM masters ORDER BY sort, id`).all();
   return { ok: true, masters: results || [] };
 }
-const MASTER_FIELDS = ["name", "active", "work_start", "work_end", "days_off", "vacations", "sort", "salary_type", "salary_value", "salary_base", "break_start", "break_end"];
+const MASTER_FIELDS = ["name", "active", "work_start", "work_end", "days_off", "vacations", "sort", "salary_type", "salary_value", "salary_base", "break_start", "break_end", "access_code"];
 async function masterSave(request, env) {
   requireAdmin(request, env);
   const b = await request.json();
@@ -641,8 +648,8 @@ async function masterSave(request, env) {
   }
   if (!b.name) return { ok: false, error: "name required" };
   const r = await env.DB.prepare(
-    `INSERT INTO masters (name,active,work_start,work_end,days_off,vacations,sort,salary_type,salary_value,salary_base,break_start,break_end) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).bind(b.name, b.active ? 1 : 0, b.work_start || "10:00", b.work_end || "20:00", b.days_off || "", b.vacations || "", b.sort || 0, b.salary_type || "", (b.salary_value == null || b.salary_value === "") ? null : Number(b.salary_value), (b.salary_base == null || b.salary_base === "") ? null : Number(b.salary_base), b.break_start || "", b.break_end || "").run();
+    `INSERT INTO masters (name,active,work_start,work_end,days_off,vacations,sort,salary_type,salary_value,salary_base,break_start,break_end,access_code) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(b.name, b.active ? 1 : 0, b.work_start || "10:00", b.work_end || "20:00", b.days_off || "", b.vacations || "", b.sort || 0, b.salary_type || "", (b.salary_value == null || b.salary_value === "") ? null : Number(b.salary_value), (b.salary_base == null || b.salary_base === "") ? null : Number(b.salary_base), b.break_start || "", b.break_end || "", b.access_code || "").run();
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }
 async function masterDelete(request, env) {
@@ -651,6 +658,47 @@ async function masterDelete(request, env) {
   if (!id) return { ok: false, error: "id required" };
   await env.DB.prepare(`DELETE FROM masters WHERE id=?`).bind(id).run();
   return { ok: true };
+}
+
+/* ----------------------------- Master cabinet (per-master, access-code auth) ----------------------------- */
+async function masterByCode(env, code) {
+  code = String(code || "").trim();
+  if (!code || !env.DB) return null;
+  const row = await env.DB.prepare(`SELECT * FROM masters WHERE access_code=? LIMIT 1`).bind(code).first();
+  return row || null;
+}
+const MASTER_STATUSES = ["confirmed", "arrived", "in_progress", "done", "paid", "no_show"];
+// GET /master/data?code=XXX  -> the master's own profile + their bookings (last 120d + all future)
+async function masterData(url, env) {
+  const m = await masterByCode(env, url.searchParams.get("code"));
+  if (!m) { const e = new Error("Невірний код доступу"); e.status = 401; throw e; }
+  const since = new Date(Date.now() - 120 * 864e5).toISOString().slice(0, 10);
+  const { results } = await env.DB.prepare(
+    `SELECT id,date,time,name,phone,pet,pet_name,breed,weight,service,price,status,note,source,pay_method
+       FROM bookings WHERE staff=? AND (date>=? OR date='' OR date IS NULL) ORDER BY date, time`
+  ).bind(m.name, since).all();
+  return {
+    ok: true,
+    master: {
+      name: m.name, work_start: m.work_start, work_end: m.work_end,
+      break_start: m.break_start, break_end: m.break_end, days_off: m.days_off,
+      salary_type: m.salary_type || "", salary_value: m.salary_value, salary_base: m.salary_base,
+    },
+    bookings: results || [],
+  };
+}
+// POST /master/status {code,id,status} -> update status of one of the master's own bookings
+async function masterStatus(body, env) {
+  const m = await masterByCode(env, body && body.code);
+  if (!m) { const e = new Error("Невірний код доступу"); e.status = 401; throw e; }
+  const id = body && body.id, status = body && body.status;
+  if (!id || MASTER_STATUSES.indexOf(status) < 0) return { ok: false, error: "bad request" };
+  const row = await env.DB.prepare(`SELECT id, staff FROM bookings WHERE id=?`).bind(id).first();
+  if (!row || row.staff !== m.name) { const e = new Error("Немає доступу до цього запису"); e.status = 403; throw e; }
+  await env.DB.prepare(`UPDATE bookings SET status=? WHERE id=?`).bind(status, id).run();
+  let calendar = "unchanged";
+  try { calendar = await syncCalendar(env, id); } catch (e) { calendar = "error"; }
+  return { ok: true, calendar };
 }
 
 /* ----------------------------- Services (booking + price = one entity) ----------------------------- */
