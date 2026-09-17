@@ -142,6 +142,24 @@
   .cal-ev.st-new{background:var(--violet)}.cal-ev.st-confirmed{background:var(--confirmed)}.cal-ev.st-done{background:var(--done)}.cal-ev.st-cancelled{background:var(--cancelled);text-decoration:line-through}
   .cal-more{font-size:.68rem;color:var(--ink-soft);font-weight:700}
   @media(max-width:700px){.cal-cell{min-height:76px}.cal-ev{font-size:.62rem}}
+  /* schedule (day/week) */
+  .sch-switch{display:flex;gap:3px;background:var(--bg-2);border-radius:999px;padding:3px;margin-left:8px}
+  .sch-switch button{border:0;background:transparent;font-family:var(--font-body);font-weight:700;font-size:.8rem;padding:.35em .85em;border-radius:999px;cursor:pointer;color:var(--ink)}
+  .sch-switch button.on{background:var(--violet);color:#fff}
+  .sch-grid{display:grid;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--paper);grid-template-rows:auto 1fr}
+  .sch-colhead{background:var(--bg-2);font-weight:800;font-size:.78rem;padding:8px 6px;text-align:center;border-left:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sch-colhead.tcorner{border-left:0}
+  .sch-times{display:flex;flex-direction:column}
+  .sch-time{font-size:.68rem;color:var(--ink-soft);text-align:right;padding-right:6px;height:44px;border-top:1px solid var(--line-soft);transform:translateY(-7px)}
+  .sch-col{position:relative;border-left:1px solid var(--line)}
+  .sch-cell{height:44px;border-top:1px solid var(--line-soft)}
+  .sch-cell.drop{background:var(--violet-soft)}
+  .sch-block{position:absolute;left:3px;right:3px;border-radius:8px;padding:4px 7px;color:#fff;font-size:.72rem;line-height:1.2;font-weight:700;overflow:hidden;cursor:grab;box-shadow:var(--shadow-sm);z-index:2}
+  .sch-block:active{cursor:grabbing}
+  .sch-block.st-new{background:var(--violet)}.sch-block.st-confirmed{background:var(--confirmed)}.sch-block.st-done{background:var(--done)}.sch-block.st-cancelled{background:var(--cancelled)}
+  .sch-block.blk{background:repeating-linear-gradient(45deg,#8a83a3,#8a83a3 7px,#6f6a86 7px,#6f6a86 14px)}
+  .sch-block .bt{font-weight:800}
+  .sch-block small{opacity:.85;font-weight:600}
 
   /* clients */
   .clist{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
@@ -187,7 +205,7 @@
   <div class="tabs" id="tabs" hidden>
     <button class="tabbtn on" data-view="dash">Огляд</button>
     <button class="tabbtn" data-view="list">Записи</button>
-    <button class="tabbtn" data-view="cal">Календар</button>
+    <button class="tabbtn" data-view="cal">Розклад</button>
     <button class="tabbtn" data-view="clients">Клієнти</button>
   </div>
   <span class="sp"></span>
@@ -459,45 +477,107 @@
       '</div></div>';
   }
 
-  /* ---------- calendar ---------- */
-  function renderCal(){
-    if(!calRef){calRef=new Date();calRef.setDate(1);}
-    var y=calRef.getFullYear(), mo=calRef.getMonth();
-    var first=new Date(y,mo,1);
-    var startDow=(first.getDay()+6)%7;               // Monday-first
-    var daysIn=new Date(y,mo+1,0).getDate();
-    var todayISO=localISO(new Date());
-    var byDate={};
-    all.forEach(function(b){ if(b.date){ (byDate[b.date]=byDate[b.date]||[]).push(b); } });
-    Object.keys(byDate).forEach(function(k){ byDate[k].sort(function(a,b){ return (a.time||"").localeCompare(b.time||""); }); });
-    var cells=[]; for(var i=0;i<startDow;i++)cells.push(null);
+  /* ---------- schedule (день / тиждень / місяць) ---------- */
+  var schMode="day";
+  var SCH={open:600,close:1200,step:30,rowH:44};
+  function svcDur(name){var s=(CFG.services||[]).filter(function(x){return x.name===name;})[0];return (s&&s.dur)||90;}
+  function hhmm2(m){var h=Math.floor(m/60),mm=m%60;return (h<10?"0":"")+h+":"+(mm<10?"0":"")+mm;}
+  function min2(t){var m=/^(\d{1,2}):(\d{2})$/.exec(t||"");return m?(+m[1])*60+(+m[2]):null;}
+  function weekDays(){var d=new Date(calRef);var dow=(d.getDay()+6)%7;var base=new Date(d.getFullYear(),d.getMonth(),d.getDate()-dow);var out=[];for(var i=0;i<7;i++)out.push(localISO(new Date(base.getFullYear(),base.getMonth(),base.getDate()+i)));return out;}
+  function schCols(){
+    if(schMode==="week")return weekDays().map(function(d){var dt=new Date(d);return {day:d,staff:null,label:["Нд","Пн","Вт","Ср","Чт","Пт","Сб"][dt.getDay()]+" "+dt.getDate()+"."+(dt.getMonth()+1)};});
+    var day=localISO(calRef);
+    return STAFF.concat(["__none__"]).map(function(s){return {day:day,staff:s==="__none__"?"":s,label:s==="__none__"?"Не призначено":s};});
+  }
+  function inCol(b,c){if(b.date!==c.day)return false;if(c.staff===null)return true;return (b.staff||"")===c.staff;}
+  function gridBody(){
+    var cols=schCols(),N=cols.length,rows=(SCH.close-SCH.open)/SCH.step;
+    var h='<div class="sch-grid" style="grid-template-columns:56px repeat('+N+',minmax(0,1fr))">';
+    h+='<div class="sch-colhead tcorner"></div>'+cols.map(function(c){return '<div class="sch-colhead">'+esc(c.label)+'</div>';}).join("");
+    h+='<div class="sch-times">';
+    for(var r=0;r<rows;r++)h+='<div class="sch-time">'+hhmm2(SCH.open+r*SCH.step)+'</div>';
+    h+='</div>';
+    cols.forEach(function(c){
+      h+='<div class="sch-col" data-day="'+c.day+'" data-staff="'+(c.staff==null?"__any__":c.staff)+'">';
+      for(var r=0;r<rows;r++)h+='<div class="sch-cell" data-min="'+(SCH.open+r*SCH.step)+'"></div>';
+      all.filter(function(b){return b.time&&inCol(b,c);}).forEach(function(b){
+        var sm=min2(b.time);if(sm==null)return;
+        var isblk=b.service==="Блокування";
+        var top=(sm-SCH.open)/SCH.step*SCH.rowH;
+        var height=Math.max(svcDur(b.service)/SCH.step*SCH.rowH-2,22);
+        h+='<div class="sch-block '+(isblk?"blk":"st-"+(b.status||"new"))+'" draggable="true" data-id="'+b.id+'" style="top:'+top+'px;height:'+height+'px" title="'+esc(b.time+" "+(b.name||"")+" · "+(b.service||"")+(b.staff?" · "+b.staff:""))+'">'+
+          '<span class="bt">'+esc(b.time)+'</span> '+esc(isblk?"🔒 Блок":(b.pet_name||b.name||""))+
+          (schMode==="week"&&b.staff?'<br><small>'+esc(b.staff)+'</small>':'')+
+          (!isblk&&b.service?'<br><small>'+esc(b.service)+'</small>':'')+'</div>';
+      });
+      h+='</div>';
+    });
+    return h+'</div>';
+  }
+  function monthBody(){
+    var y=calRef.getFullYear(),mo=calRef.getMonth();
+    var first=new Date(y,mo,1),startDow=(first.getDay()+6)%7,daysIn=new Date(y,mo+1,0).getDate(),todayISO=localISO(new Date());
+    var byDate={};all.forEach(function(b){if(b.date)(byDate[b.date]=byDate[b.date]||[]).push(b);});
+    Object.keys(byDate).forEach(function(k){byDate[k].sort(function(a,b){return (a.time||"").localeCompare(b.time||"");});});
+    var cells=[];for(var i=0;i<startDow;i++)cells.push(null);
     for(var dd=1;dd<=daysIn;dd++)cells.push(new Date(y,mo,dd));
     while(cells.length%7)cells.push(null);
-    var monthName=first.toLocaleDateString("uk-UA",{month:"long",year:"numeric"});
     var dows=["Пн","Вт","Ср","Чт","Пт","Сб","Нд"];
-    var html='<div class="cal-head"><div class="cal-title">'+esc(monthName)+'</div>'+
-      '<div class="cal-nav"><button class="btn sm" id="calPrev">‹</button>'+
-      '<button class="btn sm" id="calToday">Сьогодні</button>'+
-      '<button class="btn sm" id="calNext">›</button></div></div>';
-    html+='<div class="cal-grid">'+dows.map(function(d){return '<div class="cal-dow">'+d+'</div>';}).join("");
+    var h='<div class="cal-grid">'+dows.map(function(d){return '<div class="cal-dow">'+d+'</div>';}).join("");
     cells.forEach(function(c){
-      if(!c){ html+='<div class="cal-cell out"></div>'; return; }
-      var iso=localISO(c), evs=byDate[iso]||[];
-      html+='<div class="cal-cell'+(iso===todayISO?' today':'')+'"><div class="cal-daynum">'+c.getDate()+'</div>'+
-        evs.slice(0,4).map(function(b){
-          return '<div class="cal-ev st-'+(b.status||"new")+'" data-id="'+b.id+'" title="'+esc((b.time||"")+" "+(b.name||"")+" · "+(b.service||"")+(b.staff?" · "+b.staff:""))+'">'+
-            esc((b.time?b.time+" ":"")+(b.name||""))+'</div>';
-        }).join("")+
-        (evs.length>4?'<div class="cal-more">+'+(evs.length-4)+' ще</div>':'')+
-      '</div>';
+      if(!c){h+='<div class="cal-cell out"></div>';return;}
+      var iso=localISO(c),evs=byDate[iso]||[];
+      h+='<div class="cal-cell'+(iso===todayISO?' today':'')+'"><div class="cal-daynum">'+c.getDate()+'</div>'+
+        evs.slice(0,4).map(function(b){return '<div class="cal-ev st-'+(b.status||"new")+'" data-id="'+b.id+'" title="'+esc((b.time||"")+" "+(b.name||"")+" · "+(b.service||""))+'">'+esc((b.time?b.time+" ":"")+(b.pet_name||b.name||""))+'</div>';}).join("")+
+        (evs.length>4?'<div class="cal-more">+'+(evs.length-4)+' ще</div>':'')+'</div>';
     });
-    html+='</div>';
-    $("#calView").innerHTML=html;
-    $("#calPrev").onclick=function(){calRef.setMonth(calRef.getMonth()-1);renderCal();};
-    $("#calNext").onclick=function(){calRef.setMonth(calRef.getMonth()+1);renderCal();};
-    $("#calToday").onclick=function(){calRef=new Date();calRef.setDate(1);renderCal();};
-    [].forEach.call(document.querySelectorAll("#calView .cal-ev"),function(el){
-      el.addEventListener("click",function(){var b=all.filter(function(x){return String(x.id)===el.dataset.id;})[0];if(b)openModal(b);});
+    return h+'</div>';
+  }
+  function schTitle(){
+    if(schMode==="month")return calRef.toLocaleDateString("uk-UA",{month:"long",year:"numeric"});
+    if(schMode==="week"){var w=weekDays();var a=new Date(w[0]),b=new Date(w[6]);return a.getDate()+"."+(a.getMonth()+1)+" – "+b.getDate()+"."+(b.getMonth()+1)+"."+b.getFullYear();}
+    return calRef.toLocaleDateString("uk-UA",{weekday:"long",day:"2-digit",month:"long"});
+  }
+  function navSch(dir){if(schMode==="month")calRef.setMonth(calRef.getMonth()+dir);else if(schMode==="week")calRef.setDate(calRef.getDate()+7*dir);else calRef.setDate(calRef.getDate()+dir);renderCal();}
+  function openModalPrefill(day,time,staff){openModal(null);$("#f-date").value=day||"";$("#f-time").value=time||"";if(staff&&STAFF.indexOf(staff)>=0)$("#f-staff").value=staff;$("#f-source").value="phone";}
+  async function blockTime(){
+    var staff=prompt("Заблокувати час для майстра ("+STAFF.join(" / ")+"):",STAFF[0]||"");if(staff===null)return;
+    var day=schMode==="week"?prompt("Дата (РРРР-ММ-ДД):",localISO(calRef)):localISO(calRef);if(!day)return;
+    var time=prompt("Час початку (ГГ:ХХ):","13:00");if(!time)return;
+    try{await api("/admin/create",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:"Блок",phone:"—",service:"Блокування",pet:"",date:day,time:time,staff:staff,status:"confirmed",price:0,source:"other"})});await reload();}
+    catch(e){alert("Не вдалося заблокувати час");}
+  }
+  function renderCal(){
+    if(!calRef)calRef=new Date();
+    var head='<div class="cal-head"><div class="cal-title" id="schTitle" style="text-transform:capitalize">'+esc(schTitle())+'</div>'+
+      '<div class="sch-switch">'+["day","week","month"].map(function(m){return '<button data-m="'+m+'"'+(m===schMode?' class="on"':'')+'>'+({day:"День",week:"Тиждень",month:"Місяць"})[m]+'</button>';}).join("")+'</div>'+
+      '<div class="cal-nav"><button class="btn sm" id="schPrev">‹</button><button class="btn sm" id="schToday">Сьогодні</button><button class="btn sm" id="schNext">›</button>'+
+      (schMode!=="month"?'<button class="btn sm" id="schBlock">🔒 Блокувати</button>':'')+'</div></div>';
+    $("#calView").innerHTML=head+(schMode==="month"?monthBody():gridBody());
+    [].forEach.call($("#calView").querySelectorAll(".sch-switch button"),function(b){b.onclick=function(){schMode=b.dataset.m;renderCal();};});
+    $("#schPrev").onclick=function(){navSch(-1);};$("#schNext").onclick=function(){navSch(1);};
+    $("#schToday").onclick=function(){calRef=new Date();renderCal();};
+    if($("#schBlock"))$("#schBlock").onclick=blockTime;
+    if(schMode==="month"){
+      [].forEach.call($("#calView").querySelectorAll(".cal-ev"),function(el){el.addEventListener("click",function(){var b=all.filter(function(x){return String(x.id)===el.dataset.id;})[0];if(b)openModal(b);});});
+      return;
+    }
+    // schedule wiring: click-edit, drag-drop, click-empty
+    [].forEach.call($("#calView").querySelectorAll(".sch-block"),function(el){
+      el.addEventListener("click",function(ev){ev.stopPropagation();var b=all.filter(function(x){return String(x.id)===el.dataset.id;})[0];if(b)openModal(b);});
+      el.addEventListener("dragstart",function(e){e.dataTransfer.setData("text/plain",el.dataset.id);e.dataTransfer.effectAllowed="move";});
+    });
+    [].forEach.call($("#calView").querySelectorAll(".sch-cell"),function(cell){
+      cell.addEventListener("dragover",function(e){e.preventDefault();cell.classList.add("drop");});
+      cell.addEventListener("dragleave",function(){cell.classList.remove("drop");});
+      cell.addEventListener("drop",async function(e){e.preventDefault();cell.classList.remove("drop");
+        var id=e.dataTransfer.getData("text/plain");var b=all.filter(function(x){return String(x.id)===id;})[0];if(!b)return;
+        var col=cell.closest(".sch-col"),sa=col.dataset.staff;
+        var payload={id:b.id,date:col.dataset.day,time:hhmm2(+cell.dataset.min)};
+        if(sa!=="__any__")payload.staff=sa;
+        try{await api("/admin/update",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});await reload();}catch(err){alert("Не вдалося перенести запис");}
+      });
+      cell.addEventListener("click",function(){var col=cell.closest(".sch-col");openModalPrefill(col.dataset.day,hhmm2(+cell.dataset.min),col.dataset.staff==="__any__"?"":col.dataset.staff);});
     });
   }
 
