@@ -197,7 +197,9 @@
   .sheet-act{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
   .modal-err{color:var(--cancelled);font-weight:700;font-size:.85rem;margin-top:10px;min-height:1em}
   [hidden]{display:none!important}
-  @media(max-width:900px){.kpis{grid-template-columns:1fr 1fr}.dash-grid{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}}
+  .kpis.rep3{grid-template-columns:repeat(3,1fr)}
+  .repnote{color:var(--ink-soft);font-size:.9rem;line-height:1.5}
+  @media(max-width:900px){.kpis{grid-template-columns:1fr 1fr}.kpis.rep3{grid-template-columns:1fr 1fr}.dash-grid{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -210,6 +212,7 @@
     <button class="tabbtn" data-view="list">Записи</button>
     <button class="tabbtn" data-view="cal">Розклад</button>
     <button class="tabbtn" data-view="clients">Клієнти</button>
+    <button class="tabbtn" data-view="reports">Звіти</button>
   </div>
   <span class="sp"></span>
   <button class="btn ghost sm" id="remindBtn" hidden title="Нагадування">🔔</button>
@@ -251,6 +254,7 @@
 
 <div class="wrap" id="calView" hidden></div>
 <div class="wrap" id="clientsView" hidden></div>
+<div class="wrap" id="reportsView" hidden></div>
 
 <div class="modal" id="modal">
   <div class="sheet">
@@ -389,6 +393,7 @@
   var token=""; try{token=localStorage.getItem(KEY)||"";}catch(e){}
   var all=[], filter="all", q="", view="dash", editId=null, dateFrom="", dateTo="", calRef=null;
   var clients=[], pets=[], clientQ="", editClientId=null, editPetId=null, petClientId=null, mastersList=[];
+  var repFrom="", repTo="";
 
   var STATUS=[{v:"new",label:"Нова"},{v:"confirmed",label:"Підтверджена"},{v:"done",label:"Виконана"},{v:"waitlist",label:"Лист очікування"},{v:"cancelled",label:"Скасована"}];
   var FILTERS=[{v:"all",label:"Усі"}].concat(STATUS);
@@ -417,9 +422,9 @@
   function showLogin(msg){$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;$("#loginErr").textContent=msg||"";}
   function showApp(){$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;$("#remindBtn").hidden=false;setView(view);}
-  function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");
+  function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");$("#reportsView").hidden=(v!=="reports");
     [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.classList.toggle("on",b.dataset.view===v);});
-    if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else render();}
+    if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else if(v==="reports")renderReports(); else render();}
   [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.addEventListener("click",function(){setView(b.dataset.view);});});
 
   async function loadClientsPets(){
@@ -511,6 +516,74 @@
           return '<div class="day"><span class="dv">'+(n||"")+'</span><span class="db" style="height:'+(n/dmx*100)+'%"></span>'+
             '<span class="dl">'+d2.toLocaleDateString("uk-UA",{day:"2-digit",month:"2-digit"})+'</span></div>';}).join("")+
       '</div></div>';
+  }
+
+  /* ---------- reports (Звіти) ---------- */
+  function repDefaults(){if(!repTo){var t=new Date();repTo=localISO(t);repFrom=localISO(new Date(t.getFullYear(),t.getMonth(),t.getDate()-29));}}
+  function repSetPreset(p){var t=new Date();
+    if(p==="today"){repFrom=repTo=localISO(t);}
+    else if(p==="7"){repTo=localISO(t);repFrom=localISO(new Date(t.getFullYear(),t.getMonth(),t.getDate()-6));}
+    else if(p==="30"){repTo=localISO(t);repFrom=localISO(new Date(t.getFullYear(),t.getMonth(),t.getDate()-29));}
+    else if(p==="month"){repFrom=localISO(new Date(t.getFullYear(),t.getMonth(),1));repTo=localISO(t);}
+    else if(p==="all"){var ds=all.filter(function(b){return b.date;}).map(function(b){return b.date;}).sort();repFrom=ds[0]||localISO(t);repTo=localISO(t);}
+  }
+  function repBookings(){return all.filter(function(b){return b.service!=="Блокування"&&b.date&&b.date>=repFrom&&b.date<=repTo;});}
+  function repBars(map,money_){var keys=Object.keys(map).sort(function(a,b){return map[b]-map[a];});var max=Math.max(1,Math.max.apply(null,keys.map(function(k){return map[k]||0;})));
+    return keys.map(function(k){var n=map[k]||0;return '<div class="bar-row"><span class="lbl">'+esc(k)+'</span><span class="bar-track"><span class="bar-fill" style="width:'+(n/max*100)+'%"></span></span><span class="num">'+(money_?money(n):n)+'</span></div>';}).join("")||'<p class="nodata">Немає даних</p>';}
+  function masterOccupancy(bk){
+    var avail={};(mastersList||[]).forEach(function(m){avail[m.name]=0;});
+    for(var d=new Date(repFrom+"T12:00:00");localISO(d)<=repTo;d.setDate(d.getDate()+1)){var iso=localISO(d);
+      (mastersList||[]).forEach(function(m){var cfg=masterCfg(m.name);if(cfg&&!dayOff(cfg,iso))avail[m.name]+=(cfg.end-cfg.start);});}
+    var agg={};bk.forEach(function(b){var s=(b.staff||"").trim();if(!s||b.status==="cancelled")return;var a=agg[s]||(agg[s]={count:0,mins:0,rev:0});a.count++;a.mins+=svcDur(b.service);if(b.status==="done")a.rev+=Number(b.price)||0;});
+    var out=(mastersList||[]).map(function(m){var a=agg[m.name]||{count:0,mins:0,rev:0};var av=avail[m.name]||0;return {name:m.name,count:a.count,hours:Math.round(a.mins/60*10)/10,rev:a.rev,occ:av?Math.round(a.mins/av*100):0};});
+    Object.keys(agg).forEach(function(s){if(!out.some(function(x){return x.name===s;}))out.push({name:s,count:agg[s].count,hours:Math.round(agg[s].mins/60*10)/10,rev:agg[s].rev,occ:0});});
+    return out.sort(function(a,b){return b.rev-a.rev||b.count-a.count;});
+  }
+  function renderReports(){
+    repDefaults();
+    var bk=repBookings(),done=bk.filter(function(b){return b.status==="done";});
+    var rev=done.reduce(function(s,b){return s+(Number(b.price)||0);},0);
+    var dwp=done.filter(function(b){return Number(b.price)>0;});var avg=dwp.length?Math.round(rev/dwp.length):0;
+    var cancelled=bk.filter(function(b){return b.status==="cancelled";}).length;var cancPct=bk.length?Math.round(cancelled/bk.length*100):0;
+    var firstBy={};all.forEach(function(b){if(!b.date)return;var k=b.client_id!=null?"c"+b.client_id:"p"+normPhone(b.phone);if(!firstBy[k]||b.date<firstBy[k])firstBy[k]=b.date;});
+    var newClients=Object.keys(firstBy).filter(function(k){return firstBy[k]>=repFrom&&firstBy[k]<=repTo;}).length;
+    var doneBy={};all.forEach(function(b){if(b.status==="done"){var k=b.client_id!=null?"c"+b.client_id:"p"+normPhone(b.phone);doneBy[k]=(doneBy[k]||0)+1;}});
+    var wv=Object.keys(doneBy).length,rc=Object.keys(doneBy).filter(function(k){return doneBy[k]>=2;}).length;var repeatPct=wv?Math.round(rc/wv*100):0;
+    var spanDays=Math.round((new Date(repTo)-new Date(repFrom))/86400000)+1;
+    var buckets={},labels=[];
+    if(spanDays<=45){for(var d=new Date(repFrom+"T12:00:00");localISO(d)<=repTo;d.setDate(d.getDate()+1)){var iso=localISO(d);buckets[iso]=0;labels.push(iso);}done.forEach(function(b){if(b.date in buckets)buckets[b.date]+=Number(b.price)||0;});}
+    else{done.forEach(function(b){var mk=b.date.slice(0,7);buckets[mk]=(buckets[mk]||0)+(Number(b.price)||0);});labels=Object.keys(buckets).sort();}
+    var mx=Math.max(1,Math.max.apply(null,labels.map(function(k){return buckets[k]||0;})));
+    var daysHtml=labels.map(function(k){var n=buckets[k]||0;var lbl=spanDays<=45?k.slice(5).replace("-","."):k.slice(2);
+      return '<div class="day" title="'+k+': '+money(n)+'"><span class="dv">'+(n>=1000?Math.round(n/1000)+"k":(n||""))+'</span><span class="db" style="height:'+(n/mx*100)+'%"></span><span class="dl">'+lbl+'</span></div>';}).join("");
+    var occ=masterOccupancy(bk),maxMrev=Math.max(1,Math.max.apply(null,occ.map(function(m){return m.rev;})));
+    var mastersHtml=occ.length?occ.map(function(m,i){return '<div class="staff-row"><div class="staff-head"><span class="avatar c'+((i%4)+1)+'">'+esc(initials(m.name))+'</span><div class="staff-meta"><div class="staff-name">'+esc(m.name)+'</div><div class="staff-sub">'+m.count+' записів · '+m.hours+' год · завантаження '+m.occ+'%</div></div><div class="staff-rev">'+money(m.rev)+'</div></div><div class="staff-bar"><i style="width:'+(m.rev/maxMrev*100)+'%"></i></div></div>';}).join(""):'<p class="nodata">Немає даних</p>';
+    var svcRev={};done.forEach(function(b){var k=b.service||"—";svcRev[k]=(svcRev[k]||0)+(Number(b.price)||0);});
+    var svcCnt={};bk.forEach(function(b){var k=b.service||"—";svcCnt[k]=(svcCnt[k]||0)+1;});
+    var srcCnt={};bk.forEach(function(b){var k=SRC[b.source]||b.source||"—";srcCnt[k]=(srcCnt[k]||0)+1;});
+    var stCnt={};bk.forEach(function(b){var k=stLabel(b.status||"new");stCnt[k]=(stCnt[k]||0)+1;});
+    var ctrl='<div class="toolbar" style="align-items:center"><span style="font-weight:800">Період:</span>'+
+      [["today","Сьогодні"],["7","7 днів"],["30","30 днів"],["month","Місяць"],["all","Весь час"]].map(function(p){return '<button class="pill rep-preset" data-p="'+p[0]+'">'+p[1]+'</button>';}).join("")+
+      '<span style="color:var(--ink-soft);margin-left:6px">від</span><input type="date" id="rep-from" class="search" style="max-width:150px;min-width:0" value="'+repFrom+'">'+
+      '<span style="color:var(--ink-soft)">до</span><input type="date" id="rep-to" class="search" style="max-width:150px;min-width:0" value="'+repTo+'">'+
+      '<span style="flex:1"></span><button class="btn ghost sm" id="rep-export" style="border-color:var(--line);color:var(--ink)">⬇ CSV</button></div>';
+    $("#reportsView").innerHTML=ctrl+
+      '<div class="kpis rep3">'+
+        '<div class="kpi green"><div class="ic">💰</div><div class="k">Виручка</div><div class="v">'+money(rev)+'</div><div class="sub">виконано за період</div></div>'+
+        '<div class="kpi"><div class="ic">🐾</div><div class="k">Записів</div><div class="v">'+bk.length+'</div><div class="sub">'+done.length+' виконано</div></div>'+
+        '<div class="kpi gold"><div class="ic">🧾</div><div class="k">Середній чек</div><div class="v">'+money(avg)+'</div></div>'+
+        '<div class="kpi rose"><div class="ic">🆕</div><div class="k">Нові клієнти</div><div class="v">'+newClients+'</div></div>'+
+        '<div class="kpi"><div class="ic">🔁</div><div class="k">Повторні клієнти</div><div class="v">'+repeatPct+'%</div></div>'+
+        '<div class="kpi rose"><div class="ic">✖</div><div class="k">Скасування</div><div class="v">'+cancPct+'%</div><div class="sub">'+cancelled+' скасовано</div></div>'+
+      '</div>'+
+      '<div class="panel full"><h3>Виручка '+(spanDays<=45?"по днях":"по місяцях")+'</h3><div class="days">'+daysHtml+'</div></div>'+
+      '<div class="dash-grid"><div class="panel"><h3>Завантаження майстрів <span class="tag">виручка</span></h3>'+mastersHtml+'</div><div class="panel"><h3>Прибутковість послуг <span class="tag">виручка</span></h3>'+repBars(svcRev,true)+'</div></div>'+
+      '<div class="dash-grid"><div class="panel"><h3>Популярні послуги <span class="tag">записів</span></h3>'+repBars(svcCnt,false)+'</div><div class="panel"><h3>Джерела клієнтів</h3>'+repBars(srcCnt,false)+'</div></div>'+
+      '<div class="dash-grid"><div class="panel"><h3>Статуси</h3>'+repBars(stCnt,false)+'</div><div class="panel"><h3>Період</h3><p class="muted" style="font-size:.9rem">Показники за '+repFrom+' – '+repTo+' ('+spanDays+' дн.). Виручка рахується за виконаними записами.</p></div></div>';
+    [].forEach.call($("#reportsView").querySelectorAll(".rep-preset"),function(b){b.addEventListener("click",function(){repSetPreset(b.dataset.p);renderReports();});});
+    $("#rep-from").addEventListener("change",function(e){repFrom=e.target.value;renderReports();});
+    $("#rep-to").addEventListener("change",function(e){repTo=e.target.value;renderReports();});
+    $("#rep-export").addEventListener("click",function(){exportBookingsList(bk.slice().sort(function(a,b){return (a.date||"").localeCompare(b.date||"")||(a.time||"").localeCompare(b.time||"");}),"gavlove-zvit-"+repFrom+"_"+repTo);});
   }
 
   /* ---------- schedule (день / тиждень / місяць) ---------- */
@@ -942,12 +1015,15 @@
     document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},200);
   }
   function today10(){return new Date().toISOString().slice(0,10);}
-  function exportBookings(){
+  function exportBookingsList(list,base){
     var H=["ID","Отримано","Клієнт","Телефон","Тварина","Кличка","Порода","Вага","Послуга","Дата","Час","Майстер","Сума","Джерело","Статус","Коментар"];
-    var rows=all.slice().sort(function(a,b){return (b.created_at||"").localeCompare(a.created_at||"");}).map(function(b){
+    var rows=list.map(function(b){
       return [b.id,(b.created_at||"").replace("T"," ").slice(0,16),b.name,b.phone,b.pet,b.pet_name,b.breed,b.weight,b.service,b.date,b.time,b.staff,(Number(b.price)>0?b.price:""),(SRC[b.source]||b.source),(stLabel(b.status||"new")),b.note];
     });
-    downloadCSV("gavlove-zapysy-"+today10()+".csv",H,rows);
+    downloadCSV(base+".csv",H,rows);
+  }
+  function exportBookings(){
+    exportBookingsList(all.slice().sort(function(a,b){return (b.created_at||"").localeCompare(a.created_at||"");}),"gavlove-zapysy-"+today10());
   }
   function exportClients(){
     var H=["ID","Ім'я","Телефон","Email","Месенджер","Джерело","Згода","Статус","Улюбленці","Візитів","Витрачено (грн)","Коментар"];
