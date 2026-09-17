@@ -88,6 +88,26 @@
   .staff-bar{height:6px;background:var(--bg-2);border-radius:999px;margin-top:9px;overflow:hidden}
   .staff-bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--violet),#8a63e6);border-radius:999px}
   .nodata{color:var(--ink-soft);text-align:center;padding:16px}
+  /* operational dashboard (Огляд) */
+  .dchip{display:inline-block;color:#fff;font-weight:800;font-size:.68rem;padding:.18em .62em;border-radius:999px;white-space:nowrap}
+  .tl-row{display:grid;grid-template-columns:60px 1fr auto;gap:12px;align-items:center;padding:11px 8px;border-top:1px solid var(--line-soft);cursor:pointer;border-radius:10px;transition:.12s}
+  .tl-row:first-child{border-top:0}
+  .tl-row:hover{background:var(--violet-soft)}
+  .tl-row.past{opacity:.5}
+  .tl-time{font-weight:800;font-size:1rem;color:var(--violet);text-align:center;line-height:1.15}
+  .tl-main .t1{font-weight:800}
+  .tl-main .t2{color:var(--ink-soft);font-size:.85rem;margin-top:2px}
+  .tl-right{text-align:right;display:flex;flex-direction:column;gap:5px;align-items:flex-end}
+  .att-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 8px;border-top:1px solid var(--line-soft);cursor:pointer;border-radius:10px;transition:.12s}
+  .att-row:first-child{border-top:0}
+  .att-row:hover{background:var(--violet-soft)}
+  .att-row .a2{color:var(--ink-soft);font-size:.82rem;margin-top:2px}
+  .att-need{font-size:.7rem;font-weight:800;color:var(--violet);background:var(--violet-soft);padding:.22em .62em;border-radius:999px;white-space:nowrap;flex:none}
+  .mrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 0;border-top:1px solid var(--line-soft)}
+  .mrow:first-child{border-top:0}
+  .mrow.off{opacity:.6}
+  .mrow .m2{color:var(--ink-soft);font-size:.82rem;margin-top:2px}
+  .mtag{font-size:.7rem;font-weight:800;padding:.22em .62em;border-radius:999px;background:var(--bg-2);color:var(--ink-soft);white-space:nowrap;flex:none}
 
   /* toolbar + table */
   .toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:20px 0}
@@ -455,67 +475,85 @@
   function countBy(fn){var m={};all.forEach(function(b){var k=fn(b);if(k==null||k==="")return;m[k]=(m[k]||0)+1;});return m;}
   function within(iso,days){var d=new Date(iso);return !isNaN(d)&&(Date.now()-d.getTime())<=days*86400000;}
 
+  function fmtD(iso){var p=String(iso||"").split("-");return p.length===3?p[2]+"."+p[1]:String(iso||"");}
+  function stChip(st){st=st||"new";return '<span class="dchip" style="background:'+(STCOLOR[st]||"var(--new)")+'">'+esc(stLabel(st))+'</span>';}
+  function nodataP(t){return '<p class="nodata">'+esc(t)+'</p>';}
+  // Огляд = операційний екран «на сьогодні» (аналітика за період — у вкладці Звіти)
   function renderDash(){
-    var done=all.filter(function(b){return b.status==="done";});
-    var doneRev=sum(done.map(function(b){return b.price;}));
-    var planned=sum(all.filter(function(b){return b.status==="new"||b.status==="confirmed";}).map(function(b){return b.price;}));
-    var dwp=done.filter(function(b){return Number(b.price)>0;});
-    var avg=dwp.length?Math.round(doneRev/dwp.length):0;
-    var nw=all.filter(function(b){return (b.status||"new")==="new";}).length;
+    var today=localISO(new Date());
+    var now=new Date(),nowMin=now.getHours()*60+now.getMinutes();
+    var active=function(b){return b.service!=="Блокування"&&b.status!=="cancelled";};
+    var todays=all.filter(function(b){return b.date===today&&active(b);});
+    var todaysTimed=todays.filter(function(b){return b.time;}).sort(function(a,b){return (a.time||"").localeCompare(b.time||"");});
+    var todayRev=sum(todays.map(function(b){return b.price;}));
+    var newReq=all.filter(function(b){return (b.status||"new")==="new"&&b.service!=="Блокування";});
+    var waitl=all.filter(function(b){return b.status==="waitlist";});
+    var wkEnd=localISO(new Date(now.getFullYear(),now.getMonth(),now.getDate()+6));
+    var wk=all.filter(function(b){return b.date&&b.date>=today&&b.date<=wkEnd&&b.time&&active(b);});
+    var wkRev=sum(wk.map(function(b){return b.price;}));
+    var working=(mastersList||[]).filter(function(m){var c=masterCfg(m.name);return c&&!dayOff(c,today);});
 
-    // staff aggregation
-    var sm={};
-    all.forEach(function(b){var s=(b.staff||"").trim()||"Не призначено";
-      var m=sm[s]||(sm[s]={orders:0,done:0,rev:0});
-      if(b.status!=="cancelled")m.orders++;
-      if(b.status==="done"){m.done++;m.rev+=Number(b.price)||0;}});
-    var staff=Object.keys(sm).map(function(k){return Object.assign({name:k},sm[k]);})
-      .sort(function(a,b){return b.rev-a.rev||b.orders-a.orders;});
-    var maxRev=Math.max(1,Math.max.apply(null,staff.map(function(s){return s.rev;})));
+    // черга «потребують уваги»
+    var att=[];
+    newReq.forEach(function(b){att.push({b:b,need:"підтвердити",when:(b.date?fmtD(b.date)+(b.time?" "+b.time:""):"без дати")});});
+    todays.forEach(function(b){if(!b.time&&(b.status||"new")!=="new")att.push({b:b,need:"призначити час",when:"сьогодні"});});
+    waitl.forEach(function(b){att.push({b:b,need:"лист очікування",when:(b.date?fmtD(b.date):"—")});});
+    att.sort(function(a,b){return (a.b.date||"9999").localeCompare(b.b.date||"9999");});
 
-    // revenue by service (done)
-    var svcRev={};done.forEach(function(b){var k=b.service||"—";svcRev[k]=(svcRev[k]||0)+(Number(b.price)||0);});
+    // найближчі підтверджені візити
+    var upc=all.filter(function(b){return b.status==="confirmed"&&b.date&&b.date>today&&b.time&&b.service!=="Блокування";})
+      .sort(function(a,b){return (a.date+a.time).localeCompare(b.date+b.time);}).slice(0,8);
 
-    // 14-day requests trend
-    var byDay={};for(var i=13;i>=0;i--){var dd=new Date();dd.setHours(0,0,0,0);dd.setDate(dd.getDate()-i);byDay[dd.toISOString().slice(0,10)]=0;}
-    all.forEach(function(b){var k=(b.created_at||"").slice(0,10);if(k in byDay)byDay[k]++;});
-    var dk=Object.keys(byDay),dmx=Math.max(1,Math.max.apply(null,dk.map(function(k){return byDay[k];})));
+    var timeline=todaysTimed.map(function(b){var mn=min2(b.time),past=mn!=null&&mn<nowMin&&b.status!=="done";
+      return '<div class="tl-row'+(past?" past":"")+'" data-id="'+b.id+'">'+
+        '<div class="tl-time">'+esc(b.time||"")+'</div>'+
+        '<div class="tl-main"><div class="t1">'+esc(b.name||"—")+(b.pet_name?' · '+esc(b.pet_name):'')+'</div>'+
+          '<div class="t2">'+esc(b.service||"")+(b.staff?' · '+esc(b.staff):'')+'</div></div>'+
+        '<div class="tl-right">'+stChip(b.status)+(Number(b.price)>0?'<span class="muted" style="font-weight:800">'+money(b.price)+'</span>':'')+'</div>'+
+      '</div>';}).join("")||nodataP("Сьогодні візитів немає");
 
-    var scol={new:"Нова",confirmed:"Підтверджена",done:"Виконана",cancelled:"Скасована"};
+    var attHtml=att.slice(0,8).map(function(a){var b=a.b;
+      return '<div class="att-row" data-id="'+b.id+'">'+
+        '<div><div class="t1" style="font-weight:800">'+esc(b.name||"—")+' <span class="muted" style="font-weight:600">'+esc(b.service||"")+'</span></div>'+
+          '<div class="a2">'+esc(a.when)+(b.phone?' · '+esc(b.phone):'')+'</div></div>'+
+        '<span class="att-need">'+esc(a.need)+'</span></div>';}).join("")||nodataP("Все опрацьовано ✓");
+
+    var mastersHtml=(mastersList||[]).map(function(m,i){var c=masterCfg(m.name);var off=c?dayOff(c,today):"Немає графіка";
+      var mine=todays.filter(function(b){return (b.staff||"")===m.name;});
+      var mins=sum(mine.map(function(b){return svcDur(b.service);}));
+      var avail=(c&&!off)?(c.end-c.start):0;var free=Math.max(0,avail-mins);
+      var sub=off?off:(hhmm2(c.start)+"–"+hhmm2(c.end)+" · "+mine.length+" візит.");
+      var tag=off?'<span class="mtag">'+esc(off)+'</span>'
+                 :'<span class="mtag" style="background:var(--violet-soft);color:var(--violet)">вільно ~'+(Math.round(free/60*10)/10)+' год</span>';
+      return '<div class="mrow'+(off?" off":"")+'"><div class="staff-head" style="margin:0">'+
+        '<span class="avatar c'+((i%4)+1)+'">'+esc(initials(m.name))+'</span>'+
+        '<div class="staff-meta"><div class="staff-name">'+esc(m.name)+'</div><div class="m2">'+esc(sub)+'</div></div></div>'+tag+'</div>';
+    }).join("")||nodataP("Майстрів не додано");
+
+    var upcHtml=upc.map(function(b){
+      return '<div class="tl-row" data-id="'+b.id+'">'+
+        '<div class="tl-time" style="font-size:.8rem">'+esc(fmtD(b.date))+'<br><span style="font-size:.95rem">'+esc(b.time||"")+'</span></div>'+
+        '<div class="tl-main"><div class="t1">'+esc(b.name||"—")+(b.pet_name?' · '+esc(b.pet_name):'')+'</div>'+
+          '<div class="t2">'+esc(b.service||"")+(b.staff?' · '+esc(b.staff):'')+'</div></div>'+
+        '<div class="tl-right">'+stChip(b.status)+'</div></div>';}).join("")||nodataP("Немає підтверджених візитів попереду");
 
     $("#dashView").innerHTML=
       '<div class="kpis">'+
-        '<div class="kpi green"><div class="ic">💰</div><div class="k">Дохід (виконано)</div><div class="v">'+money(doneRev)+'</div><div class="sub">'+dwp.length+' виконаних із сумою</div></div>'+
-        '<div class="kpi"><div class="ic">📅</div><div class="k">Заплановано</div><div class="v">'+money(planned)+'</div><div class="sub">нові + підтверджені</div></div>'+
-        '<div class="kpi gold"><div class="ic">🧾</div><div class="k">Середній чек</div><div class="v">'+money(avg)+'</div><div class="sub">за виконаними</div></div>'+
-        '<div class="kpi rose"><div class="ic">🐾</div><div class="k">Заявки</div><div class="v">'+all.length+'</div><div class="sub">'+nw+' нових</div></div>'+
+        '<div class="kpi"><div class="ic">📅</div><div class="k">Сьогодні</div><div class="v">'+todays.length+'</div><div class="sub">'+money(todayRev)+' очікується</div></div>'+
+        '<div class="kpi gold"><div class="ic">⏳</div><div class="k">Нові заявки</div><div class="v">'+newReq.length+'</div><div class="sub">'+(waitl.length?waitl.length+' у листі очікування':'очікують підтвердження')+'</div></div>'+
+        '<div class="kpi green"><div class="ic">🗓</div><div class="k">Найближчі 7 днів</div><div class="v">'+wk.length+'</div><div class="sub">'+money(wkRev)+' заплановано</div></div>'+
+        '<div class="kpi rose"><div class="ic">👩‍🔧</div><div class="k">Працює сьогодні</div><div class="v">'+working.length+'</div><div class="sub">'+(working.length?esc(working.map(function(m){return m.name;}).join(", ")):"вихідний")+'</div></div>'+
       '</div>'+
+      '<div class="panel full"><h3>Сьогодні <span class="tag">'+esc(fmtD(today))+'</span></h3>'+timeline+'</div>'+
       '<div class="dash-grid">'+
-        '<div class="panel"><h3>Майстри <span class="tag">дохід · записи</span></h3>'+
-          (staff.length?staff.map(function(s,i){var cls="c"+((i%4)+1);if(s.name==="Не призначено")cls="c0";
-            return '<div class="staff-row"><div class="staff-head">'+
-              '<span class="avatar '+cls+'">'+esc(initials(s.name))+'</span>'+
-              '<div class="staff-meta"><div class="staff-name">'+esc(s.name)+'</div>'+
-                '<div class="staff-sub">'+s.orders+' записів · '+s.done+' виконано</div></div>'+
-              '<div class="staff-rev">'+money(s.rev)+'</div></div>'+
-              '<div class="staff-bar"><i style="width:'+(s.rev/maxRev*100)+'%"></i></div></div>';}).join(""):'<p class="nodata">Немає даних</p>')+
-        '</div>'+
-        '<div class="panel"><h3>Дохід за послугами <span class="tag">виконано</span></h3>'+
-          (Object.keys(svcRev).length?bars(svcRev,null,null):'<p class="nodata">Немає даних</p>')+'</div>'+
+        '<div class="panel"><h3>Потребують уваги'+(att.length>8?' <span class="tag">'+att.length+'</span>':'')+'</h3>'+attHtml+'</div>'+
+        '<div class="panel"><h3>Майстри сьогодні</h3>'+mastersHtml+'</div>'+
       '</div>'+
-      '<div class="dash-grid">'+
-        '<div class="panel"><h3>Джерела заявок</h3>'+bars(countBy(function(b){return b.source||"site";}),null,function(k){return SRC[k]||k;})+'</div>'+
-        '<div class="panel"><h3>За статусом</h3>'+bars(countBy(function(b){return b.status||"new";}),["new","confirmed","done","cancelled"],function(k){return scol[k];})+'</div>'+
-      '</div>'+
-      '<div class="dash-grid">'+
-        '<div class="panel"><h3>Тварини</h3>'+bars(countBy(function(b){return b.pet||"—";}),null,null)+'</div>'+
-        '<div class="panel"><h3>Топ послуг <span class="tag">кількість</span></h3>'+bars(countBy(function(b){return b.service||"—";}),null,null)+'</div>'+
-      '</div>'+
-      '<div class="panel full"><h3>Заявки за 14 днів</h3><div class="days">'+
-        dk.map(function(k){var n=byDay[k];var d2=new Date(k);
-          return '<div class="day"><span class="dv">'+(n||"")+'</span><span class="db" style="height:'+(n/dmx*100)+'%"></span>'+
-            '<span class="dl">'+d2.toLocaleDateString("uk-UA",{day:"2-digit",month:"2-digit"})+'</span></div>';}).join("")+
-      '</div></div>';
+      '<div class="panel full"><h3>Найближчі візити <span class="tag">підтверджені</span></h3>'+upcHtml+'</div>';
+
+    var byId=function(id){return all.filter(function(x){return String(x.id)===String(id);})[0];};
+    [].forEach.call($("#dashView").querySelectorAll("[data-id]"),function(el){
+      el.addEventListener("click",function(){var b=byId(el.dataset.id);if(b)openModal(b);});});
   }
 
   /* ---------- reports (Звіти) ---------- */
