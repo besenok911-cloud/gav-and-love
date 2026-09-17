@@ -266,6 +266,24 @@
   .kpis.rep3{grid-template-columns:repeat(3,1fr)}
   .repnote{color:var(--ink-soft);font-size:.9rem;line-height:1.5}
   @media(max-width:900px){.kpis{grid-template-columns:1fr 1fr}.kpis.rep3{grid-template-columns:1fr 1fr}.dash-grid{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}}
+  @media(max-width:760px){
+    .wrap{padding:14px 12px}
+    header.top{padding:10px 12px;gap:8px}
+    header.top img{height:26px}
+    header.top h1{font-size:1rem}
+    #tabs{order:10;flex-basis:100%;width:100%;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none;justify-content:flex-start}
+    #tabs::-webkit-scrollbar{display:none}
+    .tabbtn{flex:0 0 auto;padding:.4em .8em;font-size:.82rem}
+    header.top .btn.sm{padding:.45em .8em;font-size:.82rem}
+    .tablewrap table{min-width:700px}
+    .cat-table{min-width:460px}
+    .catcard-head{flex-wrap:wrap}
+    .catcard-head input{flex:1 1 100%}
+    .sch-grid{overflow-x:auto;overflow-y:hidden}
+    .toolbar{gap:8px;margin:14px 0}
+    .search{min-width:0;flex:1 1 100%}
+    .clist{grid-template-columns:1fr}
+  }
 </style>
 </head>
 <body>
@@ -889,7 +907,7 @@
   }
   function gridBody(){
     var cols=schCols(),N=cols.length,rows=(SCH.close-SCH.open)/SCH.step;
-    var h='<div class="sch-grid" style="grid-template-columns:56px repeat('+N+',minmax(0,1fr))">';
+    var h='<div class="sch-grid" style="grid-template-columns:56px repeat('+N+',minmax(116px,1fr))">';
     h+='<div class="sch-colhead tcorner"></div>'+cols.map(function(c){return '<div class="sch-colhead">'+esc(c.label)+'</div>';}).join("");
     h+='<div class="sch-times">';
     for(var r=0;r<rows;r++)h+='<div class="sch-time">'+hhmm2(SCH.open+r*SCH.step)+'</div>';
