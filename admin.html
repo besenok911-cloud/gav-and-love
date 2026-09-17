@@ -214,7 +214,7 @@
   .sch-switch button{border:0;background:transparent;font-family:var(--font-body);font-weight:700;font-size:.8rem;padding:.35em .85em;border-radius:999px;cursor:pointer;color:var(--ink)}
   .sch-switch button.on{background:var(--violet);color:#fff}
   .sch-grid{display:grid;border:1px solid var(--line);border-radius:12px;overflow-x:auto;overflow-y:hidden;background:var(--paper);grid-template-rows:auto 1fr}
-  .sch-colhead{background:var(--bg-2);font-weight:800;font-size:.78rem;padding:8px 6px;text-align:center;border-left:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sch-colhead{background:var(--bg-2);font-weight:800;font-size:.78rem;padding:8px 6px;text-align:center;border-left:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:sticky;top:0;z-index:4}
   .sch-colhead.tcorner{border-left:0}
   .sch-times{display:flex;flex-direction:column}
   .sch-time{font-size:.68rem;color:var(--ink-soft);text-align:right;padding-right:6px;height:44px;border-top:1px solid var(--line-soft);transform:translateY(-7px)}
@@ -273,9 +273,8 @@
     header.top{padding:10px 12px;gap:8px}
     header.top img{height:26px}
     header.top h1{font-size:1rem}
-    #tabs{order:10;flex-basis:100%;width:100%;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none;justify-content:flex-start}
-    #tabs::-webkit-scrollbar{display:none}
-    .tabbtn{flex:0 0 auto;padding:.4em .8em;font-size:.82rem}
+    #tabs{order:10;flex-basis:100%;width:100%;flex-wrap:wrap;justify-content:center;gap:4px;border-radius:16px}
+    .tabbtn{flex:0 0 auto;padding:.4em .75em;font-size:.82rem}
     header.top .btn.sm{padding:.45em .8em;font-size:.82rem}
     .tablewrap table{min-width:700px}
     .cat-table{min-width:540px}
@@ -741,8 +740,10 @@
     var stCnt={};bk.forEach(function(b){var k=stLabel(b.status||"new");stCnt[k]=(stCnt[k]||0)+1;});
     var ctrl='<div class="toolbar" style="align-items:center"><span style="font-weight:800">Період:</span>'+
       [["today","Сьогодні"],["7","7 днів"],["30","30 днів"],["month","Місяць"],["all","Весь час"]].map(function(p){return '<button class="pill rep-preset" data-p="'+p[0]+'">'+p[1]+'</button>';}).join("")+
-      '<span style="color:var(--ink-soft);margin-left:6px">від</span><input type="date" id="rep-from" class="search" style="max-width:150px;min-width:0" value="'+repFrom+'">'+
-      '<span style="color:var(--ink-soft)">до</span><input type="date" id="rep-to" class="search" style="max-width:150px;min-width:0" value="'+repTo+'">'+
+      '<span class="repdates" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">'+
+        '<label style="display:inline-flex;align-items:center;gap:6px;color:var(--ink-soft);font-weight:700">від <input type="date" id="rep-from" class="search" style="max-width:160px;min-width:0" value="'+repFrom+'"></label>'+
+        '<label style="display:inline-flex;align-items:center;gap:6px;color:var(--ink-soft);font-weight:700">до <input type="date" id="rep-to" class="search" style="max-width:160px;min-width:0" value="'+repTo+'"></label>'+
+      '</span>'+
       '<span style="flex:1"></span><button class="btn ghost sm" id="rep-export" style="border-color:var(--line);color:var(--ink)">⬇ CSV</button></div>';
     $("#reportsView").innerHTML=ctrl+
       '<div class="kpis rep3">'+
@@ -910,7 +911,7 @@
   }
   function gridBody(){
     var cols=schCols(),N=cols.length,rows=(SCH.close-SCH.open)/SCH.step;
-    var h='<div class="sch-grid" style="grid-template-columns:56px repeat('+N+',minmax(116px,1fr))">';
+    var h='<div class="sch-grid" style="grid-template-columns:52px repeat('+N+',minmax(104px,1fr))">';
     h+='<div class="sch-colhead tcorner"></div>'+cols.map(function(c){return '<div class="sch-colhead">'+esc(c.label)+'</div>';}).join("");
     h+='<div class="sch-times">';
     for(var r=0;r<rows;r++)h+='<div class="sch-time">'+hhmm2(SCH.open+r*SCH.step)+'</div>';
