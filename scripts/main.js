@@ -6,6 +6,10 @@
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const reduced = matchMedia("(prefers-reduced-motion:reduce)").matches;
+  // Always open at the top (don't let the browser restore a previous scroll
+  // position), unless the URL points at a specific section (#booking, …).
+  if ("scrollRestoration" in history) { try { history.scrollRestoration = "manual"; } catch (e) {} }
+  if (!location.hash) { addEventListener("load", () => scrollTo(0, 0)); }
 
   /* ---- Config the owner can tweak ---- */
   const CONFIG = {
