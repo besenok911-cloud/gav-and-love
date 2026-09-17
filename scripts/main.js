@@ -388,7 +388,7 @@
   async function refreshSlots() {
     if (!timeInput) return;
     timeInput.value = "";
-    if (waitBox) { waitBox.hidden = true; if (waitChk) waitChk.checked = false; }
+    if (waitBox) { waitBox.style.display = "none"; if (waitChk) waitChk.checked = false; }
     if (!CONFIG.bookingEndpoint || !needsSlot() || !dateInput.value) { slotsField.hidden = true; return; }
     slotsField.hidden = false; slotsBox.innerHTML = ""; slotsHint.textContent = "завантаження…";
     const my = ++slotsToken;
@@ -397,7 +397,7 @@
       const d = await r.json();
       if (my !== slotsToken) return;
       const slots = d.slots || [];
-      if (!slots.length) { slotsHint.textContent = "— на цей день вільних слотів немає"; if (waitBox) waitBox.hidden = false; return; }
+      if (!slots.length) { slotsHint.textContent = "— на цей день вільних слотів немає"; if (waitBox) waitBox.style.display = "flex"; return; }
       slotsHint.textContent = "";
       slots.forEach(t => {
         const b = document.createElement("button");
@@ -486,6 +486,8 @@
       }
     }
     el.innerHTML = h; el.hidden = !h;
+    const cnt = $("#bf-addons-count");
+    if (cnt) { const n = addonsBox ? addonsBox.querySelectorAll("input:checked").length : 0; cnt.textContent = n ? `(обрано: ${n})` : "(необовʼязково)"; }
   }
   serviceSel && serviceSel.addEventListener("change", () => { syncBreedWeight(); renderAddons(); updatePriceHint(); });
   breedSel && breedSel.addEventListener("change", () => { syncWeightForBreed(); updatePriceHint(); });

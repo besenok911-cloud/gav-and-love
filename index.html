@@ -315,8 +315,10 @@
         <select id="bf-weight" name="weight"></select>
       </div>
       <div class="field field-wide" id="bf-addons-field" hidden>
-        <label>Додаткові послуги <span class="muted">(необовʼязково)</span></label>
-        <div id="bf-addons"></div>
+        <details id="bf-addons-details">
+          <summary style="cursor:pointer;font-weight:700;padding:6px 0"><span>Додаткові послуги</span> <span class="muted" id="bf-addons-count">(необовʼязково)</span></summary>
+          <div id="bf-addons" style="margin-top:6px"></div>
+        </details>
       </div>
       <div class="field">
         <label for="bf-staff">Майстер</label>
@@ -338,7 +340,7 @@
         <label>Вільний час <span class="muted" id="bf-slots-hint"></span></label>
         <div class="slots" id="bf-slots"></div>
         <input type="hidden" name="time" id="bf-time" />
-        <label id="bf-waitlist-box" hidden style="display:flex;gap:8px;align-items:center;font-weight:600;cursor:pointer;margin-top:10px;color:var(--ink-soft)">
+        <label id="bf-waitlist-box" style="display:none;gap:8px;align-items:center;font-weight:600;cursor:pointer;margin-top:10px;color:var(--ink-soft)">
           <input type="checkbox" id="bf-waitlist" name="waitlist" value="1" style="width:auto" /> Стати в лист очікування — повідомимо, щойно звільниться місце
         </label>
       </div>
@@ -412,6 +414,6 @@
 <script src="data/prices.js?v=15" defer></script>
 <script src="data/gallery.js?v=15" defer></script>
 <script src="data/videos.js?v=15" defer></script>
-<script src="scripts/main.js?v=20" defer></script>
+<script src="scripts/main.js?v=21" defer></script>
 </body>
 </html>
