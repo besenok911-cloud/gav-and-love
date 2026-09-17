@@ -233,9 +233,9 @@
   .sch-colhead{background:var(--bg-2);font-weight:800;font-size:.78rem;padding:8px 6px;text-align:center;border-left:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:sticky;top:0;z-index:4}
   .sch-colhead.tcorner{border-left:0}
   .sch-times{display:flex;flex-direction:column}
-  .sch-time{font-size:.68rem;color:var(--ink-soft);text-align:right;padding-right:6px;height:44px;border-top:1px solid var(--line-soft);transform:translateY(-7px)}
+  .sch-time{font-size:.68rem;color:var(--ink-soft);text-align:right;padding-right:6px;height:var(--rh,44px);border-top:1px solid var(--line-soft);transform:translateY(-7px)}
   .sch-col{position:relative;border-left:1px solid var(--line)}
-  .sch-cell{height:44px;border-top:1px solid var(--line-soft)}
+  .sch-cell{height:var(--rh,44px);border-top:1px solid var(--line-soft)}
   .sch-cell.drop{background:var(--violet-soft)}
   .sch-block{position:absolute;left:3px;right:3px;border-radius:8px;padding:4px 7px;color:#fff;font-size:.72rem;line-height:1.2;font-weight:700;overflow:hidden;cursor:grab;box-shadow:var(--shadow-sm);z-index:2}
   .sch-block:active{cursor:grabbing}
@@ -1029,7 +1029,7 @@
   function gridBody(){
     var cols=schCols(),N=cols.length,rows=(SCH.close-SCH.open)/SCH.step;
     var minw=N>=6?58:(N>=4?74:96);
-    var h='<div class="sch-grid" style="grid-template-columns:44px repeat('+N+',minmax('+minw+'px,1fr))">';
+    var h='<div class="sch-grid" style="grid-template-columns:44px repeat('+N+',minmax('+minw+'px,1fr));--rh:'+SCH.rowH+'px">';
     h+='<div class="sch-colhead tcorner"></div>'+cols.map(function(c){return '<div class="sch-colhead">'+esc(c.label)+'</div>';}).join("");
     h+='<div class="sch-times">';
     for(var r=0;r<rows;r++)h+='<div class="sch-time">'+hhmm2(SCH.open+r*SCH.step)+'</div>';
@@ -1089,14 +1089,27 @@
     try{await api("/admin/create",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:"Блок",phone:"—",service:"Блокування",pet:"",date:day,time:time,staff:staff,status:"confirmed",price:0,source:"other"})});await reload();}
     catch(e){alert("Не вдалося заблокувати час");}
   }
+  function fitRowH(){
+    if(schMode==="month")return;
+    var rows=(SCH.close-SCH.open)/SCH.step;
+    var g=$("#calView")&&$("#calView").querySelector(".sch-grid"),rowsTop;
+    if(g){var col=g.querySelector(".sch-col");rowsTop=(col||g).getBoundingClientRect().top;}
+    else{var cv=$("#calView");rowsTop=(cv?cv.getBoundingClientRect().top:150)+96;}
+    var avail=window.innerHeight-rowsTop-14;
+    SCH.rowH=Math.max(26,Math.min(44,Math.floor(avail/rows)));
+  }
+  var _schRz;
+  window.addEventListener("resize",function(){if(view==="cal"&&schMode!=="month"){clearTimeout(_schRz);_schRz=setTimeout(renderCal,150);}});
   function renderCal(){
     if(!calRef)calRef=new Date();
+    fitRowH();
     var head='<div class="cal-head"><div class="cal-title" id="schTitle" style="text-transform:capitalize">'+esc(schTitle())+'</div>'+
       '<div class="sch-switch">'+["day","week","month"].map(function(m){return '<button data-m="'+m+'"'+(m===schMode?' class="on"':'')+'>'+({day:"День",week:"Тиждень",month:"Місяць"})[m]+'</button>';}).join("")+'</div>'+
       '<div class="cal-nav"><button class="btn sm" id="schPrev">‹</button><button class="btn sm" id="schToday">Сьогодні</button><button class="btn sm" id="schNext">›</button>'+
       (schMode!=="month"?'<button class="btn sm" id="schBlock">🔒 Блокувати</button>':'')+
       '<button class="btn sm" id="schMasters">👥 Майстри</button></div></div>';
     $("#calView").innerHTML=head+(schMode==="month"?monthBody():gridBody());
+    if(schMode!=="month"){var _rh=SCH.rowH;fitRowH();if(SCH.rowH!==_rh)$("#calView").innerHTML=head+gridBody();}
     [].forEach.call($("#calView").querySelectorAll(".sch-switch button"),function(b){b.onclick=function(){schMode=b.dataset.m;renderCal();};});
     $("#schPrev").onclick=function(){navSch(-1);};$("#schNext").onclick=function(){navSch(1);};
     $("#schToday").onclick=function(){calRef=new Date();renderCal();};
