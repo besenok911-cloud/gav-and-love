@@ -35,6 +35,7 @@
     padding:.55em 1.2em;cursor:pointer;transition:.2s;background:var(--violet);color:#fff}
   .btn:hover{background:var(--violet-d)}
   .btn.ghost{background:transparent;border-color:rgba(255,255,255,.4);color:#fff}
+  .btn.saved{background:var(--confirmed);border-color:var(--confirmed);color:#fff}
   .btn.ghost:hover{background:rgba(255,255,255,.12)}
   .btn.sm{padding:.4em .8em;font-size:.82rem}
   .btn.icon{padding:.3em .5em;background:transparent;border-color:var(--line);color:var(--ink-soft);font-size:.8rem}
@@ -832,14 +833,18 @@
       '</div>';
   }
   function redrawCards(){var el=$("#svc-cards");if(el)el.innerHTML=svcList.map(svcCardHtml).join("");}
-  function saveSvc(si){var s=svcList[si];if(!s)return;if(!(s.name||"").trim()){alert("Вкажіть назву послуги");return;}
+  function saveSvc(si,btn){var s=svcList[si];if(!s)return;if(!(s.name||"").trim()){alert("Вкажіть назву послуги");return;}
     var payload={name:s.name,species:s.species||"both",duration:+s.duration||0,is_request:s.is_request?1:0,
       bookable:s.bookable?1:0,active:s.active?1:0,sort:s.sort!=null?s.sort:si,price_type:s.price_type||"flat",
       price:s.price||"",unit:s.unit||"₴",note:s.note||"",columns:s.columns||[],rows:s.rows||[]};
-    if(s.id)payload.id=s.id;
+    var wasNew=!s.id;if(s.id)payload.id=s.id;
+    var old=btn?btn.textContent:"";if(btn){btn.disabled=true;btn.textContent="…";}
     api("/admin/service-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
-      .then(function(res){if(res&&res.ok===false){alert("Помилка: "+(res.error||""));return;}if(!s.id&&res&&res.id)s.id=res.id;redrawCards();})
-      .catch(function(){alert("Не вдалося зберегти послугу");});
+      .then(function(res){if(res&&res.ok===false){if(btn){btn.disabled=false;btn.textContent=old;}alert("Помилка: "+(res.error||""));return;}
+        if(wasNew&&res&&res.id)s.id=res.id;
+        if(wasNew){redrawCards();}
+        else if(btn){btn.disabled=false;btn.textContent="✓ Збережено";btn.classList.add("saved");setTimeout(function(){btn.textContent=old;btn.classList.remove("saved");},1600);}})
+      .catch(function(){if(btn){btn.disabled=false;btn.textContent=old;}alert("Не вдалося зберегти послугу");});
   }
   function delSvc(si){var s=svcList[si];if(!s)return;
     if(!s.id){svcList.splice(si,1);redrawCards();return;}
@@ -871,7 +876,7 @@
       else if(t.classList.contains("sv-active"))s.active=t.checked?1:0;
       else if(t.classList.contains("sv-ptype")){s.price_type=t.value;normType(s);redrawCards();}});
     root.addEventListener("click",function(e){var b=e.target.closest("button");if(!b)return;var si=+b.dataset.si;
-      if(b.classList.contains("sv-save"))saveSvc(si);
+      if(b.classList.contains("sv-save"))saveSvc(si,b);
       else if(b.classList.contains("sv-del"))delSvc(si);
       else if(b.id==="svc-add"){var ns={species:"both",duration:90,is_request:0,bookable:1,active:1,price_type:"flat",price:"",unit:"₴",note:"",columns:[],rows:[]};svcList.push(ns);redrawCards();}
       else if(b.classList.contains("sv-addrow")){var s=svcList[si];var n=(s.columns||[]).length||2;s.rows.push(new Array(n).fill(""));redrawCards();}
@@ -1374,7 +1379,8 @@
       '</div>';
     }).join("")||'<p class="muted">Майстрів немає.</p>';
     [].forEach.call(box.querySelectorAll(".mm-row"),function(row){
-      row.querySelector(".mm-save").addEventListener("click",function(){saveMasterRow(row);});
+      var sb=row.querySelector(".mm-save");
+      sb.addEventListener("click",function(){saveMasterRow(row,sb);});
       row.querySelector(".mm-del").addEventListener("click",function(){delMasterRow(row);});
     });
   }
@@ -1389,10 +1395,14 @@
     if(+row.dataset.id)p.id=+row.dataset.id;
     return p;
   }
-  async function saveMasterRow(row){
+  async function saveMasterRow(row,btn){
     var p=collectRow(row);if(!p.name){alert("Вкажіть ім'я майстра");return;}
-    try{await api("/admin/master-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});
-      await loadClientsPets();renderMasterRows();setView(view);}catch(e){alert("Не вдалося зберегти");}
+    var old=btn?btn.textContent:"";if(btn){btn.disabled=true;btn.textContent="Збереження…";}
+    try{var res=await api("/admin/master-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});
+      if(res&&res.id)row.dataset.id=res.id;
+      await loadClientsPets();setView(view);
+      if(btn){btn.disabled=false;btn.textContent="✓ Збережено";btn.classList.add("saved");setTimeout(function(){btn.textContent=old;btn.classList.remove("saved");},1600);}
+    }catch(e){if(btn){btn.disabled=false;btn.textContent=old;}alert("Не вдалося зберегти");}
   }
   async function delMasterRow(row){
     var id=+row.dataset.id;if(!id){row.remove();return;}
