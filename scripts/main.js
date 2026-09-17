@@ -130,6 +130,13 @@
 
   // --- unified catalog: services carry their own prices ---
   const numOf = v => { const m = /\d+/.exec(String(v == null ? "" : v)); return m ? +m[0] : null; };
+  const normBreed = x => String(x || "").toLowerCase().replace(/[’'ʼ`]/g, "'").replace(/\s+/g, " ").trim();
+  function matchBreedRow(rows, breed) {
+    const b = normBreed(breed); if (!b) return null;
+    let row = (rows || []).find(r => normBreed(r[0]) === b);
+    if (row) return row;
+    return (rows || []).find(r => { const l = normBreed(r[0]); return l && (b.includes(l) || l.includes(b)); }) || null;
+  }
   function iconForSvc(s) {
     const n = (s.name || "").toLowerCase();
     if (/готел|hotel/.test(n)) return "home";
@@ -157,7 +164,7 @@
   function priceHint(s, breed) {
     if (!s) return "";
     if (s.price_type === "breed") {
-      if (breed) { const row = (s.rows || []).find(r => String(r[0]) === String(breed)); if (row && row[1]) return `Орієнтовна ціна для «${esc(breed)}»: <b>${esc(row[1])} ₴</b>`; }
+      if (breed) { const row = matchBreedRow(s.rows, breed); if (row && row[1]) return `Орієнтовна ціна для «${esc(breed)}»: <b>${esc(row[1])} ₴</b>`; }
       const nums = (s.rows || []).map(r => numOf(r[1])).filter(n => n != null);
       return nums.length ? `Ціна залежить від породи — <b>від ${Math.min.apply(null, nums)} ₴</b>` : "";
     }

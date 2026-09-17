@@ -448,7 +448,7 @@
   var all=[], filter="all", q="", view="dash", editId=null, dateFrom="", dateTo="", calRef=null;
   var clients=[], pets=[], clientQ="", editClientId=null, editPetId=null, petClientId=null, mastersList=[];
   var repFrom="", repTo="";
-  var svcList=[], notesState={gift:"",big:""};
+  var svcList=[], notesState={gift:"",big:""}, svcCatalog=[];
 
   var STATUS=[{v:"new",label:"Нова"},{v:"confirmed",label:"Підтверджена"},{v:"done",label:"Виконана"},{v:"waitlist",label:"Лист очікування"},{v:"cancelled",label:"Скасована"}];
   var FILTERS=[{v:"all",label:"Усі"}].concat(STATUS);
@@ -471,8 +471,18 @@
     $("#f-breed").innerHTML='<option value="">Оберіть породу…</option>'+(CFG.dogBreeds||[]).map(function(b){return '<option>'+esc(b)+'</option>';}).join("");
     $("#f-weight").innerHTML='<option value="">Оберіть вагу…</option>'+(CFG.weightOptions||[]).map(function(w){return '<option>'+esc(w)+'</option>';}).join("");
   })();
-  function applyPetModal(){var isCat=$("#f-pet").value==="Кіт";$("#f-breed").hidden=isCat;$("#f-breed").disabled=isCat;$("#f-breed-note").hidden=!isCat;}
+  function applyPetModal(){var isCat=$("#f-pet").value==="Кіт";$("#f-breed").hidden=isCat;$("#f-breed").disabled=isCat;$("#f-breed-note").hidden=!isCat;autoPrice();}
   $("#f-pet").addEventListener("change",applyPetModal);
+  // auto-price the modal from the catalog (service + breed), only if empty
+  function mNormBreed(x){return String(x||"").toLowerCase().replace(/[’'ʼ`]/g,"'").replace(/\s+/g," ").trim();}
+  function mMatchBreed(rows,breed){var b=mNormBreed(breed);if(!b)return null;var row=(rows||[]).find(function(r){return mNormBreed(r[0])===b;});if(row)return row;return (rows||[]).find(function(r){var l=mNormBreed(r[0]);return l&&(b.indexOf(l)>=0||l.indexOf(b)>=0);})||null;}
+  function catPrice(name,breed){var s=(svcCatalog||[]).find(function(x){return x.name===name;});if(!s)return null;
+    if(s.price_type==="breed"&&breed){var row=mMatchBreed(s.rows,breed);if(row&&/^\d+$/.test(String(row[1]).trim()))return +row[1];return null;}
+    if(s.price_type==="flat"&&/^\d+$/.test(String(s.price).trim()))return +s.price;return null;}
+  function autoPrice(){var el=$("#f-price");if(!el||el.value.trim()!=="")return;var isCat=$("#f-pet").value==="Кіт";var p=catPrice($("#f-service").value.trim(),isCat?"":$("#f-breed").value);if(p!=null)el.value=p;}
+  $("#f-service").addEventListener("input",autoPrice);
+  $("#f-service").addEventListener("change",autoPrice);
+  $("#f-breed").addEventListener("change",autoPrice);
 
   function showLogin(msg){$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;$("#loginErr").textContent=msg||"";}
@@ -488,6 +498,8 @@
     try{mastersList=(await api("/admin/masters")).masters||[];}catch(e){mastersList=[];}
     var act=mastersList.filter(function(m){return m.active;}).map(function(m){return m.name;});
     if(act.length){STAFF=act; if($("#f-staff"))$("#f-staff").innerHTML='<option value="">— не призначено —</option>'+STAFF.map(function(s){return '<option>'+esc(s)+'</option>';}).join("");}
+    try{svcCatalog=(await api("/admin/services")).services||[];}catch(e){svcCatalog=[];}
+    if(svcCatalog.length){var dl=$("#svcList");if(dl)dl.innerHTML=svcCatalog.map(function(s){return '<option>'+esc(s.name)+'</option>';}).join("");}
   }
   async function tryLogin(t){token=t;
     try{var d=await api("/admin/list");try{localStorage.setItem(KEY,token);}catch(e){}all=d.bookings||[];await loadClientsPets();showApp();renderPills();}

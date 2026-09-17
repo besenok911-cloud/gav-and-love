@@ -681,10 +681,18 @@ async function serviceInfo(env, name) { return (await loadServices(env)).find(s 
 async function serviceDuration(env, name) { const s = await serviceInfo(env, name); return (s && s.duration) ? s.duration : (SERVICE_DURATIONS[name] || DEFAULT_DURATION); }
 async function serviceIsRequest(env, name) { const s = await serviceInfo(env, name); return s ? !!s.is_request : REQUEST_SERVICES.has(name); }
 const numOf = v => { const m = /\d+/.exec(String(v == null ? "" : v)); return m ? +m[0] : null; };
+const normBreed = x => String(x || "").toLowerCase().replace(/[’'ʼ`]/g, "'").replace(/\s+/g, " ").trim();
+// Match a breed to a price row: exact (normalized), else substring either way.
+function matchBreedRow(rows, breed) {
+  const b = normBreed(breed); if (!b) return null;
+  let row = (rows || []).find(r => normBreed(r[0]) === b);
+  if (row) return row;
+  return (rows || []).find(r => { const l = normBreed(r[0]); return l && (b.includes(l) || l.includes(b)); }) || null;
+}
 // Auto-price a booking from its service (only when unambiguous & numeric).
 async function priceForBooking(env, b) {
   const s = await serviceInfo(env, b.service); if (!s) return null;
-  if (s.price_type === "breed" && b.breed) { const row = (s.rows || []).find(r => r[0] === b.breed); if (row && /^\d+$/.test(String(row[1]).trim())) return +row[1]; }
+  if (s.price_type === "breed" && b.breed) { const row = matchBreedRow(s.rows, b.breed); if (row && /^\d+$/.test(String(row[1]).trim())) return +row[1]; }
   if (s.price_type === "flat" && /^\d+$/.test(String(s.price).trim())) return +s.price;
   return null;
 }
