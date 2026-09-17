@@ -243,7 +243,9 @@
   .sch-block.st-arrived{background:#0ea5b7}.sch-block.st-in_progress{background:#e6912b}.sch-block.st-paid{background:#1a7f37}.sch-block.st-no_show{background:#8a8a8a;text-decoration:line-through}
   .sch-block.blk{background:repeating-linear-gradient(45deg,#8a83a3,#8a83a3 7px,#6f6a86 7px,#6f6a86 14px)}
   .sch-block .bt{font-weight:800}
-  .sch-block small{opacity:.85;font-weight:600}
+  .sch-block small{opacity:.85;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sch-block.multi{box-shadow:0 0 0 1.5px var(--paper),var(--shadow-sm);padding:3px 5px;font-size:.66rem}
+  .sch-block.multi .bt{font-weight:800}
   .sch-cell.off{background:repeating-linear-gradient(45deg,#efeae1,#efeae1 6px,#e6e0d4 6px,#e6e0d4 12px);cursor:not-allowed}
   .sch-cell.brk{background:repeating-linear-gradient(45deg,#fff6e0,#fff6e0 6px,#ffe9b8 6px,#ffe9b8 12px);position:relative}
   .brk-label{position:absolute;left:4px;top:2px;font-size:.6rem;font-weight:800;color:#a9761a;text-transform:uppercase;letter-spacing:.05em;pointer-events:none}
@@ -1026,6 +1028,20 @@
     var off=dayOff(cfg,c.day);
     return off?{full:true,label:off,cfg:cfg}:{full:false,cfg:cfg};
   }
+  // assign side-by-side lanes to overlapping events; sets e._col (lane) and e._cols (lanes in its cluster)
+  function layoutOverlaps(evs){
+    evs.sort(function(a,b){return a.sm-b.sm||a.em-b.em;});
+    var cols=[],lastEnd=null;
+    function pack(cc){var n=cc.length;cc.forEach(function(col){col.forEach(function(e){e._cols=n;});});}
+    evs.forEach(function(e){
+      if(lastEnd!=null&&e.sm>=lastEnd){pack(cols);cols=[];lastEnd=null;}
+      var placed=false;
+      for(var i=0;i<cols.length;i++){var col=cols[i];if(col[col.length-1].em<=e.sm){col.push(e);e._col=i;placed=true;break;}}
+      if(!placed){cols.push([e]);e._col=cols.length-1;}
+      if(lastEnd==null||e.em>lastEnd)lastEnd=e.em;
+    });
+    if(cols.length)pack(cols);
+  }
   function gridBody(){
     var cols=schCols(),N=cols.length,rows=(SCH.close-SCH.open)/SCH.step;
     var minw=N>=6?58:(N>=4?74:96);
@@ -1042,15 +1058,20 @@
         var cellBreak=!cellOff&&off&&off.cfg&&off.cfg.brStart!=null&&off.cfg.brEnd!=null&&cmin>=off.cfg.brStart&&cmin<off.cfg.brEnd;
         h+='<div class="sch-cell'+(cellOff?" off":"")+(cellBreak?" brk":"")+'" data-min="'+cmin+'"'+(cellBreak?' title="Обідня перерва"':"")+'>'+(cellBreak&&(cmin===off.cfg.brStart)?'<span class="brk-label">обід</span>':"")+'</div>';}
       if(off&&off.full)h+='<div class="sch-off-label">'+esc(off.label)+'</div>';
-      all.filter(function(b){return b.time&&inCol(b,c);}).forEach(function(b){
-        var sm=min2(b.time);if(sm==null)return;
-        var isblk=b.service==="Блокування";
+      var evs=all.filter(function(b){return b.time&&inCol(b,c);}).map(function(b){
+        var sm=min2(b.time);return {b:b,sm:sm,em:(sm==null?null:sm+Math.max(svcDur(b.service),SCH.step))};
+      }).filter(function(e){return e.sm!=null;});
+      layoutOverlaps(evs);
+      evs.forEach(function(e){
+        var b=e.b,sm=e.sm,isblk=b.service==="Блокування";
         var top=(sm-SCH.open)/SCH.step*SCH.rowH;
         var height=Math.max(svcDur(b.service)/SCH.step*SCH.rowH-2,22);
-        h+='<div class="sch-block '+(isblk?"blk":"st-"+(b.status||"new"))+'" draggable="true" data-id="'+b.id+'" style="top:'+top+'px;height:'+height+'px" title="'+esc(b.time+" "+(b.name||"")+" · "+(b.service||"")+(b.staff?" · "+b.staff:""))+'">'+
-          '<span class="bt">'+esc(b.time)+'</span> '+esc(isblk?"🔒 Блок":(b.pet_name||b.name||""))+
-          (schMode==="week"&&b.staff?'<br><small>'+esc(b.staff)+'</small>':'')+
-          (!isblk&&b.service?'<br><small>'+esc(b.service)+'</small>':'')+'</div>';
+        var wPct=100/e._cols,multi=e._cols>1;
+        var name=esc(isblk?"🔒 Блок":(b.pet_name||b.name||""));
+        var subs=[];if(schMode==="week"&&b.staff)subs.push(esc(b.staff));if(!isblk&&b.service)subs.push(esc(b.service));
+        if(multi)subs=subs.slice(0,1);
+        h+='<div class="sch-block '+(isblk?"blk":"st-"+(b.status||"new"))+(multi?" multi":"")+'" draggable="true" data-id="'+b.id+'" style="top:'+top+'px;height:'+height+'px;left:calc('+(e._col*wPct)+'% + 2px);width:calc('+wPct+'% - 4px);right:auto" title="'+esc(b.time+" "+(b.name||"")+" · "+(b.service||"")+(b.staff?" · "+b.staff:""))+'">'+
+          '<span class="bt">'+esc(b.time)+'</span> '+name+subs.map(function(s){return '<br><small>'+s+'</small>';}).join("")+'</div>';
       });
       h+='</div>';
     });
