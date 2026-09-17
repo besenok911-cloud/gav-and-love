@@ -329,7 +329,8 @@
   const fmtDur = window.GL_FMT_DUR || (() => "");
   const petHidden = $("#bf-pet");
   const breedField = $("#bf-breed-field"), breedSel = $("#bf-breed"), breedNote = $("#bf-breed-note"),
-    weightSel = $("#bf-weight"), weightField = $("#bf-weight-field"), staffSel = $("#bf-staff");
+    weightSel = $("#bf-weight"), weightField = $("#bf-weight-field"), staffSel = $("#bf-staff"),
+    addonsField = $("#bf-addons-field"), addonsBox = $("#bf-addons");
 
   // populate selects from config
   (function initBookingConfig() {
@@ -445,17 +446,51 @@
       if (weightField) weightField.hidden = false;
     } else { weightSel.innerHTML = ""; weightSel.value = ""; if (weightField) weightField.hidden = true; }
   }
+  // Add-ons: items from price_type "addon" services, shown as checkboxes for grooming.
+  const addonItems = () => { const out = [], seen = {}; SERVICES.forEach(s => { if (s.price_type === "addon" && s.active !== 0) (s.rows || []).forEach(r => { if (r[0] && !seen[r[0]]) { seen[r[0]] = 1; out.push({ name: r[0], price: r[r.length - 1] }); } }); }); return out; };
+  const parseAddonPrice = v => { const t = String(v == null ? "" : v).trim(); if (/%/.test(t)) { const n = numOf(t); return n != null ? { t: "pct", v: n } : { t: "m" }; } if (/^\+?\s*\d+$/.test(t)) return { t: "abs", v: +t.replace(/[^\d]/g, "") }; return { t: "m" }; };
+  function basePrice(s, breed, weight) {
+    if (!s) return null;
+    if (s.price_type === "breed") { const row = pickBreedRow(s.rows, breed, weight), p = row ? row[row.length - 1] : null; return (p != null && /^\d+$/.test(String(p).trim())) ? +p : null; }
+    if (s.price_type === "flat") return /^\d+$/.test(String(s.price).trim()) ? +s.price : null;
+    return null;
+  }
+  function addonsCalc(names, base) {
+    const items = {}; addonItems().forEach(it => items[it.name] = it.price);
+    let add = 0, manual = false; const nm = [];
+    names.forEach(n => { if (!(n in items)) return; nm.push(n); const p = parseAddonPrice(items[n]); if (p.t === "abs") add += p.v; else if (p.t === "pct") { if (base != null) add += Math.round(base * p.v / 100); else manual = true; } else manual = true; });
+    return { add, manual, names: nm };
+  }
+  function renderAddons() {
+    if (!addonsBox) return;
+    const s = svcByName(serviceSel.value);
+    const items = (s && s.bookable !== 0 && !s.is_request) ? addonItems() : [];
+    if (!items.length) { if (addonsField) addonsField.hidden = true; addonsBox.innerHTML = ""; return; }
+    const checked = {}; [].forEach.call(addonsBox.querySelectorAll("input:checked"), c => checked[c.value] = 1);
+    addonsBox.innerHTML = items.map(it =>
+      `<label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer"><input type="checkbox" name="addon" value="${esc(it.name)}"${checked[it.name] ? " checked" : ""}><span style="flex:1">${esc(it.name)}</span><b class="muted" style="white-space:nowrap">${esc(it.price)}</b></label>`).join("");
+    if (addonsField) addonsField.hidden = false;
+  }
   function updatePriceHint() {
     const el = $("#bf-price-hint"); if (!el || !serviceSel) return;
     const s = svcByName(serviceSel.value);
     const breed = (breedSel && !breedSel.disabled) ? breedSel.value : "";
     const weight = weightSel ? weightSel.value : "";
-    const h = priceHint(s, breed, weight);
+    let h = priceHint(s, breed, weight);
+    const checked = addonsBox ? [].map.call(addonsBox.querySelectorAll("input:checked"), c => c.value) : [];
+    if (checked.length && s) {
+      const base = basePrice(s, breed, weight), ac = addonsCalc(checked, base);
+      if (ac.names.length) {
+        if (base != null) h = `Орієнтовна ціна: <b>${base + ac.add} ₴</b>${ac.manual ? " + уточнення" : ""}`;
+        h = (h ? h + "<br>" : "") + `<span class="muted">Допи: ${ac.names.map(esc).join(", ")}</span>`;
+      }
+    }
     el.innerHTML = h; el.hidden = !h;
   }
-  serviceSel && serviceSel.addEventListener("change", () => { syncBreedWeight(); updatePriceHint(); });
+  serviceSel && serviceSel.addEventListener("change", () => { syncBreedWeight(); renderAddons(); updatePriceHint(); });
   breedSel && breedSel.addEventListener("change", () => { syncWeightForBreed(); updatePriceHint(); });
   weightSel && weightSel.addEventListener("change", updatePriceHint);
+  addonsBox && addonsBox.addEventListener("change", updatePriceHint);
   if (CONFIG.bookingEndpoint) {
     fetch(`${CONFIG.bookingEndpoint}/catalog`).then(r => r.json()).then(d => {
       if (!d) return;
@@ -469,7 +504,7 @@
           `<option value="${esc(s.name)}">${esc(s.name)}${s.duration ? " · ~" + fmtDur(s.duration) : ""}</option>`).join("");
         if (prev && bookable.some(s => s.name === prev)) serviceSel.value = prev;
         REQUEST_SVC = bookable.filter(s => s.is_request).map(s => s.name);
-        syncBreedWeight(); updatePriceHint();
+        syncBreedWeight(); renderAddons(); updatePriceHint();
       }
       renderPrices(servicesToCatalog(SERVICES, d.notes));
     }).catch(() => { });
@@ -485,6 +520,7 @@
       return;
     }
     const data = Object.fromEntries(new FormData(form).entries());
+    data.addons = [].map.call(form.querySelectorAll('input[name="addon"]:checked'), c => c.value);
     const btn = form.querySelector('button[type="submit"]');
     btn.disabled = true; status.textContent = "Надсилаємо…";
     try {

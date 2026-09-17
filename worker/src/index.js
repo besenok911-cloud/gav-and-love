@@ -379,7 +379,7 @@ async function book(body, env) {
   }
 
   await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest, staff, waitlist });
-  await saveBooking(env, { pet, pet_name, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff, source: "site", waitlist });
+  await saveBooking(env, { pet, pet_name, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff, source: "site", waitlist, addons: (body && body.addons) });
   return { ok: true, request: isRequest, staff, waitlist };
 }
 
@@ -429,7 +429,7 @@ async function calDelete(env, token, id) {
 async function saveBooking(env, b) {
   if (!env.DB) return;
   try {
-    if (b.price == null || b.price === "") { const p = await priceForBooking(env, b); if (p != null) b.price = p; }
+    await applyPricing(env, b);
     const link = await linkClientPet(env, b);
     await env.DB.prepare(
       `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight,client_id,pet_id,pet_name)
@@ -485,7 +485,7 @@ async function adminCreate(request, env) {
   requireAdmin(request, env);
   const b = await request.json();
   if (!b || !b.name || !b.phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
-  if (b.price == null || b.price === "") { const p = await priceForBooking(env, b); if (p != null) b.price = p; }
+  await applyPricing(env, b);
   const hasTime = !!(b.date && b.time);
   let eventId = null, eventLink = null;
   if (hasTime && (b.status || "new") !== "cancelled") {
@@ -722,6 +722,38 @@ async function priceForBooking(env, b) {
   if (s.price_type === "breed" && b.breed) { const p = rowPrice(pickBreedRow(s.rows, b.breed, b.weight)); if (p != null && /^\d+$/.test(String(p).trim())) return +p; }
   if (s.price_type === "flat" && /^\d+$/.test(String(s.price).trim())) return +s.price;
   return null;
+}
+// Add-ons: price_type "addon" services hold extra procedures [label, price/modifier].
+function parseAddon(price) {
+  const s = String(price == null ? "" : price).trim();
+  if (/%/.test(s)) { const n = numOf(s); return n != null ? { type: "pct", val: n } : { type: "manual" }; }
+  if (/^\+?\s*\d+$/.test(s)) return { type: "abs", val: +s.replace(/[^\d]/g, "") };
+  return { type: "manual" };
+}
+async function loadAddonItems(env) {
+  const items = {};
+  (await loadServices(env)).forEach(s => { if (s.price_type === "addon" && s.active) (s.rows || []).forEach(r => { if (r[0]) items[r[0]] = r[r.length - 1]; }); });
+  return items;
+}
+async function computeAddons(env, addons, base) {
+  if (!Array.isArray(addons) || !addons.length) return { addTotal: 0, hasManual: false, names: [] };
+  const items = await loadAddonItems(env);
+  let add = 0, manual = false; const names = [];
+  addons.forEach(nm => {
+    if (!(nm in items)) return; names.push(nm);
+    const p = parseAddon(items[nm]);
+    if (p.type === "abs") add += p.val;
+    else if (p.type === "pct") { if (base != null) add += Math.round(base * p.val / 100); else manual = true; }
+    else manual = true;
+  });
+  return { addTotal: add, hasManual: manual, names };
+}
+// Fill price (base + add-ons) when empty and record chosen add-ons in the note.
+async function applyPricing(env, b) {
+  const base = await priceForBooking(env, b);
+  const ad = await computeAddons(env, b.addons, base);
+  if ((b.price == null || b.price === "") && base != null) b.price = base + ad.addTotal;
+  if (ad.names.length) b.note = (b.note ? b.note + " · " : "") + "Допи: " + ad.names.join(", ") + (ad.hasManual ? " (уточнити)" : "");
 }
 // Public: the full service+price list for the site (form + «Ціни»), single fetch.
 async function publicCatalog(env) {
@@ -993,7 +1025,7 @@ const DEFAULT_SERVICES = (() => {
     { name: "Комплекс зі стрижкою (собаки)", species: "dog", duration: 150, is_request: 0, bookable: 1, active: 1, price_type: "breed", price: "", unit: "₴", note: "", columns: ["Порода", "Ціна, ₴"], rows: cat("haircut-dogs").rows },
     { name: "Догляд для котиків", species: "cat", duration: 120, is_request: 0, bookable: 1, active: 1, price_type: "table", price: "", unit: "₴", note: "", columns: cat("cats").columns, rows: cat("cats").rows },
     { name: "Вичісування / експрес-линька", species: "both", duration: 90, is_request: 0, bookable: 1, active: 1, price_type: "flat", price: "", unit: "₴", note: "Ціна залежить від стану шерсті та розміру улюбленця.", columns: [], rows: [] },
-    { name: "Окремі види послуг", species: "both", duration: 0, is_request: 0, bookable: 0, active: 1, price_type: "options", price: "", unit: "₴", note: "", columns: cat("extra").columns, rows: cat("extra").rows },
+    { name: "Окремі види послуг (допи)", species: "both", duration: 0, is_request: 0, bookable: 0, active: 1, price_type: "addon", price: "", unit: "₴", note: "Додаються до основної послуги при записі", columns: ["Послуга", "Ціна, ₴"], rows: cat("extra").rows },
     { name: "Міні-готель", species: "both", duration: 0, is_request: 1, bookable: 1, active: 1, price_type: "table", price: "", unit: "₴/доба", note: "", columns: cat("hotel").columns, rows: cat("hotel").rows },
     { name: "Денний садочок", species: "both", duration: 0, is_request: 1, bookable: 1, active: 1, price_type: "options", price: "", unit: "₴", note: "", columns: cat("daycare").columns, rows: cat("daycare").rows },
   ];

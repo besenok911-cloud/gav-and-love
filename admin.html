@@ -690,11 +690,11 @@
   /* ---------- services (Послуги = запис + прайс, одна сутність) ---------- */
   var svcWired=false;
   function speciesOpts(v){return [["both","Всі"],["dog","Собаки"],["cat","Коти"]].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===(v||"both")?" selected":"")+'>'+o[1]+'</option>';}).join("");}
-  function ptypeOpts(v){return [["flat","Фіксована"],["breed","За породою"],["options","Список варіантів"],["table","Таблиця"]].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===(v||"flat")?" selected":"")+'>'+o[1]+'</option>';}).join("");}
+  function ptypeOpts(v){return [["flat","Фіксована"],["breed","За породою + вага"],["addon","Допи (чекбокси до послуги)"],["options","Список варіантів"],["table","Таблиця"]].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===(v||"flat")?" selected":"")+'>'+o[1]+'</option>';}).join("");}
   function normType(s){var pt=s.price_type||"flat";
     if(pt==="breed"){if(!s.columns||s.columns.length<3)s.columns=["Порода","Вага","Ціна, ₴"];
       if(!s.rows||!s.rows.length)s.rows=[["","",""]];else s.rows=s.rows.map(function(r){return r.length>=3?[r[0]||"",r[1]||"",r[2]||""]:[r[0]||"","",r[1]||""];});}
-    else if(pt==="options"){if(!s.columns||s.columns.length!==2)s.columns=["Послуга","Ціна, ₴"];
+    else if(pt==="options"||pt==="addon"){if(!s.columns||s.columns.length!==2)s.columns=["Послуга","Ціна, ₴"];
       if(!s.rows||!s.rows.length)s.rows=[["",""]];else s.rows=s.rows.map(function(r){return [r[0]!=null?r[0]:"",r[r.length-1]!=null?r[r.length-1]:""];});}
     else if(pt==="table"){if(!s.columns||s.columns.length<2)s.columns=["Послуга","Ціна"];if(!s.rows||!s.rows.length)s.rows=[new Array(s.columns.length).fill("")];}
   }
@@ -722,6 +722,7 @@
         '<label><input type="checkbox" class="sv-active" data-si="'+si+'"'+(s.active==null||s.active?" checked":"")+'> активна (на сайті)</label>'+
       '</div>'+
       '<label class="sv-notelbl">Опис / примітка (показується під послугою)<textarea class="sv-note" data-si="'+si+'">'+esc(s.note||"")+'</textarea></label>'+
+      (pt==="addon"?'<p class="repnote">Ці позиції показуються як чекбокси-допи під основною послугою у формі запису; ціна додається до суми. У колонці «Ціна»: число = грн, «+20%» = відсоток від базової, решта («1000 / година», «300–600») — уточнюється майстром.</p>':'')+
       priceEd+
     '</div>';}
   function drawServices(){
