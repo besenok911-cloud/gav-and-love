@@ -101,8 +101,10 @@
   (function initPrices() {
     const panels = $("#pricePanels");
     if (!panels) return;
-    if (!window.LP_PRICES) panels.innerHTML = '<p class="price-empty">Прайс тимчасово недоступний.</p>';
-    else renderPrices(window.LP_PRICES);   // instant render from bundled prices
+    // instant render from the bundled catalog snapshot (fallback), then /catalog refreshes
+    if (window.GL_CATALOG && window.GL_CATALOG.services) renderPrices(servicesToCatalog(window.GL_CATALOG.services, window.GL_CATALOG.notes));
+    else if (window.LP_PRICES) renderPrices(window.LP_PRICES);
+    else panels.innerHTML = '<p class="price-empty">Прайс тимчасово недоступний.</p>';
 
     // breed search — delegated once on the container, survives re-renders
     panels.addEventListener("input", e => {
@@ -424,13 +426,17 @@
   function syncBreedWeight() {
     if (!SERVICES.length) return;                       // keep config fallback if catalog not loaded
     const s = svcByName(serviceSel.value);
+    const lbl = $("#bf-breed-label");
     if (isBreedSvc(s)) {
+      const isCat = s.species === "cat", ph = isCat ? "Оберіть послугу…" : "Оберіть породу…";
+      if (lbl) lbl.textContent = isCat ? "Послуга" : "Порода";
       const breeds = distinctNE(s.rows.map(r => r[0])), cur = breedSel.value;
-      breedSel.innerHTML = '<option value="">Оберіть породу…</option>' + breeds.map(b => `<option>${esc(b)}</option>`).join("");
+      breedSel.innerHTML = `<option value="">${ph}</option>` + breeds.map(b => `<option>${esc(b)}</option>`).join("");
       if (cur && breeds.indexOf(cur) >= 0) breedSel.value = cur;
       if (breedField) breedField.hidden = false; breedSel.disabled = false; if (breedNote) breedNote.hidden = true;
       syncWeightForBreed();
     } else {
+      if (lbl) lbl.textContent = "Порода";
       if (breedField) breedField.hidden = true; breedSel.disabled = true; breedSel.value = "";
       if (weightField) weightField.hidden = false;
       weightSel.innerHTML = '<option value="">Оберіть вагу…</option>' + (CFG.weightOptions || []).map(w => `<option>${esc(w)}</option>`).join("");
@@ -493,23 +499,25 @@
   breedSel && breedSel.addEventListener("change", () => { syncWeightForBreed(); updatePriceHint(); });
   weightSel && weightSel.addEventListener("change", updatePriceHint);
   addonsBox && addonsBox.addEventListener("change", updatePriceHint);
+  function applyCatalog(d) {
+    if (!d || !d.services) return;
+    SERVICES = d.services;
+    const bookable = SERVICES.filter(s => s.bookable !== 0);
+    if (bookable.length && serviceSel) {
+      const prev = serviceSel.value;
+      const ph = serviceSel.querySelector('option[value=""]');
+      const phHtml = ph ? ph.outerHTML : '<option value="">Оберіть послугу…</option>';
+      serviceSel.innerHTML = phHtml + bookable.map(s =>
+        `<option value="${esc(s.name)}">${esc(s.name)}${s.duration ? " · ~" + fmtDur(s.duration) : ""}</option>`).join("");
+      if (prev && bookable.some(s => s.name === prev)) serviceSel.value = prev;
+      REQUEST_SVC = bookable.filter(s => s.is_request).map(s => s.name);
+      syncBreedWeight(); renderAddons(); updatePriceHint();
+    }
+    renderPrices(servicesToCatalog(SERVICES, d.notes));
+  }
+  if (window.GL_CATALOG) applyCatalog(window.GL_CATALOG);   // instant, from bundled snapshot
   if (CONFIG.bookingEndpoint) {
-    fetch(`${CONFIG.bookingEndpoint}/catalog`).then(r => r.json()).then(d => {
-      if (!d) return;
-      SERVICES = d.services || [];
-      const bookable = SERVICES.filter(s => s.bookable !== 0);
-      if (bookable.length && serviceSel) {
-        const prev = serviceSel.value;
-        const ph = serviceSel.querySelector('option[value=""]');
-        const phHtml = ph ? ph.outerHTML : '<option value="">Оберіть послугу…</option>';
-        serviceSel.innerHTML = phHtml + bookable.map(s =>
-          `<option value="${esc(s.name)}">${esc(s.name)}${s.duration ? " · ~" + fmtDur(s.duration) : ""}</option>`).join("");
-        if (prev && bookable.some(s => s.name === prev)) serviceSel.value = prev;
-        REQUEST_SVC = bookable.filter(s => s.is_request).map(s => s.name);
-        syncBreedWeight(); renderAddons(); updatePriceHint();
-      }
-      renderPrices(servicesToCatalog(SERVICES, d.notes));
-    }).catch(() => { });
+    fetch(`${CONFIG.bookingEndpoint}/catalog`).then(r => r.json()).then(applyCatalog).catch(() => { });
   }
 
   const form = $("#bookingForm"), status = $("#bfStatus");
