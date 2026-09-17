@@ -358,13 +358,13 @@
       <thead>
         <tr class="th-sort">
           <th data-sort="name" data-label="Клієнт">Клієнт</th><th data-sort="pet" data-label="Улюбленець">Улюбленець</th>
-          <th data-sort="service" data-label="Послуга">Послуга</th><th data-sort="visit" data-label="Візит">Візит</th>
+          <th data-sort="service" data-label="Послуга">Послуга</th><th data-sort="created" data-label="Створено">Створено</th><th data-sort="visit" data-label="Візит">Візит</th>
           <th data-sort="staff" data-label="Майстер">Майстер</th><th data-sort="price" data-label="Сума">Сума</th>
           <th data-sort="source" data-label="Джерело">Джерело</th><th data-sort="status" data-label="Статус">Статус</th><th></th>
         </tr>
         <tr class="filter-row">
           <th><input id="fc-client" placeholder="ім'я / тел"></th><th><input id="fc-pet" placeholder="улюбленець"></th>
-          <th><select id="fc-service"></select></th><th></th>
+          <th><select id="fc-service"></select></th><th></th><th></th>
           <th><select id="fc-staff"></select></th><th></th>
           <th><select id="fc-source"></select></th><th><select id="fc-status"></select></th><th></th>
         </tr>
@@ -1175,9 +1175,14 @@
     if(k==="price")return (Number(a.price)||0)-(Number(b.price)||0);
     if(k==="visit"){var av=(a.date||"")+" "+(a.time||""),bv=(b.date||"")+" "+(b.time||"");return av<bv?-1:av>bv?1:0;}
     if(k==="status"){var ord=STATUS.map(function(s){return s.v;});return ord.indexOf(a.status||"new")-ord.indexOf(b.status||"new");}
+    if(k==="created")return (a.created_at||"").localeCompare(b.created_at||"");
     var fmap={name:"name",pet:"pet_name",service:"service",staff:"staff",source:"source"},f=fmap[k]||k;
     var xa=String(a[f]||"").toLowerCase(),xb=String(b[f]||"").toLowerCase();return xa<xb?-1:xa>xb?1:0;
   }
+  function fmtCreated(iso){if(!iso)return null;var d=new Date(iso);
+    if(isNaN(d))return {date:String(iso).slice(0,10),time:String(iso).slice(11,16)};
+    var p=function(n){return (n<10?"0":"")+n;};
+    return {date:d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()),time:p(d.getHours())+":"+p(d.getMinutes())};}
   function fillFC(id,opts,allLabel){var el=$(id);if(!el)return;var cur=el.value;el.innerHTML='<option value="">'+esc(allLabel)+'</option>'+opts.map(function(o){return '<option value="'+esc(o.v)+'">'+esc(o.l)+'</option>';}).join("");el.value=cur;}
   function distinctVals(fn){var seen={},out=[];all.forEach(function(b){var v=fn(b);if(v&&!seen[v]){seen[v]=1;out.push(v);}});return out.sort();}
   function syncFilterOptions(){
@@ -1216,12 +1221,14 @@
     list.forEach(function(b){var tr=document.createElement("tr");var st=b.status||"new";var sr=b.source||"site";
       var srcClass=({site:"src-site",phone:"src-phone",instagram:"src-instagram"})[sr]||"src-other";
       var visit=b.date?(esc(b.date)+(b.time?(" "+esc(b.time)):"")):'<span class="muted">—</span>';
+      var cr=fmtCreated(b.created_at);var created=cr?(esc(cr.date)+'<div class="ph">'+esc(cr.time)+'</div>'):'<span class="muted">—</span>';
       var opts=STATUS.map(function(s){return '<option value="'+s.v+'"'+(s.v===st?" selected":"")+'>'+s.label+'</option>';}).join("");
       var noteic=b.note?'<span class="noteic" title="'+esc(b.note)+'">💬</span>':'';
       tr.innerHTML=
         '<td class="client"><div class="nm">'+esc(b.name)+'</div><div class="ph"><a href="tel:'+esc(b.phone)+'">'+esc(b.phone)+'</a></div></td>'+
         '<td>'+esc(b.pet)+(b.pet_name?' <b>'+esc(b.pet_name)+'</b>':'')+(function(){var pd=[b.breed,b.weight].filter(Boolean).join(", ");return pd?'<span class="muted"> · '+esc(pd)+'</span>':'';})()+'</td>'+
         '<td>'+esc(b.service)+(String(b.is_request)==="1"?'<span class="req">заявка</span>':'')+noteic+'</td>'+
+        '<td class="when">'+created+'</td>'+
         '<td class="when">'+visit+'</td>'+
         '<td>'+(b.staff?esc(b.staff):'<span class="muted">—</span>')+'</td>'+
         '<td class="price">'+(Number(b.price)>0?money(b.price):'<span class="muted">—</span>')+'</td>'+
