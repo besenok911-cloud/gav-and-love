@@ -101,10 +101,25 @@ export default {
       if (url.pathname === "/admin/master-delete" && request.method === "POST") {
         return json(await masterDelete(request, env), cors);
       }
+      if (url.pathname === "/admin/settings" && request.method === "GET") {
+        return json(await adminSettings(request, env), cors);
+      }
+      if (url.pathname === "/admin/settings-save" && request.method === "POST") {
+        return json(await settingsSave(request, env), cors);
+      }
+      if (url.pathname === "/admin/send-digest" && request.method === "POST") {
+        requireAdmin(request, env);
+        return json(await runDailyDigest(env, true), cors);
+      }
       return json({ ok: false, error: "not found" }, cors, 404);
     } catch (e) {
       return json({ ok: false, error: String(e && e.message || e) }, cors, e && e.status || 500);
     }
+  },
+
+  // Cloudflare Cron Trigger — daily reminder digest to the salon's Telegram.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runDailyDigest(env).catch(() => {}));
   },
 };
 
@@ -603,6 +618,99 @@ async function masterDelete(request, env) {
   if (!id) return { ok: false, error: "id required" };
   await env.DB.prepare(`DELETE FROM masters WHERE id=?`).bind(id).run();
   return { ok: true };
+}
+
+/* ----------------------------- Settings & reminders ----------------------------- */
+async function loadSettings(env) {
+  const def = { reminders_enabled: "1", repeat_weeks: "6" };
+  if (!env.DB) return def;
+  try {
+    const { results } = await env.DB.prepare(`SELECT key, value FROM settings`).all();
+    (results || []).forEach(r => { def[r.key] = r.value; });
+  } catch (e) { }
+  return def;
+}
+async function adminSettings(request, env) {
+  requireAdmin(request, env);
+  return { ok: true, settings: await loadSettings(env) };
+}
+async function settingsSave(request, env) {
+  requireAdmin(request, env);
+  const b = await request.json();
+  for (const k of ["reminders_enabled", "repeat_weeks"]) {
+    if (b[k] != null) await env.DB.prepare(`INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(k, String(b[k]), String(b[k])).run();
+  }
+  return { ok: true, settings: await loadSettings(env) };
+}
+// YYYY-MM-DD for a Date in a timezone.
+function isoInTz(d, tz) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(d).map(x => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}`;
+}
+function contactLinks(phone) {
+  const digits = (phone || "").replace(/[^\d+]/g, "");
+  if (!digits) return "";
+  const intl = digits.startsWith("+") ? digits : ("+38" + digits.replace(/^\+?/, ""));
+  return ` <a href="tel:${intl}">☎</a> <a href="viber://chat?number=${encodeURIComponent(intl)}">Viber</a>`;
+}
+async function sendTelegram(env, text) {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return false;
+  const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text, parse_mode: "HTML", disable_web_page_preview: true }),
+  });
+  return r.ok;
+}
+// Daily digest: tomorrow's appointments + clients due for a repeat visit.
+async function runDailyDigest(env, force) {
+  if (!env.DB) return { ok: false, error: "no db" };
+  const s = await loadSettings(env);
+  if (!force && s.reminders_enabled !== "1") return { ok: true, skipped: true };
+  const tz = BUSINESS.tz;
+  const today = isoInTz(new Date(), tz);
+  const tomorrow = isoInTz(new Date(Date.now() + 86400000), tz);
+  const weeks = Math.max(1, parseInt(s.repeat_weeks, 10) || 6);
+
+  const { results: bookings } = await env.DB.prepare(`SELECT * FROM bookings`).all();
+  const all = bookings || [];
+
+  // 1) tomorrow's appointments
+  const tmr = all.filter(b => b.date === tomorrow && b.time && (b.status === "new" || b.status === "confirmed") && b.service !== "Блокування")
+    .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  let msg1;
+  if (tmr.length) {
+    msg1 = `🔔 <b>Записи на завтра (${tomorrow})</b>\n\n` + tmr.map(b =>
+      `${b.time} — ${b.pet_name ? b.pet_name + " · " : ""}${b.service || ""}${b.staff ? " · " + b.staff : ""}\n👤 ${b.name || ""} — ${b.phone || ""}${contactLinks(b.phone)}`
+    ).join("\n\n");
+  } else {
+    msg1 = `🔔 <b>Записи на завтра (${tomorrow})</b>\n\nНа завтра записів немає.`;
+  }
+  await sendTelegram(env, msg1);
+
+  // 2) repeat-due clients: last done >= weeks ago and no upcoming booking
+  const byClient = {};
+  const key = b => (b.client_id != null ? "c" + b.client_id : "p" + (b.phone || "").replace(/\D/g, "").slice(-9));
+  all.forEach(b => { const k = key(b); (byClient[k] = byClient[k] || []).push(b); });
+  const cutoff = isoInTz(new Date(Date.now() - weeks * 7 * 86400000), tz);
+  const due = [];
+  for (const k in byClient) {
+    const list = byClient[k];
+    const doneDates = list.filter(b => b.status === "done" && b.date).map(b => b.date).sort();
+    if (!doneDates.length) continue;
+    const last = doneDates[doneDates.length - 1];
+    const hasUpcoming = list.some(b => b.date && b.date >= today && (b.status === "new" || b.status === "confirmed"));
+    if (last <= cutoff && !hasUpcoming) {
+      const ref = list.slice().reverse().find(b => b.status === "done") || list[0];
+      due.push({ name: ref.name || "", phone: ref.phone || "", pet: ref.pet_name || "", last });
+    }
+  }
+  due.sort((a, b) => (a.last || "").localeCompare(b.last || ""));
+  if (due.length) {
+    const msg2 = `🔁 <b>Час на повторний грумінг</b> (останній візит понад ${weeks} тижнів тому)\n\n` +
+      due.slice(0, 40).map(d => `${d.pet ? d.pet + " · " : ""}${d.name} — ${d.phone}${contactLinks(d.phone)}\n<i>останній: ${d.last}</i>`).join("\n\n");
+    await sendTelegram(env, msg2);
+  }
+  return { ok: true, tomorrow: tmr.length, repeatDue: due.length };
 }
 
 // Keep the Google Calendar event in sync with the CRM row (source of truth).

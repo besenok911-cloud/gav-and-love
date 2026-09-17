@@ -209,6 +209,7 @@
     <button class="tabbtn" data-view="clients">Клієнти</button>
   </div>
   <span class="sp"></span>
+  <button class="btn ghost sm" id="remindBtn" hidden title="Нагадування">🔔</button>
   <button class="btn ghost sm" id="refreshBtn" hidden>↻ Оновити</button>
   <button class="btn ghost sm" id="logoutBtn" hidden>Вийти</button>
 </header>
@@ -356,6 +357,23 @@
   </div>
 </div>
 
+<!-- Reminders settings -->
+<div class="modal" id="remindModal">
+  <div class="sheet" style="width:min(560px,100%)">
+    <h2>🔔 Нагадування</h2>
+    <p class="muted" style="font-size:.86rem;margin:0 0 16px">Щоденний дайджест у Telegram салону: записи на завтра (щоб нагадати клієнтам) та клієнти, яким пора на повторний грумінг. Надсилається автоматично щовечора.</p>
+    <div class="fld" style="margin-bottom:12px"><label style="display:flex;align-items:center;gap:8px;font-weight:700"><input type="checkbox" id="rm-enabled" style="width:auto"> Автоматичні нагадування увімкнено</label></div>
+    <div class="fld" style="margin-bottom:8px"><label>Нагадувати про повторний візит через (тижнів)</label><input id="rm-weeks" type="number" min="1" max="52" step="1" style="max-width:120px" /></div>
+    <p class="modal-err" id="rmErr" style="color:var(--confirmed)"></p>
+    <div class="sheet-act">
+      <button class="btn ghost sm" id="rm-send" style="border-color:var(--line);color:var(--ink)">Надіслати дайджест зараз</button>
+      <span style="flex:1"></span>
+      <button class="btn ghost sm" id="rm-cancel" style="border-color:var(--line);color:var(--ink-soft)">Закрити</button>
+      <button class="btn" id="rm-save">Зберегти</button>
+    </div>
+  </div>
+</div>
+
 <script src="data/config.js?v=15"></script>
 <script>
 (function(){
@@ -393,8 +411,8 @@
   $("#f-pet").addEventListener("change",applyPetModal);
 
   function showLogin(msg){$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
-    $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#loginErr").textContent=msg||"";}
-  function showApp(){$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;setView(view);}
+    $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;$("#loginErr").textContent=msg||"";}
+  function showApp(){$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;$("#remindBtn").hidden=false;setView(view);}
   function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");
     [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.classList.toggle("on",b.dataset.view===v);});
     if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else render();}
@@ -855,6 +873,28 @@
   $("#mm-add").addEventListener("click",function(){mastersList.push({id:0,name:"",active:1,work_start:"10:00",work_end:"20:00",days_off:"",vacations:""});renderMasterRows();});
   $("#mm-close").addEventListener("click",function(){$("#mastersModal").classList.remove("open");});
   $("#mastersModal").addEventListener("click",function(e){if(e.target===$("#mastersModal"))$("#mastersModal").classList.remove("open");});
+
+  /* ---------- reminders ---------- */
+  async function openRemindModal(){
+    $("#rmErr").textContent="";
+    try{var s=(await api("/admin/settings")).settings||{};
+      $("#rm-enabled").checked=s.reminders_enabled==="1";$("#rm-weeks").value=s.repeat_weeks||"6";
+    }catch(e){}
+    $("#remindModal").classList.add("open");
+  }
+  $("#remindBtn").addEventListener("click",openRemindModal);
+  $("#rm-cancel").addEventListener("click",function(){$("#remindModal").classList.remove("open");});
+  $("#remindModal").addEventListener("click",function(e){if(e.target===$("#remindModal"))$("#remindModal").classList.remove("open");});
+  $("#rm-save").addEventListener("click",async function(){
+    try{await api("/admin/settings-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({reminders_enabled:$("#rm-enabled").checked?"1":"0",repeat_weeks:String(parseInt($("#rm-weeks").value,10)||6)})});
+      $("#remindModal").classList.remove("open");}catch(e){$("#rmErr").style.color="var(--cancelled)";$("#rmErr").textContent="Не вдалося зберегти.";}
+  });
+  $("#rm-send").addEventListener("click",async function(){
+    $("#rmErr").style.color="var(--ink-soft)";$("#rmErr").textContent="Надсилаємо…";
+    try{var r=await api("/admin/send-digest",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+      $("#rmErr").style.color="var(--confirmed)";$("#rmErr").textContent="Готово! Записів на завтра: "+r.tomorrow+", на повторний візит: "+r.repeatDue+". Перевірте Telegram.";
+    }catch(e){$("#rmErr").style.color="var(--cancelled)";$("#rmErr").textContent="Не вдалося надіслати.";}
+  });
 
   if(token){tryLogin(token);}else{showLogin("");}
 })();

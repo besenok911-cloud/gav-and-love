@@ -2,6 +2,10 @@ name = "gavlove-booking"
 main = "src/index.js"
 compatibility_date = "2024-09-01"
 
+[triggers]
+# Daily reminder digest to Telegram (16:00 UTC ≈ 19:00 Kyiv).
+crons = ["0 16 * * *"]
+
 [vars]
 # Origin allowed to call the Worker (the live site). Change if the domain changes.
 ALLOW_ORIGIN = "https://besenok911-cloud.github.io"
