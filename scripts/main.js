@@ -566,7 +566,7 @@
         });
         const d = await res.json();
         if (!d.ok) throw new Error(d.error || "bad");
-        request = d.request; assignedStaff = d.staff || ""; window._lastWait = d.waitlist;
+        request = d.request; assignedStaff = d.staff || ""; window._lastWait = d.waitlist; window._lastTg = d.tg_link || "";
       } else {
         await new Promise(r => setTimeout(r, 500)); // online-booking not activated yet
         demo = true;
@@ -580,6 +580,13 @@
             ? "Дякуємо! Заявку надіслано — ми зв'яжемось для підтвердження."
             : "Готово! Запис створено" + (assignedStaff ? " до майстра " + assignedStaff : "") + " — до зустрічі 🐾";
       if (demo) { const c = document.getElementById("contacts"); if (c) c.scrollIntoView({ behavior: "smooth" }); }
+      if (!demo && window._lastTg) {   // one tap links the client's Telegram → confirmation + reminders arrive there
+        const a = document.createElement("a");
+        a.className = "btn btn-primary"; a.href = window._lastTg; a.target = "_blank"; a.rel = "noopener";
+        a.style.cssText = "display:inline-block;margin-top:12px";
+        a.textContent = "🔔 Отримувати нагадування в Telegram";
+        status.appendChild(document.createElement("br")); status.appendChild(a);
+      }
       form.reset(); petHidden.value = "Собака";
       $$(".seg-btn", petSeg).forEach((x, i) => x.classList.toggle("is-active", i === 0));
       applyPet();

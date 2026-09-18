@@ -480,6 +480,7 @@
       </div>
       <div id="cl-pets"></div>
     </div>
+    <p id="cl-tg" class="muted" hidden style="font-size:.85rem;margin:12px 0 0"></p>
     <div id="cl-loyalty" hidden style="margin-top:18px"></div>
     <div id="cl-hist-wrap" hidden style="margin-top:20px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -553,6 +554,15 @@
     <div class="fld" style="margin-bottom:8px;display:flex;gap:14px;flex-wrap:wrap">
       <div><label>Винагорода кожен N-й візит</label><input id="rm-loy-every" type="number" min="2" max="30" step="1" style="max-width:120px" /></div>
       <div style="flex:1;min-width:200px"><label>Опис винагороди</label><input id="rm-loy-reward" placeholder="напр. Знижка 50% на комплекс" /></div>
+    </div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:18px 0 14px">
+    <h2 style="font-size:1.15rem;margin:0 0 4px">📲 Нагадування клієнтам у Telegram</h2>
+    <p class="muted" style="font-size:.86rem;margin:0 0 12px">Клієнт підключає бота (кнопка після запису на сайті або «поділитися номером» у боті) і отримує підтвердження запису, нагадування напередодні та за кілька годин до візиту з кнопками «Буду / Скасувати».</p>
+    <div class="fld" style="margin-bottom:10px"><label style="display:flex;align-items:center;gap:8px;font-weight:700"><input type="checkbox" id="rm-cl-enabled" style="width:auto"> Нагадування клієнтам увімкнено</label></div>
+    <div class="fld" style="margin-bottom:10px;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+      <div><label>Нагадати за (годин до візиту)</label><input id="rm-cl-hours" type="number" min="1" max="24" step="1" style="max-width:120px" /></div>
+      <div style="flex:1;min-width:220px"><label>Бот</label><div id="rm-tg-status" class="muted" style="font-size:.86rem;padding:.55em 0;line-height:1.4">—</div></div>
+      <button class="btn sm" id="rm-tg-setup" type="button">Підключити бота</button>
     </div>
     <p class="modal-err" id="rmErr" style="color:var(--confirmed)"></p>
     <div class="sheet-act">
@@ -1491,6 +1501,9 @@
     $("#cl-source").value=c?(c.source||"site"):"site";$("#cl-status").value=c?(c.status||"active"):"active";
     $("#cl-consent").checked=c?!!c.consent:false;$("#cl-note").value=c?c.note||"":"";
     $("#cl-del").hidden=!c;$("#cl-pets-wrap").hidden=!c;$("#cl-hist-wrap").hidden=!c;$("#cl-loyalty").hidden=!c;
+    var tg=$("#cl-tg");if(tg){tg.hidden=!c;if(c)tg.innerHTML=c.tg_chat_id
+      ?'📲 Telegram: <b style="color:var(--confirmed)">підключено</b> — підтвердження й нагадування надходять клієнту'
+      :'📲 Telegram: <span class="muted">не підключено</span>'+(settingsState.tg_bot?' · клієнт може написати боту <code>@'+esc(settingsState.tg_bot)+'</code> і натиснути «Поділитися номером»':'');}
     if(c){renderClientPets(c);renderLoyalty(c);renderClientHistory(c);}
     $("#clModalErr").textContent="";$("#clientModal").classList.add("open");
   }
@@ -1841,6 +1854,8 @@
     try{var s=(await api("/admin/settings")).settings||{};settingsState=s;
       $("#rm-enabled").checked=s.reminders_enabled==="1";$("#rm-weeks").value=s.repeat_weeks||"6";
       $("#rm-loy-enabled").checked=s.loyalty_enabled!=="0";$("#rm-loy-every").value=s.loyalty_every||"6";$("#rm-loy-reward").value=s.loyalty_reward||"";
+      $("#rm-cl-enabled").checked=s.client_reminders_enabled!=="0";$("#rm-cl-hours").value=s.remind_hours_before||"2";
+      $("#rm-tg-status").innerHTML=s.tg_bot?('✅ @'+esc(s.tg_bot)+' · посилання для клієнтів: <code>https://t.me/'+esc(s.tg_bot)+'</code>'):'не підключено — натисніть «Підключити бота» (лише власник)';
     }catch(e){}
     $("#remindModal").classList.add("open");
   }
@@ -1849,9 +1864,18 @@
   $("#remindModal").addEventListener("click",function(e){if(e.target===$("#remindModal"))$("#remindModal").classList.remove("open");});
   $("#rm-save").addEventListener("click",async function(){
     var body={reminders_enabled:$("#rm-enabled").checked?"1":"0",repeat_weeks:String(parseInt($("#rm-weeks").value,10)||6),
-      loyalty_enabled:$("#rm-loy-enabled").checked?"1":"0",loyalty_every:String(parseInt($("#rm-loy-every").value,10)||6),loyalty_reward:$("#rm-loy-reward").value.trim()};
+      loyalty_enabled:$("#rm-loy-enabled").checked?"1":"0",loyalty_every:String(parseInt($("#rm-loy-every").value,10)||6),loyalty_reward:$("#rm-loy-reward").value.trim(),
+      client_reminders_enabled:$("#rm-cl-enabled").checked?"1":"0",remind_hours_before:String(parseInt($("#rm-cl-hours").value,10)||2)};
     try{settingsState=(await api("/admin/settings-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).settings||settingsState;
       toast("Налаштування збережено");$("#remindModal").classList.remove("open");}catch(e){$("#rmErr").style.color="var(--cancelled)";$("#rmErr").textContent="Не вдалося зберегти.";}
+  });
+  $("#rm-tg-setup").addEventListener("click",async function(){
+    var el=$("#rm-tg-status");el.textContent="Підключаємо…";
+    try{var r=await api("/admin/tg-setup",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+      if(r&&r.ok){settingsState.tg_bot=r.bot||settingsState.tg_bot;
+        el.innerHTML='✅ @'+esc(r.bot||"")+' · вебхук '+esc(r.set||"встановлено")+' · посилання для клієнтів: <code>https://t.me/'+esc(r.bot||"")+'</code>';toast("Бота підключено");}
+      else{el.textContent="Не вдалося: "+((r&&r.error)||"помилка");}
+    }catch(e){el.textContent="Не вдалося підключити (доступно лише власнику).";}
   });
   $("#rm-send").addEventListener("click",async function(){
     $("#rmErr").style.color="var(--ink-soft)";$("#rmErr").textContent="Надсилаємо…";

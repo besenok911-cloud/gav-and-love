@@ -139,6 +139,21 @@ export default {
       if (url.pathname === "/admin/user-delete" && request.method === "POST") {
         return json(await userDelete(request, env), cors);
       }
+      // ---- Client reminders via Telegram ----
+      if (url.pathname === "/tg/webhook" && request.method === "POST") {
+        return json(await tgWebhook(request, env), cors);        // called by Telegram (secret header checked inside)
+      }
+      if (url.pathname === "/admin/tg-setup" && request.method === "POST") {
+        return json(await tgSetup(request, env), cors);          // owner: register webhook, remember bot username
+      }
+      if (url.pathname === "/admin/tg-test" && request.method === "POST") {
+        return json(await tgTest(request, env), cors);           // owner: feed a synthetic update (QA)
+      }
+      if (url.pathname === "/admin/send-client-reminders" && request.method === "POST") {
+        await requireAdmin(request, env);
+        const b = await request.json().catch(() => ({}));
+        return json(await runClientReminders(env, b && b.kind === "soon" ? "soon" : "day", true), cors);
+      }
       if (url.pathname === "/catalog" && request.method === "GET") {
         return json(await publicCatalog(env), { ...cors, "Cache-Control": "public, max-age=60" });
       }
@@ -185,9 +200,11 @@ export default {
     }
   },
 
-  // Cloudflare Cron Trigger — daily reminder digest to the salon's Telegram.
+  // Cloudflare Cron Triggers: daily → salon digest + day-before client reminders; every 30 min → "starting soon" client reminders.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runDailyDigest(env).catch(() => {}));
+    const cron = (event && event.cron) || "";
+    if (cron.startsWith("*/30")) ctx.waitUntil(runClientReminders(env, "soon").catch(() => {}));
+    else ctx.waitUntil(Promise.all([runDailyDigest(env).catch(() => {}), runClientReminders(env, "day").catch(() => {})]));
   },
 };
 
@@ -438,8 +455,13 @@ async function book(body, env) {
   }
 
   await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest, staff, waitlist });
-  await saveBooking(env, { pet, pet_name, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff, source: "site", waitlist, addons: (body && body.addons) });
-  return { ok: true, request: isRequest, staff, waitlist };
+  const saved = (await saveBooking(env, { pet, pet_name, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff, source: "site", waitlist, addons: (body && body.addons) })) || {};
+  let tgLink = "";
+  try {
+    tgLink = await tgDeepLink(env, saved.tg_code);                       // "" until the bot is connected in the CRM
+    if (saved.id && !isRequest) await tgNotifyClient(env, saved.id, "created"); // only if this client already linked Telegram
+  } catch (e) { }
+  return { ok: true, request: isRequest, staff, waitlist, id: saved.id || null, tg_link: tgLink };
 }
 
 /* ----------------------------- Calendar events ----------------------------- */
@@ -490,16 +512,18 @@ async function saveBooking(env, b) {
   try {
     await applyPricing(env, b);
     const link = await linkClientPet(env, b);
-    await env.DB.prepare(
-      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight,client_id,pet_id,pet_name)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?, ?, 'site', ?, ?, ?, ?, ?, ?, ?)`
+    const tgCode = randHex(6);   // one-time deep-link code: t.me/<bot>?start=<code> links this client's Telegram
+    const r = await env.DB.prepare(
+      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight,client_id,pet_id,pet_name,tg_code)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?, ?, 'site', ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
       b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
       b.isRequest ? 1 : 0, b.eventLink || null, b.waitlist ? "waitlist" : "new", b.eventId || null,
       (b.price != null && b.price !== "") ? b.price : null, b.staff || "", b.weight || "",
-      link.client_id, link.pet_id, b.pet_name || ""
+      link.client_id, link.pet_id, b.pet_name || "", tgCode
     ).run();
+    return { id: r.meta && r.meta.last_row_id, tg_code: tgCode };
   } catch (e) { /* CRM logging must never break a booking */ }
 }
 
@@ -666,6 +690,9 @@ async function adminUpdate(request, env) {
   for (const f of EDITABLE) {
     if (body[f] != null) { sets.push(`${f}=?`); vals.push(body[f]); }
   }
+  if (body.date != null || body.time != null) sets.push("remind_day_sent=0", "remind_hour_sent=0"); // rescheduled → remind the client again
+  let prevStatus = null;
+  if (body.status != null) { const c = await env.DB.prepare(`SELECT status FROM bookings WHERE id=?`).bind(id).first(); prevStatus = c ? c.status : null; }
   if (sets.length) {
     vals.push(id);
     await env.DB.prepare(`UPDATE bookings SET ${sets.join(",")} WHERE id=?`).bind(...vals).run();
@@ -673,6 +700,7 @@ async function adminUpdate(request, env) {
   let calendar = "unchanged";
   try { calendar = await syncCalendar(env, id); }
   catch (e) { calendar = "error: " + String(e && e.message || e); }
+  if (body.status === "confirmed" && prevStatus !== "confirmed") await tgNotifyClient(env, id, "confirmed"); // tell a linked client
   return { ok: true, calendar };
 }
 
@@ -693,16 +721,18 @@ async function adminCreate(request, env) {
   }
   const link = await linkClientPet(env, b);
   const r = await env.DB.prepare(
-    `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight,client_id,pet_id,pet_name)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight,client_id,pet_id,pet_name,tg_code)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
     b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
     hasTime ? 0 : 1, eventLink, b.status || "new", b.source || "phone", eventId,
     (b.price != null && b.price !== "") ? b.price : null, b.staff || "", b.weight || "",
-    link.client_id, link.pet_id, b.pet_name || ""
+    link.client_id, link.pet_id, b.pet_name || "", randHex(6)
   ).run();
-  return { ok: true, id: r.meta && r.meta.last_row_id };
+  const newId = r.meta && r.meta.last_row_id;
+  try { if (hasTime && (b.status || "new") !== "cancelled") await tgNotifyClient(env, newId, b.status === "confirmed" ? "confirmed" : "created"); } catch (e) { }
+  return { ok: true, id: newId };
 }
 
 /* ----------------------------- Clients & Pets ----------------------------- */
@@ -1116,7 +1146,8 @@ async function expenseDelete(request, env) {
 
 /* ----------------------------- Settings & reminders ----------------------------- */
 async function loadSettings(env) {
-  const def = { reminders_enabled: "1", repeat_weeks: "6", loyalty_enabled: "1", loyalty_every: "6", loyalty_reward: "Знижка 50% на наступний комплекс" };
+  const def = { reminders_enabled: "1", repeat_weeks: "6", loyalty_enabled: "1", loyalty_every: "6", loyalty_reward: "Знижка 50% на наступний комплекс",
+    client_reminders_enabled: "1", remind_hours_before: "2", tg_bot: "" };
   if (!env.DB) return def;
   try {
     const { results } = await env.DB.prepare(`SELECT key, value FROM settings`).all();
@@ -1131,7 +1162,7 @@ async function adminSettings(request, env) {
 async function settingsSave(request, env) {
   await requireAdmin(request, env);
   const b = await request.json();
-  for (const k of ["reminders_enabled", "repeat_weeks", "note_gift", "note_big", "loyalty_enabled", "loyalty_every", "loyalty_reward"]) {
+  for (const k of ["reminders_enabled", "repeat_weeks", "note_gift", "note_big", "loyalty_enabled", "loyalty_every", "loyalty_reward", "client_reminders_enabled", "remind_hours_before"]) {
     if (b[k] != null) await env.DB.prepare(`INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(k, String(b[k]), String(b[k])).run();
   }
   return { ok: true, settings: await loadSettings(env) };
@@ -1261,6 +1292,164 @@ async function notifyTelegram(env, b) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text, parse_mode: "HTML" }),
   });
+}
+
+/* ----------------------------- Client reminders via Telegram -----------------------------
+   The salon's bot also talks to clients. A client links their chat once (deep link after
+   booking on the site, or by sharing their phone with the bot); after that they get a
+   confirmation, a day-before and a "starting soon" reminder with ✅/❌ buttons. */
+function tgEsc(s) { return String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+async function tgApi(env, method, payload) {
+  if (!env.TELEGRAM_BOT_TOKEN) return { ok: false, description: "no bot token" };
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload || {}) });
+    return await r.json();
+  } catch (e) { return { ok: false, description: String(e && e.message || e) }; }
+}
+async function tgSendTo(env, chatId, text, extra) {
+  if (!chatId) return { ok: false, description: "no chat" };
+  return tgApi(env, "sendMessage", Object.assign({ chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true }, extra || {}));
+}
+async function sha256hex(s) { return bufToHex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))); }
+async function tgWebhookSecret(env) { return (await sha256hex("tg-webhook:" + (env.TELEGRAM_BOT_TOKEN || ""))).slice(0, 40); }
+async function tgDeepLink(env, code) { const s = await loadSettings(env); return s.tg_bot && code ? `https://t.me/${s.tg_bot}?start=${code}` : ""; }
+function fmtDdMm(iso) { const p = String(iso || "").split("-"); return p.length === 3 ? `${p[2]}.${p[1]}` : iso; }
+function kyivNow() { // { iso, min } in Europe/Kyiv
+  const tz = BUSINESS.tz, d = new Date();
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(d).map(x => [x.type, x.value]));
+  return { iso: isoInTz(d, tz), min: ((+p.hour) % 24) * 60 + (+p.minute) };
+}
+const CLIENT_COLS = `id,date,time,name,phone,pet_name,service,staff,status,client_id,remind_day_sent,remind_hour_sent`;
+function visitText(b) { return `${fmtDdMm(b.date)} о <b>${tgEsc(b.time)}</b> — ${tgEsc(b.service || "грумінг")}${b.pet_name ? " для " + tgEsc(b.pet_name) : ""}${b.staff ? "\n👩‍🔧 Майстер: " + tgEsc(b.staff) : ""}`; }
+function visitButtons(b) { return { reply_markup: { inline_keyboard: [[{ text: "✅ Буду", callback_data: `ok:${b.id}` }, { text: "❌ Скасувати", callback_data: `cancel:${b.id}` }]] } }; }
+async function clientChatFor(env, b) { // the booking's client's chat id (by client_id, else by phone)
+  if (!env.DB) return null;
+  if (b.client_id) { const c = await env.DB.prepare(`SELECT tg_chat_id FROM clients WHERE id=?`).bind(b.client_id).first(); if (c && c.tg_chat_id) return c.tg_chat_id; }
+  const np = normPhone(b.phone); if (!np) return null;
+  const cs = await env.DB.prepare(`SELECT phone, tg_chat_id FROM clients WHERE tg_chat_id IS NOT NULL`).all();
+  const f = (cs.results || []).find(c => normPhone(c.phone) === np); return f ? f.tg_chat_id : null;
+}
+// "created" / "confirmed" message to a linked client. Never throws, never blocks the caller.
+async function tgNotifyClient(env, bookingId, kind) {
+  try {
+    const b = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE id=?`).bind(bookingId).first(); if (!b || !b.date || !b.time) return;
+    const chat = await clientChatFor(env, b); if (!chat) return;
+    const head = kind === "confirmed" ? "✅ <b>Ваш запис підтверджено</b>" : "🗓 <b>Запис створено</b>";
+    await tgSendTo(env, chat, `${head}\n${visitText(b)}\n\nНагадаємо напередодні. Якщо плани зміняться — натисніть «Скасувати».`, visitButtons(b));
+  } catch (e) { }
+}
+// Cron: "day" = tomorrow's visits (evening run), "soon" = visits starting within N hours (every 30 min). Idempotent via remind_*_sent flags.
+async function runClientReminders(env, kind, force) {
+  if (!env.DB) return { ok: false, error: "no db" };
+  const s = await loadSettings(env);
+  if (!force && s.client_reminders_enabled !== "1") return { ok: true, skipped: true };
+  const now = kyivNow(), hours = Math.max(1, parseInt(s.remind_hours_before, 10) || 2);
+  let rows;
+  if (kind === "day") {
+    const tomorrow = isoInTz(new Date(Date.now() + 86400000), BUSINESS.tz);
+    rows = (await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE date=? AND time<>'' AND status IN ('new','confirmed') AND service<>'Блокування' AND COALESCE(remind_day_sent,0)=0`).bind(tomorrow).all()).results || [];
+  } else {
+    rows = ((await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE date=? AND time<>'' AND status IN ('new','confirmed') AND service<>'Блокування' AND COALESCE(remind_hour_sent,0)=0`).bind(now.iso).all()).results || [])
+      .filter(b => { const t = hmToMin(b.time); return t != null && t > now.min && t - now.min <= hours * 60; });
+  }
+  let sent = 0, unlinked = 0;
+  for (const b of rows) {
+    const chat = await clientChatFor(env, b);
+    if (!chat) { unlinked++; continue; }
+    const text = kind === "day"
+      ? `🔔 <b>Нагадуємо про візит завтра</b>\n${visitText(b)}\n\nПідтвердіть, будь ласка, що ви будете:`
+      : `⏰ <b>Вже скоро!</b>\nЧекаємо вас ${visitText(b)}\n\nДо зустрічі в GAV&amp;LOVE 🐾`;
+    const r = await tgSendTo(env, chat, text, kind === "day" ? visitButtons(b) : undefined);
+    if (r && r.ok) { sent++; await env.DB.prepare(`UPDATE bookings SET ${kind === "day" ? "remind_day_sent" : "remind_hour_sent"}=1 WHERE id=?`).bind(b.id).run(); }
+  }
+  return { ok: true, kind, candidates: rows.length, sent, unlinked };
+}
+async function linkClientChat(env, clientId, chatId) { await env.DB.prepare(`UPDATE clients SET tg_chat_id=? WHERE id=?`).bind(chatId, clientId).run(); }
+async function nextVisitsText(env, clientId) {
+  const today = isoInTz(new Date(), BUSINESS.tz);
+  const r = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE client_id=? AND date>=? AND time<>'' AND status IN ('new','confirmed','arrived') AND service<>'Блокування' ORDER BY date,time LIMIT 3`).bind(clientId, today).all();
+  const rows = r.results || [];
+  return rows.length ? "\n\nВаші найближчі візити:\n" + rows.map(b => "• " + visitText(b).replace(/\n👩‍🔧 Майстер: /g, " · ")).join("\n") : "";
+}
+// Telegram → us. Handles /start [code], shared contact, and the ✅/❌ buttons.
+async function handleTgUpdate(env, u) {
+  if (!env.DB || !u) return;
+  const msg = u.message, cq = u.callback_query;
+  if (cq && cq.data && cq.message) {
+    const chat = cq.message.chat.id, m = /^(ok|cancel):(\d+)$/.exec(cq.data);
+    if (!m) return;
+    const b = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE id=?`).bind(+m[2]).first();
+    const owner = b ? await clientChatFor(env, b) : null;
+    if (!b || String(owner) !== String(chat)) { await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id, text: "Запис не знайдено" }); return; }
+    const clearButtons = () => tgApi(env, "editMessageReplyMarkup", { chat_id: chat, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] } });
+    if (m[1] === "ok") {
+      if (b.status === "new") { await env.DB.prepare(`UPDATE bookings SET status='confirmed' WHERE id=?`).bind(b.id).run(); try { await syncCalendar(env, b.id); } catch (e) { } }
+      await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id, text: "Дякуємо! Чекаємо на вас 🐾" });
+      await clearButtons();
+      await tgSendTo(env, chat, `✅ Підтверджено: ${visitText(b)}`);
+    } else {
+      if (["new", "confirmed"].includes(b.status)) {
+        await env.DB.prepare(`UPDATE bookings SET status='cancelled' WHERE id=?`).bind(b.id).run();
+        try { await syncCalendar(env, b.id); } catch (e) { }
+        try { await sendTelegram(env, `❌ <b>Клієнт скасував запис через бота</b>\n${visitText(b)}\n👤 ${tgEsc(b.name || "")} — ${tgEsc(b.phone || "")}`); } catch (e) { }
+      }
+      await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id, text: "Запис скасовано" });
+      await clearButtons();
+      await tgSendTo(env, chat, "❌ Запис скасовано. Будемо раді бачити вас іншим разом — записатись знову можна на сайті.");
+    }
+    return;
+  }
+  if (!msg || !msg.chat) return;
+  const chat = msg.chat.id, text = String(msg.text || "").trim();
+  if (msg.contact && msg.contact.phone_number) {
+    const np = normPhone(msg.contact.phone_number);
+    const cs = await env.DB.prepare(`SELECT id,name,phone FROM clients`).all();
+    const c = (cs.results || []).find(x => normPhone(x.phone) === np);
+    if (!c) { await tgSendTo(env, chat, "Не знайшли записів на цей номер 🤔 Запишіться на сайті — і нагадування прийдуть сюди.", { reply_markup: { remove_keyboard: true } }); return; }
+    await linkClientChat(env, c.id, chat);
+    await tgSendTo(env, chat, `✅ Готово, ${tgEsc(c.name || "")}! Нагадування про візити приходитимуть сюди.${await nextVisitsText(env, c.id)}`, { reply_markup: { remove_keyboard: true } });
+    return;
+  }
+  if (/^\/start/.test(text)) {
+    const code = text.replace(/^\/start\s*/, "").trim();
+    if (code) {
+      const b = await env.DB.prepare(`SELECT id,client_id,name FROM bookings WHERE tg_code=? LIMIT 1`).bind(code).first();
+      if (b && b.client_id) {
+        await linkClientChat(env, b.client_id, chat);
+        await tgSendTo(env, chat, `✅ Готово, ${tgEsc(b.name || "")}! Нагадування про візити приходитимуть сюди.${await nextVisitsText(env, b.client_id)}`);
+        return;
+      }
+    }
+    await tgSendTo(env, chat, "Вітаємо в GAV&amp;LOVE 🐾\nЩоб отримувати нагадування про візити, поділіться номером телефону, на який ви записувались:",
+      { reply_markup: { keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }]], resize_keyboard: true, one_time_keyboard: true } });
+    return;
+  }
+  await tgSendTo(env, chat, "Я нагадую про візити в GAV&amp;LOVE. Натисніть /start, щоб підключити нагадування.");
+}
+async function tgWebhook(request, env) {
+  if ((request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "") !== await tgWebhookSecret(env)) { const e = new Error("forbidden"); e.status = 403; throw e; }
+  const update = await request.json().catch(() => null);
+  try { await handleTgUpdate(env, update); } catch (e) { }
+  return { ok: true };
+}
+async function tgSetup(request, env) { // owner: remember the bot username and register the webhook
+  await requireOwner(request, env);
+  if (!env.TELEGRAM_BOT_TOKEN) return { ok: false, error: "TELEGRAM_BOT_TOKEN не задано" };
+  const me = await tgApi(env, "getMe", {});
+  const username = me && me.ok && me.result ? me.result.username : "";
+  if (!username) return { ok: false, error: "Telegram не відповів: " + (me && me.description || "getMe failed") };
+  await env.DB.prepare(`INSERT INTO settings (key,value) VALUES ('tg_bot',?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(username, username).run();
+  const url = new URL(request.url).origin + "/tg/webhook";
+  const wh = await tgApi(env, "setWebhook", { url, secret_token: await tgWebhookSecret(env), allowed_updates: ["message", "callback_query"] });
+  return { ok: !!(wh && wh.ok), bot: username, webhook: url, set: (wh && wh.description) || "", error: wh && !wh.ok ? wh.description : undefined };
+}
+async function tgTest(request, env) { // owner-only QA hook: run a synthetic update through the same handler
+  await requireOwner(request, env);
+  const b = await request.json();
+  const u = b && b.update; if (!u) return { ok: false, error: "update required" };
+  if (b.use_owner_chat && env.TELEGRAM_CHAT_ID) { const id = +env.TELEGRAM_CHAT_ID; if (u.message) u.message.chat = { id }; if (u.callback_query && u.callback_query.message) u.callback_query.message.chat = { id }; }
+  await handleTgUpdate(env, u);
+  return { ok: true };
 }
 
 /* ----------------------------- Default price catalog -----------------------------
