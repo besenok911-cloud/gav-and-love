@@ -156,6 +156,10 @@ export default {
         const b = await request.json().catch(() => ({}));
         return json(await runClientReminders(env, b && b.kind === "soon" ? "soon" : "day", true), cors);
       }
+      if (url.pathname.startsWith("/photo/") && request.method === "GET") return photoServe(url, env, cors);
+      if (url.pathname === "/admin/photos" && request.method === "GET") return json(await adminPhotos(request, url, env), cors);
+      if (url.pathname === "/admin/photo-upload" && request.method === "POST") return json(await photoUpload(request, env), cors);
+      if (url.pathname === "/admin/photo-delete" && request.method === "POST") return json(await photoDelete(request, env), cors);
       if (url.pathname === "/catalog" && request.method === "GET") {
         return json(await publicCatalog(env), { ...cors, "Cache-Control": "public, max-age=60" });
       }
@@ -785,7 +789,48 @@ async function adminClients(request, env) {
 async function adminPets(request, env) {
   await requireAdmin(request, env);
   const { results } = await env.DB.prepare(`SELECT * FROM pets ORDER BY name COLLATE NOCASE`).all();
-  return { ok: true, pets: results || [] };
+  const cnt = {};
+  try { ((await env.DB.prepare(`SELECT pet_id, COUNT(*) AS n FROM pet_photos GROUP BY pet_id`).all()).results || []).forEach(r => { cnt[r.pet_id] = r.n; }); } catch (e) { }
+  return { ok: true, pets: (results || []).map(p => Object.assign(p, { photos: cnt[p.id] || 0 })) };
+}
+/* ----------------------------- Pet photos (before / after) — stored in D1, served by /photo/<id>/<token> ----------------------------- */
+const PHOTO_MAX = 900 * 1024;   // after client-side shrinking a 1280px JPEG is ~100-250 KB
+const photoUrl = (origin, p) => `${origin}/photo/${p.id}/${p.token}`;
+async function photoUpload(request, env) {
+  await requireAdmin(request, env);
+  const b = await request.json();
+  const petId = +b.pet_id; if (!petId) return { ok: false, error: "pet_id required" };
+  const kind = b.kind === "after" ? "after" : "before";
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.data || ""));
+  if (!m) return { ok: false, error: "Очікується зображення JPEG / PNG / WebP" };
+  const bin = Uint8Array.from(atob(m[2]), c => c.charCodeAt(0));
+  if (bin.length > PHOTO_MAX) return { ok: false, error: "Фото завелике (макс. 900 КБ після стиснення)" };
+  const pet = await env.DB.prepare(`SELECT client_id FROM pets WHERE id=?`).bind(petId).first();
+  if (!pet) return { ok: false, error: "Улюбленця не знайдено" };
+  const token = randHex(8);
+  const r = await env.DB.prepare(`INSERT INTO pet_photos (pet_id,client_id,booking_id,kind,mime,data,token,created_at,note) VALUES (?,?,?,?,?,?,?,?,?)`)
+    .bind(petId, pet.client_id || null, b.booking_id ? +b.booking_id : null, kind, m[1], bin.buffer, token, new Date().toISOString(), String(b.note || "").slice(0, 200)).run();
+  const id = r.meta && r.meta.last_row_id;
+  return { ok: true, id, url: photoUrl(new URL(request.url).origin, { id, token }) };
+}
+async function adminPhotos(request, url, env) {
+  await requireAdmin(request, env);
+  const petId = +url.searchParams.get("pet_id"); if (!petId) return { ok: false, error: "pet_id required" };
+  const { results } = await env.DB.prepare(`SELECT id,pet_id,booking_id,kind,token,created_at,note,length(data) AS size FROM pet_photos WHERE pet_id=? ORDER BY created_at DESC, id DESC`).bind(petId).all();
+  return { ok: true, photos: (results || []).map(p => ({ id: p.id, booking_id: p.booking_id, kind: p.kind, created_at: p.created_at, note: p.note, size: p.size, url: photoUrl(url.origin, p) })) };
+}
+async function photoDelete(request, env) {
+  await requireAdmin(request, env);
+  const { id } = await request.json(); if (!id) return { ok: false, error: "id required" };
+  await env.DB.prepare(`DELETE FROM pet_photos WHERE id=?`).bind(+id).run();
+  return { ok: true };
+}
+async function photoServe(url, env, cors) {   // public but unguessable (16-hex token), cached for a year
+  const m = /^\/photo\/(\d+)\/([0-9a-f]{16})$/.exec(url.pathname);
+  if (!m) return new Response("not found", { status: 404, headers: cors });
+  const p = await env.DB.prepare(`SELECT mime,data,token FROM pet_photos WHERE id=?`).bind(+m[1]).first();
+  if (!p || p.token !== m[2]) return new Response("not found", { status: 404, headers: cors });
+  return new Response(p.data, { headers: Object.assign({ "Content-Type": p.mime || "image/jpeg", "Cache-Control": "public, max-age=31536000, immutable" }, cors) });
 }
 const CLIENT_FIELDS = ["name", "phone", "email", "messenger", "source", "note", "consent", "status"];
 async function clientSave(request, env) {
