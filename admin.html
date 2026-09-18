@@ -468,7 +468,7 @@
       <div class="fld"><label>Телефон *</label><input id="cl-phone" placeholder="+380…" /></div>
       <div class="fld"><label>Email</label><input id="cl-email" type="email" /></div>
       <div class="fld"><label>Месенджер</label><input id="cl-messenger" placeholder="@telegram / viber / ig" /></div>
-      <div class="fld"><label>Джерело залучення</label><select id="cl-source"><option value="site">Сайт</option><option value="instagram">Instagram</option><option value="phone">Телефон</option><option value="ads">Реклама</option><option value="referral">Рекомендація</option><option value="other">Інше</option></select></div>
+      <div class="fld"><label>Джерело залучення</label><select id="cl-source"><option value="site">Сайт</option><option value="telegram">Telegram</option><option value="instagram">Instagram</option><option value="phone">Телефон</option><option value="ads">Реклама</option><option value="referral">Рекомендація</option><option value="other">Інше</option></select></div>
       <div class="fld"><label>Статус</label><select id="cl-status"><option value="active">Активний</option><option value="inactive">Неактивний</option></select></div>
       <div class="fld wide"><label style="display:flex;align-items:center;gap:8px;font-weight:700"><input type="checkbox" id="cl-consent" style="width:auto"> Згода на комунікації</label></div>
       <div class="fld wide"><label>Коментар адміністратора</label><textarea id="cl-note" rows="2"></textarea></div>
@@ -645,7 +645,7 @@
   // day-of lifecycle for the quick buttons in Огляд
   var QSTAGES=[{v:"arrived",label:"Прибув"},{v:"in_progress",label:"В роботі"},{v:"done",label:"Готово"},{v:"paid",label:"Оплачено"},{v:"no_show",label:"Не прийшов"}];
   var FILTERS=[{v:"all",label:"Усі"}].concat(STATUS);
-  var SRC={site:"Сайт",phone:"Телефон",instagram:"Instagram",manual:"Інше",other:"Інше"};
+  var SRC={site:"Сайт",telegram:"Telegram",phone:"Телефон",instagram:"Instagram",manual:"Інше",other:"Інше"};
 
   function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
   function money(n){n=Number(n)||0;return n.toLocaleString("uk-UA")+" ₴";}

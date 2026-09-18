@@ -411,7 +411,8 @@ async function getSlots(url, env) {
   return { ok: true, slots };
 }
 
-async function book(body, env) {
+async function book(body, env, source) {
+  source = source || "site";   // "site" (booking form) or "telegram" (bot conversation)
   const { pet, pet_name, service, breed, name, phone, date, time, note, weight } = body || {};
   let staff = (body && body.staff) || "";
   const waitlist = !!(body && body.waitlist);
@@ -449,13 +450,13 @@ async function book(body, env) {
       staff = freeM.name;
     }
 
-    const ev = await calCreate(env, token, { pet, pet_name, service, breed, weight, name, phone, note, date, time, staff, source: "site" });
+    const ev = await calCreate(env, token, { pet, pet_name, service, breed, weight, name, phone, note, date, time, staff, source });
     eventLink = ev.htmlLink;
     eventId = ev.id;
   }
 
-  await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest, staff, waitlist });
-  const saved = (await saveBooking(env, { pet, pet_name, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff, source: "site", waitlist, addons: (body && body.addons) })) || {};
+  await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest, staff, waitlist, source });
+  const saved = (await saveBooking(env, { pet, pet_name, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff, source, waitlist, addons: (body && body.addons) })) || {};
   let tgLink = "";
   try {
     tgLink = await tgDeepLink(env, saved.tg_code);                       // "" until the bot is connected in the CRM
@@ -515,11 +516,11 @@ async function saveBooking(env, b) {
     const tgCode = randHex(6);   // one-time deep-link code: t.me/<bot>?start=<code> links this client's Telegram
     const r = await env.DB.prepare(
       `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight,client_id,pet_id,pet_name,tg_code)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?, ?, 'site', ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
       b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
-      b.isRequest ? 1 : 0, b.eventLink || null, b.waitlist ? "waitlist" : "new", b.eventId || null,
+      b.isRequest ? 1 : 0, b.eventLink || null, b.waitlist ? "waitlist" : "new", b.source || "site", b.eventId || null,
       (b.price != null && b.price !== "") ? b.price : null, b.staff || "", b.weight || "",
       link.client_id, link.pet_id, b.pet_name || "", tgCode
     ).run();
@@ -1281,7 +1282,7 @@ async function adminDelete(request, env) {
 async function notifyTelegram(env, b) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
   const head = b.waitlist ? "⏳ <b>Лист очікування</b>"
-    : b.isRequest ? "📩 <b>Нова заявка (готель/садочок)</b>" : "🗓️ <b>Новий запис</b>";
+    : b.isRequest ? "📩 <b>Нова заявка (готель/садочок)</b>" : "🗓️ <b>Новий запис</b>" + (b.source === "telegram" ? " · 🤖 через бота" : "");
   const when = b.isRequest ? (b.date ? `\n📅 Бажана дата: ${b.date}` : "") : `\n📅 ${b.date} о ${b.time}`;
   const text =
     `${head}\n\n🐾 ${b.pet || "—"} · ${b.breed || ""}\n✂️ ${b.service}${when}` +
@@ -1376,7 +1377,13 @@ async function handleTgUpdate(env, u) {
   if (!env.DB || !u) return;
   const msg = u.message, cq = u.callback_query;
   if (cq && cq.data && cq.message) {
-    const chat = cq.message.chat.id, m = /^(ok|cancel):(\d+)$/.exec(cq.data);
+    const chat = cq.message.chat.id;
+    if (cq.data.startsWith("b:")) {   // booking dialogue buttons
+      try { await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id }); } catch (e) { }
+      await bookingStep(env, chat, cq.data);
+      return;
+    }
+    const m = /^(ok|cancel):(\d+)$/.exec(cq.data);
     if (!m) return;
     const b = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE id=?`).bind(+m[2]).first();
     const owner = b ? await clientChatFor(env, b) : null;
@@ -1401,13 +1408,34 @@ async function handleTgUpdate(env, u) {
   }
   if (!msg || !msg.chat) return;
   const chat = msg.chat.id, text = String(msg.text || "").trim();
+  const st = await tgGetState(env, chat);   // booking dialogue in progress (if any)
+  const BOOK_BTN = kb([[{ text: "📅 Записатися", callback_data: "b:start" }]]);
   if (msg.contact && msg.contact.phone_number) {
     const np = normPhone(msg.contact.phone_number);
     const cs = await env.DB.prepare(`SELECT id,name,phone FROM clients`).all();
-    const c = (cs.results || []).find(x => normPhone(x.phone) === np);
-    if (!c) { await tgSendTo(env, chat, "Не знайшли записів на цей номер 🤔 Запишіться на сайті — і нагадування прийдуть сюди.", { reply_markup: { remove_keyboard: true } }); return; }
+    let c = (cs.results || []).find(x => normPhone(x.phone) === np);
+    if (!c && st && st.step === "contact") {   // brand-new client booking through the bot → create the record
+      const nm = [msg.contact.first_name, msg.contact.last_name].filter(Boolean).join(" ") || "Клієнт з Telegram";
+      const r = await env.DB.prepare(`INSERT INTO clients (created_at,name,phone,source,status) VALUES (?,?,?,'telegram','active')`).bind(new Date().toISOString(), nm, msg.contact.phone_number).run();
+      c = { id: r.meta && r.meta.last_row_id, name: nm, phone: msg.contact.phone_number };
+    }
+    if (!c) { await tgSendTo(env, chat, "Не знайшли записів на цей номер 🤔 Ви можете записатися прямо тут:", Object.assign({ reply_markup: { remove_keyboard: true } })); await tgSendTo(env, chat, "Натисніть, щоб записатися:", BOOK_BTN); return; }
     await linkClientChat(env, c.id, chat);
     await tgSendTo(env, chat, `✅ Готово, ${tgEsc(c.name || "")}! Нагадування про візити приходитимуть сюди.${await nextVisitsText(env, c.id)}`, { reply_markup: { remove_keyboard: true } });
+    if (st && st.step === "contact") await bookingAskPet(env, chat, c);
+    else await tgSendTo(env, chat, "Записатися на грумінг можна прямо тут 👇", BOOK_BTN);
+    return;
+  }
+  if (/^\/book/.test(text)) { await bookingStart(env, chat); return; }
+  if (/^\/visits/.test(text)) {
+    const c = await clientByChat(env, chat);
+    await tgSendTo(env, chat, c ? ("👤 " + tgEsc(c.name || "") + ((await nextVisitsText(env, c.id)) || "\n\nНайближчих візитів немає.")) : "Спочатку підключіться: /start", BOOK_BTN);
+    return;
+  }
+  if (st && st.step === "breed_text" && text && !text.startsWith("/")) {   // the client typed the breed
+    const n = normBreed(text), list = st.breeds || [];
+    const hit = list.find(b => normBreed(b) === n) || list.find(b => normBreed(b).includes(n) || n.includes(normBreed(b)));
+    await bookingAfterBreed(env, chat, st, hit || text);
     return;
   }
   if (/^\/start/.test(text)) {
@@ -1416,16 +1444,152 @@ async function handleTgUpdate(env, u) {
       const b = await env.DB.prepare(`SELECT id,client_id,name FROM bookings WHERE tg_code=? LIMIT 1`).bind(code).first();
       if (b && b.client_id) {
         await linkClientChat(env, b.client_id, chat);
-        await tgSendTo(env, chat, `✅ Готово, ${tgEsc(b.name || "")}! Нагадування про візити приходитимуть сюди.${await nextVisitsText(env, b.client_id)}`);
+        await tgSendTo(env, chat, `✅ Готово, ${tgEsc(b.name || "")}! Нагадування про візити приходитимуть сюди.${await nextVisitsText(env, b.client_id)}`, BOOK_BTN);
         return;
       }
     }
-    await tgSendTo(env, chat, "Вітаємо в GAV&amp;LOVE 🐾\nЩоб отримувати нагадування про візити, поділіться номером телефону, на який ви записувались:",
+    const c = await clientByChat(env, chat);
+    if (c) { await tgSendTo(env, chat, `Вітаємо знову, ${tgEsc(c.name || "")} 🐾${await nextVisitsText(env, c.id)}`, BOOK_BTN); return; }
+    await tgSendTo(env, chat, "Вітаємо в GAV&amp;LOVE 🐾\nЩоб отримувати нагадування або записатися, поділіться номером телефону:",
       { reply_markup: { keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }]], resize_keyboard: true, one_time_keyboard: true } });
     return;
   }
-  await tgSendTo(env, chat, "Я нагадую про візити в GAV&amp;LOVE. Натисніть /start, щоб підключити нагадування.");
+  await tgSendTo(env, chat, "Я нагадую про візити в GAV&amp;LOVE і можу записати вас на грумінг — натисніть кнопку або /book.", BOOK_BTN);
 }
+/* ---- Booking dialogue in the bot (/book): pet → service → breed/weight → date → time → confirm ---- */
+// Per-chat dialogue state lives in tg_sessions (Telegram itself is stateless). Expires after 45 min.
+async function tgGetState(env, chat) {
+  const r = await env.DB.prepare(`SELECT state, updated_at FROM tg_sessions WHERE chat_id=?`).bind(chat).first();
+  if (!r) return null;
+  if (r.updated_at && Date.now() - Date.parse(r.updated_at) > 45 * 60000) { await tgClearState(env, chat); return null; }
+  try { return JSON.parse(r.state || "{}"); } catch (e) { return null; }
+}
+async function tgSetState(env, chat, st) {
+  await env.DB.prepare(`INSERT INTO tg_sessions (chat_id,state,updated_at) VALUES (?,?,?) ON CONFLICT(chat_id) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at`)
+    .bind(chat, JSON.stringify(st || {}), new Date().toISOString()).run();
+}
+async function tgClearState(env, chat) { await env.DB.prepare(`DELETE FROM tg_sessions WHERE chat_id=?`).bind(chat).run(); }
+async function clientByChat(env, chat) { return await env.DB.prepare(`SELECT id,name,phone FROM clients WHERE tg_chat_id=?`).bind(chat).first(); }
+function kb(rows) { return { reply_markup: { inline_keyboard: rows } }; }
+function chunk(a, n) { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; }
+const CANCEL_ROW = [{ text: "✖ Скасувати", callback_data: "b:x" }];
+const DOW_UA = ["Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+
+async function bookingStart(env, chat) {
+  const c = await clientByChat(env, chat);
+  if (!c) {   // need a phone first — the contact handler continues the dialogue
+    await tgSetState(env, chat, { step: "contact" });
+    await tgSendTo(env, chat, "Щоб записатися, спочатку поділіться номером телефону:",
+      { reply_markup: { keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }]], resize_keyboard: true, one_time_keyboard: true } });
+    return;
+  }
+  await bookingAskPet(env, chat, c);
+}
+async function bookingAskPet(env, chat, c) {
+  const pets = (await env.DB.prepare(`SELECT id,name,species,breed,weight FROM pets WHERE client_id=? ORDER BY id`).bind(c.id).all()).results || [];
+  const rows = chunk(pets.slice(0, 8).map(p => ({ text: `${p.species === "cat" ? "🐱" : "🐶"} ${p.name || "?"}`, callback_data: `b:pet:${p.id}` })), 2);
+  rows.push([{ text: pets.length ? "🐶 Інший собака" : "🐶 Собака", callback_data: "b:sp:dog" }, { text: pets.length ? "🐱 Інший кіт" : "🐱 Кіт", callback_data: "b:sp:cat" }]);
+  rows.push(CANCEL_ROW);
+  await tgSetState(env, chat, { step: "pet" });
+  await tgSendTo(env, chat, "📅 <b>Запис на грумінг</b>\nХто йде на процедуру?", kb(rows));
+}
+async function bookingAskService(env, chat, st) {
+  const svcs = (await loadServices(env)).filter(s => s.bookable && !s.is_request && (!s.species || s.species === "both" || s.species === st.species));
+  if (!svcs.length) { await tgClearState(env, chat); await tgSendTo(env, chat, "Наразі немає послуг для онлайн-запису — напишіть нам, будь ласка."); return; }
+  const rows = svcs.map(s => [{ text: s.name, callback_data: `b:svc:${s.id}` }]); rows.push(CANCEL_ROW);
+  st.step = "service"; await tgSetState(env, chat, st);
+  await tgSendTo(env, chat, `${st.pet_name ? "🐾 " + tgEsc(st.pet_name) + "\n" : ""}Оберіть послугу:`, kb(rows));
+}
+async function bookingAfterService(env, chat, st, svc) {
+  st.service_id = svc.id; st.service = svc.name;
+  if (svc.price_type === "breed") {
+    const breeds = [...new Set((svc.rows || []).map(r => r[0]).filter(Boolean))];
+    if (st.species === "cat" || breeds.length <= 8) {   // short lists (and cat variants) as buttons
+      st.step = "breed"; st.breeds = breeds; await tgSetState(env, chat, st);
+      const rows = chunk(breeds.map((b, i) => ({ text: b, callback_data: `b:br:${i}` })), 2); rows.push(CANCEL_ROW);
+      await tgSendTo(env, chat, st.species === "cat" ? "Оберіть варіант:" : "Оберіть породу:", kb(rows)); return;
+    }
+    st.step = "breed_text"; st.breeds = breeds; await tgSetState(env, chat, st);
+    await tgSendTo(env, chat, "Напишіть породу улюбленця (наприклад, <i>Такса</i>):", kb([CANCEL_ROW])); return;
+  }
+  await bookingAskDate(env, chat, st, 0);
+}
+async function bookingAfterBreed(env, chat, st, breed) {
+  st.breed = breed;
+  const svc = await serviceInfo(env, st.service);
+  const variants = [...new Set(((svc && svc.rows) || []).filter(r => normBreed(r[0]) === normBreed(breed)).map(r => r[1]).filter(Boolean))];
+  if (variants.length > 1 && !st.weight) {
+    st.step = "weight"; st.weights = variants; await tgSetState(env, chat, st);
+    const rows = chunk(variants.map((w, i) => ({ text: w, callback_data: `b:w:${i}` })), 2); rows.push(CANCEL_ROW);
+    await tgSendTo(env, chat, "Вага улюбленця:", kb(rows)); return;
+  }
+  if (variants.length === 1 && !st.weight) st.weight = variants[0];
+  await bookingAskDate(env, chat, st, 0);
+}
+async function bookingAskDate(env, chat, st, page) {
+  page = Math.max(0, Math.min(3, page || 0));
+  const days = [];
+  for (let i = page * 7; i < page * 7 + 7; i++) {
+    const iso = isoInTz(new Date(Date.now() + i * 86400000), BUSINESS.tz);
+    const [y, m, d] = iso.split("-").map(Number), dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    days.push({ text: `${DOW_UA[dow]} ${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}`, callback_data: `b:d:${iso}` });
+  }
+  const rows = chunk(days, 4), nav = [];
+  if (page > 0) nav.push({ text: "◀ Раніше", callback_data: `b:dp:${page - 1}` });
+  if (page < 3) nav.push({ text: "Далі ▶", callback_data: `b:dp:${page + 1}` });
+  if (nav.length) rows.push(nav); rows.push(CANCEL_ROW);
+  st.step = "date"; st.page = page; await tgSetState(env, chat, st);
+  await tgSendTo(env, chat, "Оберіть дату:", kb(rows));
+}
+async function bookingAskTime(env, chat, st) {
+  let slots = [];
+  try { slots = ((await getSlots(new URL(`https://x/slots?date=${st.date}&service=${encodeURIComponent(st.service || "")}`), env)) || {}).slots || []; } catch (e) { }
+  if (!slots.length) {
+    st.step = "date"; await tgSetState(env, chat, st);
+    await tgSendTo(env, chat, `На ${fmtDdMm(st.date)} вільного часу немає 😔`, kb([[{ text: "📅 Інша дата", callback_data: `b:dp:${st.page || 0}` }], CANCEL_ROW])); return;
+  }
+  const rows = chunk(slots.slice(0, 24).map(t => ({ text: t, callback_data: `b:t:${t}` })), 4);
+  rows.push([{ text: "📅 Інша дата", callback_data: `b:dp:${st.page || 0}` }], CANCEL_ROW);
+  st.step = "time"; await tgSetState(env, chat, st);
+  await tgSendTo(env, chat, `${fmtDdMm(st.date)} — оберіть час:`, kb(rows));
+}
+async function bookingConfirm(env, chat, st) {
+  const c = await clientByChat(env, chat);
+  let price = null; try { price = await priceForBooking(env, { service: st.service, breed: st.breed, weight: st.weight }); } catch (e) { }
+  const who = st.pet_name || (st.species === "cat" ? "Кіт" : "Собака");
+  const sum = `🐾 ${tgEsc(who)}${st.breed ? " · " + tgEsc(st.breed) : ""}${st.weight ? " · " + tgEsc(st.weight) : ""}\n✂️ ${tgEsc(st.service)}\n📅 ${fmtDdMm(st.date)} о <b>${tgEsc(st.time)}</b>\n👤 ${tgEsc(c ? c.name : "")}, ${tgEsc(c ? c.phone : "")}\n💰 ${price != null ? price + " ₴" : "ціну уточнимо на місці"}`;
+  st.step = "confirm"; await tgSetState(env, chat, st);
+  await tgSendTo(env, chat, `Перевірте запис:\n${sum}`, kb([[{ text: "✅ Підтвердити", callback_data: "b:ok" }], [{ text: "🕐 Інший час", callback_data: "b:back:time" }, { text: "📅 Інша дата", callback_data: `b:dp:${st.page || 0}` }], CANCEL_ROW]));
+}
+async function bookingCreate(env, chat, st) {
+  const c = await clientByChat(env, chat);
+  if (!c) { await tgClearState(env, chat); await tgSendTo(env, chat, "Сесія завершилась — почнімо знову: /book"); return; }
+  const res = await book({ pet: st.species === "cat" ? "Кіт" : "Собака", pet_name: st.pet_name || "", service: st.service, breed: st.breed || "", weight: st.weight || "", name: c.name, phone: c.phone, date: st.date, time: st.time, note: "" }, env, "telegram");
+  if (!res || !res.ok) { await tgSendTo(env, chat, tgEsc((res && res.error) || "Не вдалося створити запис."), kb([[{ text: "🕐 Обрати інший час", callback_data: "b:back:time" }], CANCEL_ROW])); return; }
+  await tgClearState(env, chat);   // book() already sent this linked client the "Запис створено" message with ✅/❌
+  await tgSendTo(env, chat, "🎉 Записали! Нагадаємо напередодні та за пару годин до візиту. До зустрічі 🐾");
+}
+async function bookingStep(env, chat, data) {
+  const a = data.split(":"), k = a[1], v = a.slice(2).join(":");
+  if (k === "x") { await tgClearState(env, chat); await tgSendTo(env, chat, "Добре, запис скасовано. Почати знову — /book"); return; }
+  if (k === "start") { await bookingStart(env, chat); return; }
+  const st = await tgGetState(env, chat);
+  if (!st || !st.step) { await tgSendTo(env, chat, "Ця сесія завершилась — почнімо знову 🙂"); await bookingStart(env, chat); return; }
+  if (k === "pet") { const p = await env.DB.prepare(`SELECT id,name,species,breed,weight FROM pets WHERE id=?`).bind(+v).first(); if (!p) return;
+    Object.assign(st, { species: p.species === "cat" ? "cat" : "dog", pet_id: p.id, pet_name: p.name || "", breed: p.breed || "", weight: p.weight || "" }); await bookingAskService(env, chat, st); return; }
+  if (k === "sp") { Object.assign(st, { species: v === "cat" ? "cat" : "dog", pet_id: null, pet_name: "", breed: "", weight: "" }); await bookingAskService(env, chat, st); return; }
+  if (k === "svc") { const svc = (await loadServices(env)).find(s => String(s.id) === v); if (!svc) return;
+    if (st.breed && svc.price_type === "breed") { st.service_id = svc.id; st.service = svc.name; await bookingAfterBreed(env, chat, st, st.breed); }
+    else await bookingAfterService(env, chat, st, svc); return; }
+  if (k === "br") { const b = (st.breeds || [])[+v]; if (b == null) return; await bookingAfterBreed(env, chat, st, b); return; }
+  if (k === "w") { const w = (st.weights || [])[+v]; if (w == null) return; st.weight = w; await bookingAskDate(env, chat, st, 0); return; }
+  if (k === "dp") { await bookingAskDate(env, chat, st, +v || 0); return; }
+  if (k === "d") { st.date = v; await bookingAskTime(env, chat, st); return; }
+  if (k === "t") { st.time = v; await bookingConfirm(env, chat, st); return; }
+  if (k === "back" && v === "time") { await bookingAskTime(env, chat, st); return; }
+  if (k === "ok") { if (st.step !== "confirm") return; await bookingCreate(env, chat, st); return; }
+}
+
 async function tgWebhook(request, env) {
   if ((request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "") !== await tgWebhookSecret(env)) { const e = new Error("forbidden"); e.status = 403; throw e; }
   const update = await request.json().catch(() => null);
@@ -1441,6 +1605,7 @@ async function tgSetup(request, env) { // owner: remember the bot username and r
   await env.DB.prepare(`INSERT INTO settings (key,value) VALUES ('tg_bot',?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(username, username).run();
   const url = new URL(request.url).origin + "/tg/webhook";
   const wh = await tgApi(env, "setWebhook", { url, secret_token: await tgWebhookSecret(env), allowed_updates: ["message", "callback_query"] });
+  try { await tgApi(env, "setMyCommands", { commands: [{ command: "book", description: "Записатися на грумінг" }, { command: "visits", description: "Мої найближчі візити" }, { command: "start", description: "Підключити нагадування" }] }); } catch (e) { }
   return { ok: !!(wh && wh.ok), bot: username, webhook: url, set: (wh && wh.description) || "", error: wh && !wh.ok ? wh.description : undefined };
 }
 async function tgTest(request, env) { // owner-only QA hook: run a synthetic update through the same handler
