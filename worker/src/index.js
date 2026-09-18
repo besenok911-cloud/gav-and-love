@@ -1039,7 +1039,10 @@ const normW = x => String(x || "").toLowerCase().replace(/\s+/g, " ").replace(/�
 // Pick the price row for a breed (+optional weight). Rows are [breed, weight, price].
 function pickBreedRow(rows, breed, weight) {
   const b = normBreed(breed); if (!b) return null;
-  const bm = (rows || []).filter(r => { const l = normBreed(r[0]); return l && (l === b || b.includes(l) || l.includes(b)); });
+  const all = rows || [];
+  let bm = all.filter(r => normBreed(r[0]) === b);   // exact label wins ("Вичісування" must not resolve to "Мейн-кун (вичісування)")
+  if (!bm.length) bm = all.filter(r => { const l = normBreed(r[0]); return l && (b.includes(l) || l.includes(b)); })
+    .sort((x, y) => Math.abs(normBreed(x[0]).length - b.length) - Math.abs(normBreed(y[0]).length - b.length)); // closest label first
   if (!bm.length) return null;
   if (bm.length === 1) return bm[0];
   const w = normW(weight);

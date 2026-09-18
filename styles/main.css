@@ -252,6 +252,7 @@ h1,h2,h3{font-family:var(--font-head);font-weight:600;line-height:1.12;margin:0;
 .booking-form{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px;max-width:780px;margin:0 auto;
   background:var(--paper);padding:clamp(24px,3vw,38px);border-radius:var(--radius-lg);box-shadow:var(--shadow);color:var(--ink)}
 .field{display:flex;flex-direction:column;gap:6px}
+.field[hidden]{display:none} /* the hidden attribute must beat display:flex (breed / weight / slots fields) */
 .field-wide{grid-column:1/-1}
 .field label{font-weight:700;font-size:.85rem;color:var(--ink)}
 .field .muted{color:var(--ink-soft);font-weight:400}

@@ -141,7 +141,11 @@
   // Rows of a breed service are [breed, weight, price]. Pick the row for breed(+weight).
   function breedRows(rows, breed) {
     const b = normBreed(breed); if (!b) return [];
-    return (rows || []).filter(r => { const l = normBreed(r[0]); return l && (l === b || b.includes(l) || l.includes(b)); });
+    const all = rows || [];
+    const exact = all.filter(r => normBreed(r[0]) === b);
+    if (exact.length) return exact;                     // exact label wins ("Вичісування" must not pick "Мейн-кун (вичісування)")
+    return all.filter(r => { const l = normBreed(r[0]); return l && (b.includes(l) || l.includes(b)); })
+      .sort((x, y) => Math.abs(normBreed(x[0]).length - b.length) - Math.abs(normBreed(y[0]).length - b.length)); // closest label first
   }
   function pickBreedRow(rows, breed, weight) {
     const bm = breedRows(rows, breed); if (!bm.length) return null;
