@@ -36,6 +36,7 @@
   .btn:hover{background:var(--violet-d)}
   .btn.ghost{background:transparent;border-color:rgba(255,255,255,.4);color:#fff}
   .btn.saved{background:var(--confirmed)!important;border-color:var(--confirmed)!important;color:#fff!important}
+  .whoami{color:#fff;font-weight:800;font-size:.82rem;opacity:.85;white-space:nowrap;margin-right:2px}
   .btn.save-main{background:var(--confirmed);border-color:var(--confirmed);font-size:.95rem;padding:.55em 1.5em;box-shadow:0 3px 10px rgba(47,143,91,.3)}
   .btn.save-main:hover{background:#26794c}
   .toast{position:fixed;left:50%;top:16px;transform:translate(-50%,-30px);z-index:99999;background:var(--confirmed);color:#fff;
@@ -359,14 +360,18 @@
     <button class="tabbtn" data-view="reviews">Відгуки</button>
   </div>
   <span class="sp"></span>
-  <button class="btn ghost sm" id="remindBtn" hidden title="Нагадування">🔔</button>
+  <span class="whoami" id="whoami" hidden></span>
+  <button class="btn ghost sm" id="usersBtn" hidden title="Доступи та акаунти">👥 Доступи</button>
+  <button class="btn ghost sm" id="pwBtn" hidden title="Змінити пароль">🔑</button>
+  <button class="btn ghost sm" id="remindBtn" hidden title="Нагадування та лояльність">🔔</button>
   <button class="btn ghost sm" id="refreshBtn" hidden>↻ Оновити</button>
   <button class="btn ghost sm" id="logoutBtn" hidden>Вийти</button>
 </header>
 
 <div class="login" id="loginCard">
   <h2>Вхід у CRM</h2>
-  <p>Введіть пароль доступу до панелі записів.</p>
+  <p>Увійдіть за логіном і паролем.</p>
+  <input type="text" id="userInput" placeholder="Логін" autocomplete="username" autocapitalize="off" spellcheck="false" />
   <input type="password" id="tokenInput" placeholder="Пароль" autocomplete="current-password" />
   <button class="btn" id="loginBtn">Увійти</button>
   <p class="err" id="loginErr"></p>
@@ -550,6 +555,31 @@
   </div>
 </div>
 
+<!-- Change password -->
+<div class="modal" id="pwModal">
+  <div class="sheet" style="width:min(440px,100%)">
+    <h2>🔑 Зміна пароля</h2>
+    <p class="muted" id="pwHint" style="font-size:.86rem;margin:0 0 14px"></p>
+    <div class="fld" style="margin-bottom:10px" id="pwOldWrap"><label>Поточний пароль</label><input type="password" id="pw-old" autocomplete="current-password"></div>
+    <div class="fld" style="margin-bottom:10px"><label>Новий пароль</label><input type="password" id="pw-new" autocomplete="new-password"></div>
+    <div class="fld" style="margin-bottom:8px"><label>Повторіть новий пароль</label><input type="password" id="pw-new2" autocomplete="new-password"></div>
+    <p class="modal-err" id="pwErr"></p>
+    <div class="sheet-act"><span style="flex:1"></span><button class="btn ghost sm" id="pw-cancel" style="border-color:var(--line);color:var(--ink-soft)">Закрити</button><button class="btn" id="pw-save">Зберегти</button></div>
+  </div>
+</div>
+
+<!-- Users / access (owner only) -->
+<div class="modal" id="usersModal">
+  <div class="sheet" style="width:min(760px,100%)">
+    <h2>👥 Доступи та акаунти</h2>
+    <p class="muted" style="font-size:.86rem;margin:0 0 14px">Створюйте акаунти для співробітників і задавайте ролі. <b>Власник</b> — усе. <b>Адміністратор</b> — усе, крім фінансів та акаунтів. <b>Майстер</b> — лише свій кабінет.</p>
+    <div id="um-list"></div>
+    <div style="margin-top:14px"><button class="btn" id="um-add">+ Додати акаунт</button></div>
+    <p class="modal-err" id="umErr"></p>
+    <div class="sheet-act"><span style="flex:1"></span><button class="btn ghost sm" id="um-close" style="border-color:var(--line);color:var(--ink-soft)">Закрити</button></div>
+  </div>
+</div>
+
 <script src="data/config.js?v=15"></script>
 <script>
 (function(){
@@ -561,10 +591,12 @@
   var _toastT;
   function toast(msg,isErr){var t=$("#toast");if(!t){return;}t.textContent=(isErr?"⚠ ":"✓ ")+msg;t.classList.toggle("err",!!isErr);t.classList.add("show");clearTimeout(_toastT);_toastT=setTimeout(function(){t.classList.remove("show");},2800);}
   var token=""; try{token=localStorage.getItem(KEY)||"";}catch(e){}
+  var userRole="", userName="", mustChange=0;
+  try{userRole=localStorage.getItem(KEY+"_role")||"";userName=localStorage.getItem(KEY+"_name")||"";}catch(e){}
   var all=[], filter="all", q="", view="dash", editId=null, dateFrom="", dateTo="", calRef=null;
   var sortKey="", sortDir=1, filtersWired=false, colFilters={client:"",pet:"",service:"",staff:"",source:""};
   var clients=[], pets=[], clientQ="", editClientId=null, editPetId=null, petClientId=null, mastersList=[];
-  var settingsState={}, reviewsList=[];
+  var settingsState={}, reviewsList=[], usersList=[];
   var repFrom="", repTo="";
   var svcList=[], notesState={gift:"",big:""}, svcCatalog=[];
   var finFrom="", finTo="", expenses=[], PAYM={cash:"Готівка",card:"Картка",transfer:"Переказ"};
@@ -637,9 +669,21 @@
   if($("#f-addons"))$("#f-addons").addEventListener("change",autoPrice);
 
   function showLogin(msg){$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
-    $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;$("#loginErr").textContent=msg||"";}
-  function showApp(){$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;$("#remindBtn").hidden=false;setView(view);}
-  function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");$("#reportsView").hidden=(v!=="reports");$("#servicesView").hidden=(v!=="services");$("#financeView").hidden=(v!=="finance");$("#reviewsView").hidden=(v!=="reviews");
+    $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;
+    $("#whoami").hidden=true;$("#usersBtn").hidden=true;$("#pwBtn").hidden=true;$("#loginErr").textContent=msg||"";}
+  function showApp(){$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;$("#remindBtn").hidden=false;
+    $("#pwBtn").hidden=false;applyRole();setView(view);}
+  var ROLE_L={owner:"Власник",admin:"Адміністратор",master:"Майстер"};
+  function isOwner(){return userRole==="owner";}
+  function applyRole(){
+    // header identity + owner-only controls
+    $("#whoami").hidden=false;$("#whoami").textContent=(userName||"")+" · "+(ROLE_L[userRole]||userRole);
+    $("#usersBtn").hidden=!isOwner();
+    // Фінанси — owner only
+    var finBtn=document.querySelector('.tabbtn[data-view="finance"]');if(finBtn)finBtn.style.display=isOwner()?"":"none";
+    if(!isOwner()&&view==="finance")view="dash";
+  }
+  function setView(v){if(v==="finance"&&!isOwner())v="dash";view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");$("#reportsView").hidden=(v!=="reports");$("#servicesView").hidden=(v!=="services");$("#financeView").hidden=(v!=="finance");$("#reviewsView").hidden=(v!=="reviews");
     [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.classList.toggle("on",b.dataset.view===v);});
     if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else if(v==="reports")renderReports(); else if(v==="services")renderServices(); else if(v==="finance")renderFinance(); else if(v==="reviews")renderReviews(); else render();}
   [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.addEventListener("click",function(){setView(b.dataset.view);});});
@@ -654,12 +698,33 @@
     if(svcCatalog.length){var dl=$("#svcList");if(dl)dl.innerHTML=svcCatalog.map(function(s){return '<option>'+esc(s.name)+'</option>';}).join("");}
     try{settingsState=(await api("/admin/settings")).settings||{};}catch(e){}
   }
-  async function tryLogin(t){token=t;
-    try{var d=await api("/admin/list");try{localStorage.setItem(KEY,token);}catch(e){}all=d.bookings||[];await loadClientsPets();showApp();renderPills();}
-    catch(e){showLogin(e&&e.code===401?"Невірний пароль.":"Помилка з'єднання. Спробуйте ще раз.");}}
-  $("#loginBtn").addEventListener("click",function(){tryLogin($("#tokenInput").value.trim());});
-  $("#tokenInput").addEventListener("keydown",function(e){if(e.key==="Enter")tryLogin(e.target.value.trim());});
-  $("#logoutBtn").addEventListener("click",function(){try{localStorage.removeItem(KEY);}catch(e){}token="";$("#tokenInput").value="";showLogin("");});
+  async function doLogin(username,password){
+    $("#loginErr").textContent="Вхід…";
+    try{
+      var res=await fetch(API+"/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:username,password:password})});
+      var d=await res.json();
+      if(!res.ok||!d.ok){showLogin(d&&d.error?d.error:"Невірний логін або пароль.");return;}
+      token=d.token;userRole=d.role;userName=d.name;mustChange=d.must_change?1:0;
+      try{localStorage.setItem(KEY,token);localStorage.setItem(KEY+"_role",userRole);localStorage.setItem(KEY+"_name",userName);}catch(e){}
+      await afterLogin();
+    }catch(e){showLogin("Помилка з'єднання. Спробуйте ще раз.");}
+  }
+  async function afterLogin(){
+    try{all=(await api("/admin/list")).bookings||[];await loadClientsPets();showApp();renderPills();
+      if(mustChange)setTimeout(function(){openPwModal(true);},350);
+    }catch(e){logoutLocal();showLogin("Сесія недійсна. Увійдіть знову.");}
+  }
+  async function restoreSession(){
+    try{var me=await api("/auth/me");userRole=me.role;userName=me.name;mustChange=me.must_change?1:0;
+      try{localStorage.setItem(KEY+"_role",userRole);localStorage.setItem(KEY+"_name",userName);}catch(e){}
+      await afterLogin();
+    }catch(e){logoutLocal();showLogin("");}
+  }
+  function logoutLocal(){token="";userRole="";userName="";try{localStorage.removeItem(KEY);localStorage.removeItem(KEY+"_role");localStorage.removeItem(KEY+"_name");}catch(e){}}
+  $("#loginBtn").addEventListener("click",function(){doLogin($("#userInput").value.trim(),$("#tokenInput").value);});
+  $("#tokenInput").addEventListener("keydown",function(e){if(e.key==="Enter")doLogin($("#userInput").value.trim(),$("#tokenInput").value);});
+  $("#userInput").addEventListener("keydown",function(e){if(e.key==="Enter")$("#tokenInput").focus();});
+  $("#logoutBtn").addEventListener("click",function(){var t=token;logoutLocal();$("#tokenInput").value="";$("#userInput").value="";showLogin("");try{fetch(API+"/auth/logout",{method:"POST",headers:{"Authorization":"Bearer "+t}});}catch(e){}});
   async function reload(){try{var d=await api("/admin/list");all=d.bookings||[];await loadClientsPets();renderPills();setView(view);}catch(e){if(e.code===401)showLogin("Сесія завершилась, увійдіть знову.");}}
   $("#refreshBtn").addEventListener("click",reload);
 
@@ -1493,12 +1558,13 @@
         '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Вихідні:</span>'+
           DOW.map(function(d){return '<label style="font-size:.8rem;font-weight:700;display:flex;gap:3px;align-items:center"><input type="checkbox" class="mm-dow" data-n="'+d.n+'"'+(off.indexOf(String(d.n))>=0?" checked":"")+' style="width:auto">'+d.l+'</label>';}).join("")+
         '</div>'+
+        (isOwner()?(
         '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Зарплата:</span>'+
           '<select class="mm-saltype" style="'+ib+'"><option value="">—</option><option value="percent"'+(m.salary_type==="percent"?" selected":"")+'>% від виручки</option><option value="fixed"'+(m.salary_type==="fixed"?" selected":"")+'>Фіксована</option><option value="per_visit"'+(m.salary_type==="per_visit"?" selected":"")+'>За візит</option><option value="base_pct"'+(m.salary_type==="base_pct"?" selected":"")+'>Ставка + %</option></select>'+
           '<input type="number" min="0" class="mm-salbase" value="'+(m.salary_base!=null?m.salary_base:"")+'" placeholder="ставка, ₴" style="'+ib+';max-width:120px">'+
           '<input type="number" min="0" class="mm-salval" value="'+(m.salary_value!=null?m.salary_value:"")+'" placeholder="напр. 40 або 15000" style="'+ib+';max-width:150px">'+
           '<span class="mm-salhint" style="font-size:.76rem;color:var(--ink-soft)"></span>'+
-        '</div>'+
+        '</div>'):"")+
         '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Відпустка:</span><input type="date" class="mm-vfrom" value="'+esc(v0.from||"")+'" style="'+ib+'"> – <input type="date" class="mm-vto" value="'+esc(v0.to||"")+'" style="'+ib+'"></div>'+
         '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span style="font-size:.85rem;color:var(--ink-soft)">Код кабінету:</span><input class="mm-code" value="'+esc(m.access_code||"")+'" placeholder="код входу майстра" style="'+ib+';font-family:monospace;letter-spacing:.06em;max-width:150px"><button type="button" class="btn sm mm-gencode">Згенерувати</button><button type="button" class="btn icon mm-copycode" title="Скопіювати">⧉</button><a href="master.html" target="_blank" style="font-size:.78rem;color:var(--violet);font-weight:800">↗ сторінка майстра</a></div>'+
         '<div style="display:flex;gap:10px;align-items:center;margin-top:12px;border-top:1px solid var(--line);padding-top:12px"><button class="btn save-main mm-save">💾 Зберегти майстра</button><span style="flex:1"></span><button class="btn danger sm mm-del">✕ Видалити</button></div>'+
@@ -1509,8 +1575,7 @@
       sb.addEventListener("click",function(){saveMasterRow(row,sb);});
       row.querySelector(".mm-del").addEventListener("click",function(){delMasterRow(row);});
       var sel=row.querySelector(".mm-saltype");
-      sel.addEventListener("change",function(){syncSal(row);});
-      syncSal(row);
+      if(sel){sel.addEventListener("change",function(){syncSal(row);});syncSal(row);}
       var gc=row.querySelector(".mm-gencode");if(gc)gc.addEventListener("click",function(){row.querySelector(".mm-code").value="gl"+Math.random().toString(36).slice(2,8);});
       var cc=row.querySelector(".mm-copycode");if(cc)cc.addEventListener("click",function(){var v=row.querySelector(".mm-code").value;if(!v){toast("Код порожній",true);return;}try{navigator.clipboard.writeText(v);toast("Код скопійовано");}catch(e){toast("Код: "+v);}});
     });
@@ -1528,13 +1593,14 @@
   function collectRow(row){
     var off=[].filter.call(row.querySelectorAll(".mm-dow"),function(c){return c.checked;}).map(function(c){return c.dataset.n;}).join(",");
     var vf=row.querySelector(".mm-vfrom").value,vt=row.querySelector(".mm-vto").value;
-    var sv=row.querySelector(".mm-salval").value,sbv=row.querySelector(".mm-salbase").value;
+    var salTypeEl=row.querySelector(".mm-saltype"); // owner-only
     var p={name:row.querySelector(".mm-name").value.trim(),active:row.querySelector(".mm-active").checked?1:0,
       work_start:row.querySelector(".mm-start").value||"10:00",work_end:row.querySelector(".mm-end").value||"20:00",
       days_off:off,vacations:(vf&&vt)?JSON.stringify([{from:vf,to:vt}]):"",
-      salary_type:row.querySelector(".mm-saltype").value,salary_value:(sv===""?null:Number(sv)),salary_base:(sbv===""?null:Number(sbv)),
       break_start:row.querySelector(".mm-brstart").value||"",break_end:row.querySelector(".mm-brend").value||"",
       access_code:row.querySelector(".mm-code").value.trim()};
+    if(salTypeEl){var sv=row.querySelector(".mm-salval").value,sbv=row.querySelector(".mm-salbase").value;
+      p.salary_type=salTypeEl.value;p.salary_value=(sv===""?null:Number(sv));p.salary_base=(sbv===""?null:Number(sbv));}
     if(+row.dataset.id)p.id=+row.dataset.id;
     return p;
   }
@@ -1606,6 +1672,90 @@
       reviewsList=reviewsList.filter(function(x){return x.id!==id;});drawReviews();}catch(e){toast("Не вдалося видалити",true);}
   }
 
+  /* ---------- change password ---------- */
+  function openPwModal(force){
+    $("#pwErr").textContent="";$("#pw-old").value="";$("#pw-new").value="";$("#pw-new2").value="";
+    $("#pwOldWrap").style.display=force?"none":"";
+    $("#pwHint").textContent=force?"Перший вхід — задайте власний пароль замість тимчасового.":("Ви — "+(userName||"")+" ("+(ROLE_L[userRole]||userRole)+"). Введіть поточний і новий пароль.");
+    $("#pwModal").classList.add("open");
+  }
+  $("#pwBtn").addEventListener("click",function(){openPwModal(false);});
+  $("#pw-cancel").addEventListener("click",function(){$("#pwModal").classList.remove("open");});
+  $("#pwModal").addEventListener("click",function(e){if(e.target===$("#pwModal"))$("#pwModal").classList.remove("open");});
+  $("#pw-save").addEventListener("click",async function(){
+    var np=$("#pw-new").value,np2=$("#pw-new2").value;
+    $("#pwErr").style.color="var(--cancelled)";
+    if(np.length<4){$("#pwErr").textContent="Пароль мінімум 4 символи.";return;}
+    if(np!==np2){$("#pwErr").textContent="Паролі не збігаються.";return;}
+    try{var r=await api("/auth/change-password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({old_password:$("#pw-old").value,new_password:np})});
+      if(r&&r.ok===false){$("#pwErr").textContent=r.error||"Не вдалося.";return;}
+      mustChange=0;$("#pwModal").classList.remove("open");toast("Пароль змінено");
+    }catch(e){$("#pwErr").textContent="Не вдалося змінити пароль.";}
+  });
+
+  /* ---------- users / access (owner) ---------- */
+  async function openUsersModal(){
+    if(!isOwner())return;
+    $("#umErr").textContent="";$("#usersModal").classList.add("open");
+    try{usersList=(await api("/admin/users")).users||[];}catch(e){usersList=[];}
+    renderUserRows();
+  }
+  function renderUserRows(){
+    var box=$("#um-list");var ib='border:1.5px solid var(--line);border-radius:8px;padding:.34em .5em';
+    var mopts=function(mid){return '<option value="">— не майстер —</option>'+mastersList.map(function(m){return '<option value="'+m.id+'"'+(String(mid)===String(m.id)?" selected":"")+'>'+esc(m.name)+'</option>';}).join("");};
+    box.innerHTML=usersList.map(function(u){
+      return '<div class="um-row" data-id="'+(u.id||0)+'" style="border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;display:flex;flex-wrap:wrap;gap:9px;align-items:center">'+
+        '<input class="um-username" value="'+esc(u.username||"")+'" placeholder="логін" autocapitalize="off" style="font-weight:800;'+ib+';max-width:120px">'+
+        '<input class="um-name" value="'+esc(u.name||"")+'" placeholder="Імʼя" style="'+ib+';max-width:140px">'+
+        '<select class="um-role" style="'+ib+'"><option value="owner"'+(u.role==="owner"?" selected":"")+'>Власник</option><option value="admin"'+(u.role==="admin"?" selected":"")+'>Адміністратор</option><option value="master"'+(u.role==="master"?" selected":"")+'>Майстер</option></select>'+
+        '<select class="um-master" style="'+ib+'">'+mopts(u.master_id)+'</select>'+
+        '<label style="font-size:.82rem;font-weight:700;display:flex;gap:5px;align-items:center"><input type="checkbox" class="um-active"'+(u.active?" checked":"")+' style="width:auto">Активний</label>'+
+        '<span style="flex:1"></span>'+
+        '<button class="btn icon um-pw" title="Скинути пароль">🔑</button>'+
+        '<button class="btn sm um-save">Зберегти</button>'+
+        (u.role!=="owner"?'<button class="btn danger sm um-del">✕</button>':'')+
+      '</div>';
+    }).join("")||'<p class="muted">Акаунтів немає.</p>';
+    [].forEach.call(box.querySelectorAll(".um-row"),function(row){
+      row.querySelector(".um-save").addEventListener("click",function(){saveUser(row);});
+      row.querySelector(".um-pw").addEventListener("click",function(){resetUserPw(row);});
+      var del=row.querySelector(".um-del");if(del)del.addEventListener("click",function(){delUser(row);});
+    });
+  }
+  function collectUser(row){
+    var p={username:row.querySelector(".um-username").value.trim(),name:row.querySelector(".um-name").value.trim(),
+      role:row.querySelector(".um-role").value,master_id:row.querySelector(".um-master").value||null,active:row.querySelector(".um-active").checked?1:0};
+    if(+row.dataset.id)p.id=+row.dataset.id;
+    return p;
+  }
+  async function saveUser(row){
+    var p=collectUser(row);if(!p.username){toast("Вкажіть логін",true);return;}
+    if(!p.id){var np=prompt("Тимчасовий пароль для «"+p.username+"» (мін. 4):");if(np==null)return;if(np.length<4){toast("Мінімум 4 символи",true);return;}p.password=np;}
+    try{var r=await api("/admin/user-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});
+      if(r&&r.ok===false){toast(r.error||"Помилка",true);return;}
+      toast("Акаунт збережено");usersList=(await api("/admin/users")).users||[];renderUserRows();
+    }catch(e){toast("Не вдалося зберегти",true);}
+  }
+  async function resetUserPw(row){
+    var id=+row.dataset.id;if(!id){toast("Спершу збережіть акаунт",true);return;}
+    var np=prompt("Новий пароль для «"+row.querySelector(".um-username").value+"» (мін. 4):");
+    if(np==null)return;if(np.length<4){toast("Мінімум 4 символи",true);return;}
+    try{await api("/admin/user-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id,password:np})});
+      toast("Пароль оновлено — передайте його співробітнику");
+    }catch(e){toast("Не вдалося",true);}
+  }
+  async function delUser(row){
+    var id=+row.dataset.id;if(!id){row.remove();return;}
+    if(!confirm("Видалити акаунт «"+row.querySelector(".um-username").value+"»?"))return;
+    try{await api("/admin/user-delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id})});
+      usersList=usersList.filter(function(x){return x.id!==id;});renderUserRows();
+    }catch(e){toast("Не вдалося видалити",true);}
+  }
+  $("#um-add").addEventListener("click",function(){usersList.push({id:0,username:"",name:"",role:"master",master_id:null,active:1});renderUserRows();});
+  $("#usersBtn").addEventListener("click",openUsersModal);
+  $("#um-close").addEventListener("click",function(){$("#usersModal").classList.remove("open");});
+  $("#usersModal").addEventListener("click",function(e){if(e.target===$("#usersModal"))$("#usersModal").classList.remove("open");});
+
   /* ---------- reminders ---------- */
   async function openRemindModal(){
     $("#rmErr").textContent="";
@@ -1660,7 +1810,7 @@
     downloadCSV("gavlove-klienty-"+today10()+".csv",H,rows);
   }
 
-  if(token){tryLogin(token);}else{showLogin("");}
+  if(token){restoreSession();}else{showLogin("");}
 })();
 </script>
 </body>

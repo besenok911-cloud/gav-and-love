@@ -96,6 +96,18 @@
   .toast.show{opacity:1;transform:translate(-50%,0)}
   .toast.err{background:var(--cancelled)}
   .foot{text-align:center;color:var(--ink-soft);font-size:.78rem;padding:8px 0 24px}
+  /* password modal */
+  .pw-back{position:fixed;inset:0;background:rgba(28,19,64,.45);display:flex;align-items:center;justify-content:center;z-index:200;padding:16px}
+  .pw-modal{background:var(--paper);border-radius:20px;padding:24px 22px;width:100%;max-width:380px;box-shadow:var(--shadow)}
+  .pw-modal h2{font-family:var(--font-head);font-weight:600;margin:0 0 4px;font-size:1.35rem}
+  .pw-hint{color:var(--ink-soft);font-size:.88rem;margin:0 0 16px}
+  .pw-modal input{width:100%;padding:.75em .9em;border:1.5px solid var(--line);border-radius:12px;font-size:1rem;margin-bottom:10px;font-family:var(--font-body)}
+  .pw-modal input:focus{outline:none;border-color:var(--violet)}
+  .pw-act{display:flex;gap:10px;margin-top:8px}
+  .pw-act .btn{flex:1}
+  .btn.ghost2{background:#fff;border:1.5px solid var(--line);color:var(--ink-soft)}
+  #pwBtn{white-space:nowrap}
+  @media(max-width:560px){#pwBtn{font-size:0;padding:.4em .7em}#pwBtn::after{content:"🔑";font-size:1rem}}
 </style>
 </head>
 <body>
@@ -105,8 +117,9 @@
 <div id="loginView">
   <div class="login">
     <h1>Кабінет майстра</h1>
-    <p>Введіть особистий код доступу.<br>Його видає адміністратор салону.</p>
-    <input id="code" inputmode="text" autocomplete="off" placeholder="Ваш код" autocapitalize="off">
+    <p>Увійдіть за логіном і паролем.<br>Їх видає адміністратор салону.</p>
+    <input id="mu-user" autocomplete="username" placeholder="Логін" autocapitalize="off" spellcheck="false">
+    <input id="mu-pass" type="password" autocomplete="current-password" placeholder="Пароль">
     <button class="btn" id="loginBtn">Увійти</button>
     <div class="err" id="loginErr"></div>
   </div>
@@ -120,6 +133,7 @@
       <span class="brand-sub">Кабінет майстра</span>
       <span class="sp"></span>
       <span class="who" id="who"></span>
+      <button class="btn ghost" id="pwBtn" title="Змінити пароль">🔑 Пароль</button>
       <button class="btn ghost" id="logoutBtn">Вийти</button>
     </div>
   </div>
@@ -158,13 +172,29 @@
   </div>
 </div>
 
+<!-- change password -->
+<div class="pw-back" id="pwBack" hidden>
+  <div class="pw-modal">
+    <h2 id="pwTitle">Зміна пароля</h2>
+    <p class="pw-hint" id="pwHint"></p>
+    <input type="password" id="pw-old" placeholder="Поточний пароль" autocomplete="current-password">
+    <input type="password" id="pw-new" placeholder="Новий пароль" autocomplete="new-password">
+    <input type="password" id="pw-new2" placeholder="Повторіть новий пароль" autocomplete="new-password">
+    <div class="err" id="pwErr"></div>
+    <div class="pw-act">
+      <button class="btn ghost2" id="pw-cancel">Скасувати</button>
+      <button class="btn" id="pw-save">Зберегти</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   var API="https://gavlove-booking.besenok911.workers.dev";
-  var KEY="gavlove_master_code";
+  var KEY="gavlove_master_token";
   var $=function(s){return document.querySelector(s);};
-  var code="", data=null, _tt, period="month";
-  try{code=localStorage.getItem(KEY)||"";}catch(e){}
+  var token="", data=null, _tt, period="month", mustChange=0;
+  try{token=localStorage.getItem(KEY)||"";}catch(e){}
 
   var STL={new:"Нова",confirmed:"Підтверджена",arrived:"Прибув",in_progress:"У процесі",done:"Готово",paid:"Оплачено",no_show:"Не прийшов",cancelled:"Скасована",waitlist:"Лист очікування"};
   var STC={new:"var(--new)",confirmed:"var(--confirmed)",arrived:"var(--arrived)",in_progress:"var(--in_progress)",done:"var(--done)",paid:"var(--paid)",no_show:"var(--no_show)",cancelled:"var(--cancelled)",waitlist:"var(--waitlist)"};
@@ -201,17 +231,29 @@
     return "схему задасть адмін";}
 
   async function load(){
-    var r=await fetch(API+"/master/data?code="+encodeURIComponent(code));
+    var r=await fetch(API+"/master/data",{headers:{"Authorization":"Bearer "+token}});
     if(r.status===401)throw {code:401};
     if(!r.ok)throw {code:r.status};
     return r.json();
   }
-  function tryLogin(c){
-    code=c;$("#loginErr").textContent="";
-    load().then(function(d){data=d;try{localStorage.setItem(KEY,code);}catch(e){}showApp();})
-      .catch(function(e){$("#loginErr").textContent=(e&&e.code===401)?"Невірний код доступу.":"Помилка з'єднання. Спробуйте ще.";});
+  function doLogin(user,pass){
+    $("#loginErr").textContent="Вхід…";
+    fetch(API+"/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:user,password:pass})})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(!d||!d.ok){$("#loginErr").textContent=(d&&d.error)||"Невірний логін або пароль.";return;}
+        if(d.role!=="master"){$("#loginErr").textContent="Цей акаунт не є майстром. Увійдіть у CRM.";return;}
+        token=d.token;mustChange=d.must_change?1:0;try{localStorage.setItem(KEY,token);}catch(e){}
+        load().then(function(dd){data=dd;showApp();if(mustChange)setTimeout(function(){openPw(true);},350);})
+          .catch(function(){$("#loginErr").textContent="Не вдалося завантажити дані.";});
+      })
+      .catch(function(){$("#loginErr").textContent="Помилка з'єднання. Спробуйте ще.";});
   }
-  function showLogin(){$("#loginView").hidden=false;$("#appView").hidden=true;$("#code").value=code;}
+  function restore(){
+    load().then(function(d){data=d;showApp();}).catch(function(){logoutLocal();showLogin();});
+  }
+  function logoutLocal(){token="";data=null;try{localStorage.removeItem(KEY);}catch(e){}}
+  function showLogin(){$("#loginView").hidden=false;$("#appView").hidden=true;$("#pwBack").hidden=true;}
   function showApp(){$("#loginView").hidden=true;$("#appView").hidden=false;render();}
 
   function fmtDayLabel(iso){
@@ -285,22 +327,45 @@
   function setStatus(id,status){
     var b=(data.bookings||[]).filter(function(x){return x.id===id;})[0];if(!b)return;
     var prev=b.status;b.status=status;render();  // optimistic
-    fetch(API+"/master/status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:code,id:id,status:status})})
+    fetch(API+"/master/status",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},body:JSON.stringify({id:id,status:status})})
       .then(function(r){if(!r.ok)throw 0;return r.json();})
       .then(function(){toast("Статус: "+(STL[status]||status));})
       .catch(function(){b.status=prev;render();toast("Не вдалося оновити",true);});
   }
 
-  $("#loginBtn").addEventListener("click",function(){tryLogin($("#code").value.trim());});
-  $("#code").addEventListener("keydown",function(e){if(e.key==="Enter")tryLogin($("#code").value.trim());});
-  $("#logoutBtn").addEventListener("click",function(){try{localStorage.removeItem(KEY);}catch(e){}code="";data=null;showLogin();});
+  /* change password */
+  function openPw(force){
+    $("#pwErr").textContent="";$("#pw-old").value="";$("#pw-new").value="";$("#pw-new2").value="";
+    $("#pw-old").style.display=force?"none":"";
+    $("#pwHint").textContent=force?"Перший вхід — задайте власний пароль замість тимчасового.":"Введіть поточний і новий пароль.";
+    $("#pwBack").hidden=false;
+  }
+  $("#pwBtn").addEventListener("click",function(){openPw(false);});
+  $("#pw-cancel").addEventListener("click",function(){$("#pwBack").hidden=true;});
+  $("#pwBack").addEventListener("click",function(e){if(e.target===$("#pwBack"))$("#pwBack").hidden=true;});
+  $("#pw-save").addEventListener("click",function(){
+    var np=$("#pw-new").value,np2=$("#pw-new2").value;
+    if(np.length<4){$("#pwErr").textContent="Пароль мінімум 4 символи.";return;}
+    if(np!==np2){$("#pwErr").textContent="Паролі не збігаються.";return;}
+    $("#pwErr").textContent="";
+    fetch(API+"/auth/change-password",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},body:JSON.stringify({old_password:$("#pw-old").value,new_password:np})})
+      .then(function(r){return r.json();})
+      .then(function(res){if(!res||!res.ok){$("#pwErr").textContent=(res&&res.error)||"Не вдалося.";return;}mustChange=0;$("#pwBack").hidden=true;toast("Пароль змінено");})
+      .catch(function(){$("#pwErr").textContent="Помилка з'єднання.";});
+  });
+
+  function submitLogin(){doLogin($("#mu-user").value.trim(),$("#mu-pass").value);}
+  $("#loginBtn").addEventListener("click",submitLogin);
+  $("#mu-user").addEventListener("keydown",function(e){if(e.key==="Enter")$("#mu-pass").focus();});
+  $("#mu-pass").addEventListener("keydown",function(e){if(e.key==="Enter")submitLogin();});
+  $("#logoutBtn").addEventListener("click",function(){var t=token;logoutLocal();showLogin();try{fetch(API+"/auth/logout",{method:"POST",headers:{"Authorization":"Bearer "+t}});}catch(e){}});
   [].forEach.call(document.querySelectorAll("#periods button"),function(b){
     b.addEventListener("click",function(){period=b.dataset.p;
       [].forEach.call(document.querySelectorAll("#periods button"),function(x){x.classList.toggle("on",x===b);});
       if(data)report();});
   });
 
-  if(code){tryLogin(code);}else{showLogin();}
+  if(token){restore();}else{showLogin();}
 })();
 </script>
 </body>

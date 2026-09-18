@@ -96,10 +96,10 @@ export default {
       }
       // ---- Master cabinet (per-master access code, no ADMIN_TOKEN) ----
       if (url.pathname === "/master/data" && request.method === "GET") {
-        return json(await masterData(url, env), cors);
+        return json(await masterData(request, url, env), cors);
       }
       if (url.pathname === "/master/status" && request.method === "POST") {
-        return json(await masterStatus(await request.json(), env), cors);
+        return json(await masterStatus(request, await request.json(), env), cors);
       }
       // ---- Reviews ----
       if (url.pathname === "/review" && request.method === "POST") {
@@ -116,6 +116,28 @@ export default {
       }
       if (url.pathname === "/admin/review-delete" && request.method === "POST") {
         return json(await reviewDelete(request, env), cors);
+      }
+      // ---- Auth / accounts ----
+      if (url.pathname === "/auth/login" && request.method === "POST") {
+        return json(await authLogin(await request.json(), env), cors);
+      }
+      if (url.pathname === "/auth/me" && request.method === "GET") {
+        return json(await authMe(request, env), cors);
+      }
+      if (url.pathname === "/auth/change-password" && request.method === "POST") {
+        return json(await authChangePassword(request, env), cors);
+      }
+      if (url.pathname === "/auth/logout" && request.method === "POST") {
+        return json(await authLogout(request, env), cors);
+      }
+      if (url.pathname === "/admin/users" && request.method === "GET") {
+        return json(await adminUsers(request, env), cors);
+      }
+      if (url.pathname === "/admin/user-save" && request.method === "POST") {
+        return json(await userSave(request, env), cors);
+      }
+      if (url.pathname === "/admin/user-delete" && request.method === "POST") {
+        return json(await userDelete(request, env), cors);
       }
       if (url.pathname === "/catalog" && request.method === "GET") {
         return json(await publicCatalog(env), { ...cors, "Cache-Control": "public, max-age=60" });
@@ -154,7 +176,7 @@ export default {
         return json(await settingsSave(request, env), cors);
       }
       if (url.pathname === "/admin/send-digest" && request.method === "POST") {
-        requireAdmin(request, env);
+        await requireAdmin(request, env);
         return json(await runDailyDigest(env, true), cors);
       }
       return json({ ok: false, error: "not found" }, cors, 404);
@@ -481,16 +503,120 @@ async function saveBooking(env, b) {
   } catch (e) { /* CRM logging must never break a booking */ }
 }
 
-function requireAdmin(request, env) {
-  const h = request.headers.get("Authorization") || "";
-  const tok = h.replace(/^Bearer\s+/i, "").trim();
-  if (!env.ADMIN_TOKEN || tok !== env.ADMIN_TOKEN) {
-    const e = new Error("unauthorized"); e.status = 401; throw e;
+/* ----------------------------- Auth: accounts, roles, sessions ----------------------------- */
+function bearer(request) { return (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim(); }
+function bufToHex(buf) { return [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, "0")).join(""); }
+function hexToBuf(hex) { const a = new Uint8Array((hex || "").length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(hex.substr(i * 2, 2), 16); return a.buffer; }
+function randHex(n) { const b = new Uint8Array(n); crypto.getRandomValues(b); return bufToHex(b.buffer); }
+async function pbkdf2(password, saltHex) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: hexToBuf(saltHex), iterations: 100000, hash: "SHA-256" }, key, 256);
+  return bufToHex(bits);
+}
+async function sessionUser(env, token) {
+  if (!token || !env.DB) return null;
+  const s = await env.DB.prepare(`SELECT * FROM sessions WHERE token=?`).bind(token).first();
+  if (!s) return null;
+  if (s.expires_at && s.expires_at < new Date().toISOString()) { try { await env.DB.prepare(`DELETE FROM sessions WHERE token=?`).bind(token).run(); } catch (e) { } return null; }
+  return s;
+}
+// Owner or admin (CRM staff). ADMIN_TOKEN is the emergency owner login.
+async function requireAdmin(request, env) {
+  const tok = bearer(request);
+  if (env.ADMIN_TOKEN && tok === env.ADMIN_TOKEN) return { role: "owner", user_id: 0, name: "Власник" };
+  const s = await sessionUser(env, tok);
+  if (!s || (s.role !== "owner" && s.role !== "admin")) { const e = new Error("unauthorized"); e.status = 401; throw e; }
+  return s;
+}
+async function requireOwner(request, env) {
+  const s = await requireAdmin(request, env);
+  if (s.role !== "owner") { const e = new Error("Доступ лише для власника"); e.status = 403; throw e; }
+  return s;
+}
+async function authLogin(body, env) {
+  const username = String(body && body.username || "").trim().toLowerCase();
+  const password = String(body && body.password || "");
+  if (env.ADMIN_TOKEN && password === env.ADMIN_TOKEN) return issueSession(env, { id: 0, role: "owner", name: "Власник", username: "owner", must_change: 0 });
+  if (!username || !password) { const e = new Error("Вкажіть логін і пароль"); e.status = 400; throw e; }
+  const u = await env.DB.prepare(`SELECT * FROM users WHERE lower(username)=? AND active=1`).bind(username).first();
+  if (!u || !u.pass_hash) { const e = new Error("Невірний логін або пароль"); e.status = 401; throw e; }
+  const hash = await pbkdf2(password, u.pass_salt || "");
+  if (hash !== u.pass_hash) { const e = new Error("Невірний логін або пароль"); e.status = 401; throw e; }
+  return issueSession(env, u);
+}
+async function issueSession(env, u) {
+  const token = randHex(24);
+  const now = new Date();
+  const name = u.name || u.username || "";
+  const exp = new Date(now.getTime() + 30 * 864e5).toISOString();
+  await env.DB.prepare(`INSERT INTO sessions (token,user_id,role,master_id,name,created_at,expires_at) VALUES (?,?,?,?,?,?,?)`)
+    .bind(token, u.id || 0, u.role, u.master_id || null, name, now.toISOString(), exp).run();
+  return { ok: true, token, role: u.role, name, username: u.username || "", must_change: u.must_change ? 1 : 0 };
+}
+async function authMe(request, env) {
+  const tok = bearer(request);
+  if (env.ADMIN_TOKEN && tok === env.ADMIN_TOKEN) return { ok: true, role: "owner", name: "Власник", username: "owner", must_change: 0 };
+  const s = await sessionUser(env, tok);
+  if (!s) { const e = new Error("unauthorized"); e.status = 401; throw e; }
+  let mc = 0; if (s.user_id) { const u = await env.DB.prepare(`SELECT must_change,username FROM users WHERE id=?`).bind(s.user_id).first(); mc = u && u.must_change ? 1 : 0; }
+  return { ok: true, role: s.role, name: s.name, master_id: s.master_id, must_change: mc };
+}
+async function authLogout(request, env) {
+  const tok = bearer(request);
+  try { await env.DB.prepare(`DELETE FROM sessions WHERE token=?`).bind(tok).run(); } catch (e) { }
+  return { ok: true };
+}
+async function authChangePassword(request, env) {
+  const tok = bearer(request);
+  const s = await sessionUser(env, tok);
+  if (!s || !s.user_id) { const e = new Error("Змінити пароль може лише користувач з акаунтом"); e.status = 403; throw e; }
+  const b = await request.json();
+  const oldp = String(b && b.old_password || ""), newp = String(b && b.new_password || "");
+  if (newp.length < 4) return { ok: false, error: "Новий пароль закороткий (мін. 4 символи)" };
+  const u = await env.DB.prepare(`SELECT * FROM users WHERE id=?`).bind(s.user_id).first();
+  if (!u) { const e = new Error("Акаунт не знайдено"); e.status = 404; throw e; }
+  if (u.pass_hash) { const h = await pbkdf2(oldp, u.pass_salt || ""); if (h !== u.pass_hash) return { ok: false, error: "Невірний поточний пароль" }; }
+  const salt = randHex(16), hash = await pbkdf2(newp, salt);
+  await env.DB.prepare(`UPDATE users SET pass_hash=?, pass_salt=?, must_change=0 WHERE id=?`).bind(hash, salt, u.id).run();
+  return { ok: true };
+}
+/* ---- User management (owner only) ---- */
+async function adminUsers(request, env) {
+  await requireOwner(request, env);
+  const { results } = await env.DB.prepare(`SELECT id,username,name,role,master_id,active,must_change,created_at FROM users ORDER BY role, username`).all();
+  return { ok: true, users: results || [] };
+}
+async function userSave(request, env) {
+  await requireOwner(request, env);
+  const b = await request.json();
+  const username = String(b.username || "").trim().toLowerCase();
+  if (b.id) {
+    const sets = [], vals = [];
+    for (const f of ["name", "role", "master_id", "active"]) if (b[f] != null) { sets.push(`${f}=?`); vals.push(b[f]); }
+    if (b.username != null) { sets.push("username=?"); vals.push(username); }
+    if (sets.length) { vals.push(b.id); await env.DB.prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).bind(...vals).run(); }
+    if (b.password) { const salt = randHex(16), hash = await pbkdf2(String(b.password), salt); await env.DB.prepare(`UPDATE users SET pass_hash=?, pass_salt=?, must_change=1 WHERE id=?`).bind(hash, salt, b.id).run(); }
+    return { ok: true, id: b.id };
   }
+  if (!username) return { ok: false, error: "Вкажіть логін" };
+  const dup = await env.DB.prepare(`SELECT id FROM users WHERE lower(username)=?`).bind(username).first();
+  if (dup) return { ok: false, error: "Такий логін вже існує" };
+  const salt = randHex(16), hash = await pbkdf2(String(b.password || "1234"), salt);
+  const r = await env.DB.prepare(`INSERT INTO users (username,name,pass_hash,pass_salt,role,master_id,active,must_change,created_at) VALUES (?,?,?,?,?,?,1,1,?)`)
+    .bind(username, b.name || "", hash, salt, b.role || "master", b.master_id || null, new Date().toISOString()).run();
+  return { ok: true, id: r.meta && r.meta.last_row_id };
+}
+async function userDelete(request, env) {
+  await requireOwner(request, env);
+  const { id } = await request.json();
+  if (!id) return { ok: false, error: "id required" };
+  await env.DB.prepare(`DELETE FROM users WHERE id=? AND role!='owner'`).bind(id).run();
+  await env.DB.prepare(`DELETE FROM sessions WHERE user_id=?`).bind(id).run();
+  return { ok: true };
 }
 
 async function adminList(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const { results } = await env.DB.prepare(
     `SELECT * FROM bookings ORDER BY created_at DESC LIMIT 1000`
   ).all();
@@ -500,7 +626,7 @@ async function adminList(request, env) {
 const EDITABLE = ["pet", "pet_name", "service", "breed", "name", "phone", "date", "time", "note", "status", "source", "price", "staff", "weight", "client_id", "pet_id", "pay_method"];
 
 async function adminUpdate(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const body = await request.json();
   const id = body && body.id;
   if (!id) return { ok: false, error: "id required" };
@@ -519,7 +645,7 @@ async function adminUpdate(request, env) {
 }
 
 async function adminCreate(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const b = await request.json();
   if (!b || !b.name || !b.phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
   await applyPricing(env, b);
@@ -582,18 +708,18 @@ async function linkClientPet(env, b) {
 }
 
 async function adminClients(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const { results } = await env.DB.prepare(`SELECT * FROM clients ORDER BY name COLLATE NOCASE`).all();
   return { ok: true, clients: results || [] };
 }
 async function adminPets(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const { results } = await env.DB.prepare(`SELECT * FROM pets ORDER BY name COLLATE NOCASE`).all();
   return { ok: true, pets: results || [] };
 }
 const CLIENT_FIELDS = ["name", "phone", "email", "messenger", "source", "note", "consent", "status"];
 async function clientSave(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const b = await request.json();
   if (b.id) {
     const sets = [], vals = [];
@@ -608,7 +734,7 @@ async function clientSave(request, env) {
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }
 async function clientDelete(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
   await env.DB.prepare(`DELETE FROM pets WHERE client_id=?`).bind(id).run();
@@ -618,7 +744,7 @@ async function clientDelete(request, env) {
 const PET_FIELDS = ["client_id", "name", "species", "breed", "birthdate", "weight", "sex", "color",
   "allergies", "behavior", "reactions", "prefs", "vet_notes", "warnings", "special"];
 async function petSave(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const b = await request.json();
   if (b.id) {
     const sets = [], vals = [];
@@ -635,7 +761,7 @@ async function petSave(request, env) {
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }
 async function petDelete(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
   await env.DB.prepare(`DELETE FROM pets WHERE id=?`).bind(id).run();
@@ -648,17 +774,21 @@ async function publicMasters(env) {
   return { ok: true, masters: masters.filter(m => m.active).map(m => m.name) };
 }
 async function adminMasters(request, env) {
-  requireAdmin(request, env);
+  const auth = await requireAdmin(request, env);
   const { results } = await env.DB.prepare(`SELECT * FROM masters ORDER BY sort, id`).all();
-  return { ok: true, masters: results || [] };
+  let masters = results || [];
+  if (auth.role !== "owner") masters = masters.map(m => { const c = { ...m }; delete c.salary_type; delete c.salary_value; delete c.salary_base; return c; }); // salaries are owner-only
+  return { ok: true, masters };
 }
 const MASTER_FIELDS = ["name", "active", "work_start", "work_end", "days_off", "vacations", "sort", "salary_type", "salary_value", "salary_base", "break_start", "break_end", "access_code"];
+const MASTER_FIELDS_ADMIN = MASTER_FIELDS.filter(f => f !== "salary_type" && f !== "salary_value" && f !== "salary_base");
 async function masterSave(request, env) {
-  requireAdmin(request, env);
+  const auth = await requireAdmin(request, env);
+  const fields = auth.role === "owner" ? MASTER_FIELDS : MASTER_FIELDS_ADMIN; // admin cannot set salaries
   const b = await request.json();
   if (b.id) {
     const sets = [], vals = [];
-    for (const f of MASTER_FIELDS) if (b[f] != null) { sets.push(`${f}=?`); vals.push(b[f]); }
+    for (const f of fields) if (b[f] != null) { sets.push(`${f}=?`); vals.push(b[f]); }
     if (sets.length) { vals.push(b.id); await env.DB.prepare(`UPDATE masters SET ${sets.join(",")} WHERE id=?`).bind(...vals).run(); }
     return { ok: true, id: b.id };
   }
@@ -669,7 +799,7 @@ async function masterSave(request, env) {
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }
 async function masterDelete(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
   await env.DB.prepare(`DELETE FROM masters WHERE id=?`).bind(id).run();
@@ -683,10 +813,17 @@ async function masterByCode(env, code) {
   const row = await env.DB.prepare(`SELECT * FROM masters WHERE access_code=? LIMIT 1`).bind(code).first();
   return row || null;
 }
+// A master is identified by a logged-in session (role=master) OR a legacy access code.
+async function masterFromReq(request, env, code) {
+  const tok = bearer(request);
+  if (tok) { const s = await sessionUser(env, tok); if (s && s.role === "master" && s.master_id) {
+    const m = await env.DB.prepare(`SELECT * FROM masters WHERE id=?`).bind(s.master_id).first(); if (m) return m; } }
+  return masterByCode(env, code);
+}
 const MASTER_STATUSES = ["confirmed", "arrived", "in_progress", "done", "paid", "no_show"];
-// GET /master/data?code=XXX  -> the master's own profile + their bookings (last 120d + all future)
-async function masterData(url, env) {
-  const m = await masterByCode(env, url.searchParams.get("code"));
+// GET /master/data?code=XXX (or Bearer master session) -> the master's profile + their bookings
+async function masterData(request, url, env) {
+  const m = await masterFromReq(request, env, url.searchParams.get("code"));
   if (!m) { const e = new Error("Невірний код доступу"); e.status = 401; throw e; }
   const since = new Date(Date.now() - 120 * 864e5).toISOString().slice(0, 10);
   const { results } = await env.DB.prepare(
@@ -704,8 +841,8 @@ async function masterData(url, env) {
   };
 }
 // POST /master/status {code,id,status} -> update status of one of the master's own bookings
-async function masterStatus(body, env) {
-  const m = await masterByCode(env, body && body.code);
+async function masterStatus(request, body, env) {
+  const m = await masterFromReq(request, env, body && body.code);
   if (!m) { const e = new Error("Невірний код доступу"); e.status = 401; throw e; }
   const id = body && body.id, status = body && body.status;
   if (!id || MASTER_STATUSES.indexOf(status) < 0) return { ok: false, error: "bad request" };
@@ -747,12 +884,12 @@ async function publicReviews(env) {
   return { ok: true, reviews: rows, avg: all && all.a ? Math.round(all.a * 10) / 10 : 0, count: all && all.c || 0 };
 }
 async function adminReviews(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const { results } = await env.DB.prepare(`SELECT * FROM reviews ORDER BY created_at DESC LIMIT 500`).all();
   return { ok: true, reviews: results || [] };
 }
 async function reviewSave(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const b = await request.json();
   if (!b || !b.id) return { ok: false, error: "id required" };
   const sets = [], vals = [];
@@ -761,7 +898,7 @@ async function reviewSave(request, env) {
   return { ok: true };
 }
 async function reviewDelete(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
   await env.DB.prepare(`DELETE FROM reviews WHERE id=?`).bind(id).run();
@@ -890,9 +1027,9 @@ async function publicCatalog(env) {
   const st = await loadSettings(env);
   return { ok: true, services, notes: { gift: st.note_gift || DEFAULT_PRICES.note_gift, big: st.note_big || DEFAULT_PRICES.note_big } };
 }
-async function adminServices(request, env) { requireAdmin(request, env); return { ok: true, services: await loadServices(env) }; }
+async function adminServices(request, env) { await requireAdmin(request, env); return { ok: true, services: await loadServices(env) }; }
 async function serviceSave(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const b = await request.json();
   if (b.id) {
     const sets = [], vals = [];
@@ -909,7 +1046,7 @@ async function serviceSave(request, env) {
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }
 async function serviceDelete(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
   await env.DB.prepare(`DELETE FROM services WHERE id=?`).bind(id).run();
@@ -918,13 +1055,13 @@ async function serviceDelete(request, env) {
 
 /* ----------------------------- Expenses (P&L) ----------------------------- */
 async function adminExpenses(request, env) {
-  requireAdmin(request, env);
+  await requireOwner(request, env);
   const { results } = await env.DB.prepare(`SELECT * FROM expenses ORDER BY date DESC, id DESC`).all();
   return { ok: true, expenses: results || [] };
 }
 const EXPENSE_FIELDS = ["date", "category", "title", "amount", "note"];
 async function expenseSave(request, env) {
-  requireAdmin(request, env);
+  await requireOwner(request, env);
   const b = await request.json();
   if (b.id) {
     const sets = [], vals = [];
@@ -937,7 +1074,7 @@ async function expenseSave(request, env) {
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }
 async function expenseDelete(request, env) {
-  requireAdmin(request, env);
+  await requireOwner(request, env);
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
   await env.DB.prepare(`DELETE FROM expenses WHERE id=?`).bind(id).run();
@@ -955,11 +1092,11 @@ async function loadSettings(env) {
   return def;
 }
 async function adminSettings(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   return { ok: true, settings: await loadSettings(env) };
 }
 async function settingsSave(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const b = await request.json();
   for (const k of ["reminders_enabled", "repeat_weeks", "note_gift", "note_big", "loyalty_enabled", "loyalty_every", "loyalty_reward"]) {
     if (b[k] != null) await env.DB.prepare(`INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(k, String(b[k]), String(b[k])).run();
@@ -1062,7 +1199,7 @@ async function syncCalendar(env, id) {
 }
 
 async function adminDelete(request, env) {
-  requireAdmin(request, env);
+  await requireAdmin(request, env);
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
   // remove the linked Google Calendar event first
