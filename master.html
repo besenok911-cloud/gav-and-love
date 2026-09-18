@@ -39,6 +39,13 @@
   .periods button{border:1.5px solid var(--line);background:#fff;color:var(--ink-soft);border-radius:999px;padding:.42em .95em;font-weight:800;font-size:.82rem;cursor:pointer;font-family:var(--font-body);transition:.12s}
   .periods button:hover{border-color:var(--violet);color:var(--violet)}
   .periods button.on{background:var(--violet);border-color:var(--violet);color:#fff}
+  /* custom від–до range */
+  .range{display:flex;align-items:center;gap:4px;margin-left:2px}
+  .range input{border:1.5px solid var(--line);border-radius:999px;padding:.32em .6em;font-family:var(--font-body);font-size:.78rem;font-weight:700;color:var(--ink-soft);background:#fff;min-width:0;width:132px}
+  .range input:focus{outline:none;border-color:var(--violet)}
+  .range .dash{color:var(--ink-soft);font-weight:800}
+  .range.on input{border-color:var(--violet);color:var(--violet);background:var(--violet-soft)}
+  @media(max-width:560px){.range{flex-basis:100%;margin-left:0}.range input{flex:1;width:auto}}
   .report-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
   .report-grid .kpi{padding:16px 14px}
   .report-grid .kpi .v{font-size:1.5rem}
@@ -147,6 +154,7 @@
           <button type="button" data-p="week">7 днів</button>
           <button type="button" data-p="month" class="on">Місяць</button>
           <button type="button" data-p="all">Весь час</button>
+          <span class="range" id="p-range" title="Довільний період"><input type="date" id="p-from" aria-label="Від"><span class="dash">—</span><input type="date" id="p-to" aria-label="До"></span>
         </div>
       </div>
       <div class="report-grid">
@@ -194,7 +202,7 @@
   var API="https://gavlove-booking.besenok911.workers.dev";
   var KEY="gavlove_master_token";
   var $=function(s){return document.querySelector(s);};
-  var token="", data=null, _tt, period="month", mustChange=0;
+  var token="", data=null, _tt, period="month", mustChange=0, customFrom="", customTo="";
   try{token=localStorage.getItem(KEY)||"";}catch(e){}
 
   var STL={new:"Нова",confirmed:"Підтверджена",arrived:"Прибув",in_progress:"У процесі",done:"Готово",paid:"Оплачено",no_show:"Не прийшов",cancelled:"Скасована",waitlist:"Лист очікування"};
@@ -208,9 +216,13 @@
   function pad(n){return (n<10?"0":"")+n;}
   function isoOf(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());}
   function todayISO(){return isoOf(new Date());}
-  function periodLabel(){return {today:"сьогодні",week:"останні 7 днів",month:"цей місяць",all:"весь час"}[period]||"";}
+  function fmtD(iso){var p=String(iso||"").split("-");return p.length===3?(p[2]+"."+p[1]+"."+p[0]):iso;}
+  function periodLabel(){
+    if(period==="custom")return "з "+(customFrom?fmtD(customFrom):"початку")+" по "+(customTo?fmtD(customTo):"сьогодні");
+    return {today:"сьогодні",week:"останні 7 днів",month:"цей місяць",all:"весь час"}[period]||"";}
   function inPeriod(dateStr){
     if(!dateStr)return false;var t=todayISO();
+    if(period==="custom"){if(customFrom&&dateStr<customFrom)return false;if(customTo&&dateStr>customTo)return false;return true;}
     if(period==="today")return dateStr===t;
     if(period==="week"){var d=new Date();d.setDate(d.getDate()-6);return dateStr>=isoOf(d)&&dateStr<=t;}
     if(period==="month")return dateStr.slice(0,7)===t.slice(0,7);
@@ -366,9 +378,21 @@
   $("#mu-user").addEventListener("keydown",function(e){if(e.key==="Enter")$("#mu-pass").focus();});
   $("#mu-pass").addEventListener("keydown",function(e){if(e.key==="Enter")submitLogin();});
   $("#logoutBtn").addEventListener("click",function(){var t=token;logoutLocal();showLogin();try{fetch(API+"/auth/logout",{method:"POST",headers:{"Authorization":"Bearer "+t}});}catch(e){}});
+  function setCustomRange(){
+    var f=$("#p-from").value,tt=$("#p-to").value;
+    if(!f&&!tt)return;
+    if(f&&tt&&f>tt){var s=f;f=tt;tt=s;$("#p-from").value=f;$("#p-to").value=tt;} // swap if entered backwards
+    customFrom=f;customTo=tt;period="custom";
+    [].forEach.call(document.querySelectorAll("#periods button"),function(x){x.classList.remove("on");});
+    $("#p-range").classList.add("on");
+    if(data)report();
+  }
+  $("#p-from").addEventListener("change",setCustomRange);
+  $("#p-to").addEventListener("change",setCustomRange);
   [].forEach.call(document.querySelectorAll("#periods button"),function(b){
     b.addEventListener("click",function(){period=b.dataset.p;
       [].forEach.call(document.querySelectorAll("#periods button"),function(x){x.classList.toggle("on",x===b);});
+      $("#p-range").classList.remove("on");
       if(data)report();});
   });
 

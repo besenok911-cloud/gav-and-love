@@ -304,6 +304,10 @@
 
   /* modal */
   .modal{position:fixed;inset:0;background:rgba(28,19,64,.5);display:none;align-items:flex-start;justify-content:center;z-index:50;padding:24px;overflow:auto}
+  #pwSetModal{z-index:60} /* stacks above the Доступи modal */
+  .pwset-row{display:flex;gap:6px;align-items:stretch}
+  .pwset-row input{flex:1;width:auto;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:1.05rem;letter-spacing:.06em;font-weight:700}
+  .pwset-ib{font-size:1rem;padding:.3em .6em;line-height:1}
   .modal.open{display:flex}
   .sheet{background:var(--paper);border-radius:20px;box-shadow:var(--shadow);width:min(640px,100%);padding:26px 28px;margin:auto}
   .sheet h2{font-family:var(--font-head);font-weight:600;margin:0 0 18px}
@@ -577,6 +581,25 @@
     <div style="margin-top:14px"><button class="btn" id="um-add">+ Додати акаунт</button></div>
     <p class="modal-err" id="umErr"></p>
     <div class="sheet-act"><span style="flex:1"></span><button class="btn ghost sm" id="um-close" style="border-color:var(--line);color:var(--ink-soft)">Закрити</button></div>
+  </div>
+</div>
+
+<!-- Set / reset a user's password (owner) -->
+<div class="modal" id="pwSetModal">
+  <div class="sheet" style="width:min(460px,100%)">
+    <h2 id="pwset-title">🔑 Новий пароль</h2>
+    <p class="muted" id="pwset-hint" style="font-size:.86rem;margin:0 0 14px"></p>
+    <div class="fld" style="margin-bottom:6px">
+      <label>Пароль</label>
+      <div class="pwset-row">
+        <input id="pwset-val" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="мін. 4 символи">
+        <button type="button" class="btn icon pwset-ib" id="pwset-gen" title="Згенерувати інший">🎲</button>
+        <button type="button" class="btn icon pwset-ib" id="pwset-copy" title="Скопіювати">⧉</button>
+      </div>
+      <p class="muted" style="font-size:.78rem;margin:8px 0 0;line-height:1.4">Пароль показано відкрито, щоб ви могли передати його співробітнику. При першому вході система попросить замінити його на власний.</p>
+    </div>
+    <p class="modal-err" id="pwsetErr"></p>
+    <div class="sheet-act"><span style="flex:1"></span><button class="btn ghost sm" id="pwset-cancel" style="border-color:var(--line);color:var(--ink-soft)">Скасувати</button><button class="btn" id="pwset-save">Зберегти пароль</button></div>
   </div>
 </div>
 
@@ -1730,7 +1753,7 @@
   }
   async function saveUser(row){
     var p=collectUser(row);if(!p.username){toast("Вкажіть логін",true);return;}
-    if(!p.id){var np=prompt("Тимчасовий пароль для «"+p.username+"» (мін. 4):");if(np==null)return;if(np.length<4){toast("Мінімум 4 символи",true);return;}p.password=np;}
+    if(!p.id){var np=await askPassword("🔑 Тимчасовий пароль для «"+p.username+"»","Новий акаунт. Передайте цей пароль співробітнику — при першому вході він задасть свій.");if(np==null)return;p.password=np;}
     try{var r=await api("/admin/user-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});
       if(r&&r.ok===false){toast(r.error||"Помилка",true);return;}
       toast("Акаунт збережено");usersList=(await api("/admin/users")).users||[];renderUserRows();
@@ -1738,10 +1761,11 @@
   }
   async function resetUserPw(row){
     var id=+row.dataset.id;if(!id){toast("Спершу збережіть акаунт",true);return;}
-    var np=prompt("Новий пароль для «"+row.querySelector(".um-username").value+"» (мін. 4):");
-    if(np==null)return;if(np.length<4){toast("Мінімум 4 символи",true);return;}
+    var uname=row.querySelector(".um-username").value;
+    var np=await askPassword("🔑 Новий пароль для «"+uname+"»","Задайте тимчасовий пароль і передайте його співробітнику. При першому вході система попросить замінити його на власний.");
+    if(np==null)return;
     try{await api("/admin/user-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id,password:np})});
-      toast("Пароль оновлено — передайте його співробітнику");
+      toast("Пароль для «"+uname+"» оновлено");
     }catch(e){toast("Не вдалося",true);}
   }
   async function delUser(row){
@@ -1755,6 +1779,28 @@
   $("#usersBtn").addEventListener("click",openUsersModal);
   $("#um-close").addEventListener("click",function(){$("#usersModal").classList.remove("open");});
   $("#usersModal").addEventListener("click",function(e){if(e.target===$("#usersModal"))$("#usersModal").classList.remove("open");});
+
+  /* ---------- set/reset password dialog (replaces the native prompt) ---------- */
+  var _pwsetResolve=null;
+  function genPassword(){var a="abcdefghjkmnpqrstuvwxyz",A="ABCDEFGHJKLMNPQRSTUVWXYZ",d="23456789";
+    var pick=function(x){return x[Math.floor(Math.random()*x.length)];};
+    var s=pick(A);for(var i=0;i<4;i++)s+=pick(a);return s+pick(d)+pick(d)+pick(d);}   // e.g. Kfjqw482 — readable, no 0/O/1/l
+  function askPassword(title,hint){
+    return new Promise(function(resolve){
+      _pwsetResolve=resolve;
+      $("#pwset-title").textContent=title;$("#pwset-hint").textContent=hint||"";
+      $("#pwset-val").value=genPassword();$("#pwsetErr").textContent="";
+      $("#pwSetModal").classList.add("open");
+      setTimeout(function(){$("#pwset-val").focus();$("#pwset-val").select();},60);
+    });
+  }
+  function closePwSet(v){$("#pwSetModal").classList.remove("open");var r=_pwsetResolve;_pwsetResolve=null;if(r)r(v);}
+  $("#pwset-gen").addEventListener("click",function(){$("#pwset-val").value=genPassword();$("#pwset-val").focus();$("#pwset-val").select();});
+  $("#pwset-copy").addEventListener("click",function(){var v=$("#pwset-val").value;if(!v)return;try{navigator.clipboard.writeText(v);toast("Пароль скопійовано");}catch(e){toast(v);}});
+  $("#pwset-cancel").addEventListener("click",function(){closePwSet(null);});
+  $("#pwSetModal").addEventListener("click",function(e){if(e.target===$("#pwSetModal"))closePwSet(null);});
+  $("#pwset-save").addEventListener("click",function(){var v=$("#pwset-val").value.trim();if(v.length<4){$("#pwsetErr").textContent="Мінімум 4 символи.";return;}closePwSet(v);});
+  $("#pwset-val").addEventListener("keydown",function(e){if(e.key==="Enter")$("#pwset-save").click();if(e.key==="Escape")closePwSet(null);});
 
   /* ---------- reminders ---------- */
   async function openRemindModal(){
