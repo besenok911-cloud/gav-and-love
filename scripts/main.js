@@ -481,12 +481,17 @@
   function applyPet() { fillServiceSelect(); }
 
   const petSeg = $("#bf-pet-seg");
-  if (petSeg) petSeg.addEventListener("click", e => {
-    const b = e.target.closest(".seg-btn"); if (!b) return;
-    $$(".seg-btn", petSeg).forEach(x => x.classList.toggle("is-active", x === b));
-    petHidden.value = b.dataset.val;
+  function setPet(val) {                       // "Собака" | "Кіт" | ""
+    if (!petHidden) return;
+    petHidden.value = val || "";
+    if (petSeg) $$(".seg-btn", petSeg).forEach(x => x.classList.toggle("is-active", !!val && x.dataset.val === val));
     applyPet();
     if (typeof updatePriceHint === "function") updatePriceHint();
+  }
+  if (petSeg) petSeg.addEventListener("click", e => {
+    const b = e.target.closest(".seg-btn"); if (!b) return;
+    setPet(b.dataset.val);
+    if (typeof renderSteps === "function") renderSteps();
   });
 
   // Date bounds: today .. +30 days
@@ -529,7 +534,8 @@
         });
         slotsBox.appendChild(b);
       });
-    } catch { if (my === slotsToken) slotsHint.textContent = "— не вдалося завантажити час"; }
+    } catch { if (my === slotsToken) { slotsHint.textContent = "— не вдалося завантажити час"; if (waitBox) waitBox.style.display = "flex"; } }   // never a dead end: the request can still be sent
+    finally { if (my === slotsToken && typeof renderSteps === "function") renderSteps(); }
   }
   serviceSel && serviceSel.addEventListener("change", refreshSlots);
   dateInput && dateInput.addEventListener("change", refreshSlots);
@@ -544,6 +550,11 @@
   // Breed dropdown = the service's breeds; weight dropdown = that breed's variants.
   function syncBreedWeight() {
     if (!SERVICES.length) return;                       // keep config fallback if catalog not loaded
+    if (!serviceSel.value) {                            // nothing chosen yet — do not ask for breed/weight
+      if (breedField) breedField.hidden = true;
+      if (weightField) weightField.hidden = true;
+      return;
+    }
     const s = svcByName(serviceSel.value);
     const lbl = $("#bf-breed-label");
     if (isBreedSvc(s)) {
@@ -679,7 +690,163 @@
     fetch(`${CONFIG.bookingEndpoint}/reviews`).then(r => r.json()).then(renderReviews).catch(() => { });
   }
 
+  /* ---- Guided steps: 1 улюбленець → 2 послуга → 3 дата й час → 4 контакти ---- */
   const form = $("#bookingForm"), status = $("#bfStatus");
+  const nameInput = $("#bf-name"), phoneInput = $("#bf-phone"), petNameInput = $("#bf-petname");
+  const stepEls = form ? $$(".bstep", form) : [];
+  const STEPS = stepEls.length || 4;
+  let curStep = 1, stepsReady = false;
+  const val = el => (el && el.value ? String(el.value).trim() : "");
+  const shown = f => !!f && !f.hidden;
+  function stepDone(i) {
+    if (i === 1) return !!val(petHidden);
+    if (i === 2) return !!val(serviceSel)
+      && (!shown(breedField) || breedSel.disabled || !!val(breedSel))
+      && (!shown(weightField) || !weightSel.options.length || !!val(weightSel));
+    if (i === 3) return !!val(dateInput) && (!needsSlot() || !!val(timeInput) || !!(waitChk && waitChk.checked));
+    if (i === 4) return !!val(nameInput) && val(phoneInput).replace(/\D/g, "").length >= 9;
+    return false;
+  }
+  function firstOpen() { for (let i = 1; i <= STEPS; i++) if (!stepDone(i)) return i; return STEPS; }
+  function stepSummary(i) {
+    if (i === 1) return [val(petHidden) === "Кіт" ? "🐱 Кіт" : val(petHidden) ? "🐶 Собака" : "", val(petNameInput)].filter(Boolean).join(" · ");
+    if (i === 2) {
+      const add = form ? form.querySelectorAll('input[name="addon"]:checked').length : 0;
+      return [val(serviceSel), shown(breedField) ? val(breedSel) : "", shown(weightField) ? val(weightSel) : "", add ? "+" + add + " доп." : ""].filter(Boolean).join(" · ");
+    }
+    if (i === 3) {
+      const d = val(dateInput), when = d ? d.slice(8) + "." + d.slice(5, 7) : "";
+      const t = val(timeInput) ? "о " + val(timeInput) : (waitChk && waitChk.checked ? "лист очікування" : (needsSlot() ? "" : "час узгодимо"));
+      return [when, t, val(staffSel)].filter(Boolean).join(" · ");
+    }
+    if (i === 4) return [val(nameInput), val(phoneInput)].filter(Boolean).join(" · ");
+    return "";
+  }
+  function renderSteps() {
+    if (!stepEls.length) return;
+    const open = firstOpen();
+    if (curStep > open) curStep = open;
+    let done = 0;
+    stepEls.forEach(li => {
+      const i = +li.dataset.step, isDone = stepDone(i), isCur = i === curStep, locked = i > open;
+      if (isDone) done++;
+      li.classList.toggle("is-active", isCur);
+      li.classList.toggle("is-done", isDone && !isCur);
+      li.classList.toggle("is-locked", locked && !isCur);
+      const body = $(".bstep-body", li), head = $(".bstep-head", li), sum = $(".bstep-sum", li), next = $(".bf-next", li);
+      if (body) body.hidden = !isCur;
+      if (head) { head.setAttribute("aria-expanded", isCur ? "true" : "false"); head.disabled = isCur || locked; }
+      if (sum) sum.textContent = (isCur || !isDone) ? "" : stepSummary(i);
+      if (next) next.disabled = !isDone;
+    });
+    const fill = $("#bfProgFill"), lbl = $("#bfProgLbl");
+    if (fill) fill.style.width = Math.round(done / STEPS * 100) + "%";
+    if (lbl) lbl.textContent = done === STEPS ? "Готово — можна надсилати" : "Крок " + curStep + " з " + STEPS;
+  }
+  function goStep(i, scroll) {
+    const open = firstOpen();
+    curStep = Math.max(1, Math.min(i, open));
+    renderSteps();
+    const li = stepEls.filter(x => +x.dataset.step === curStep)[0];
+    if (scroll && li) {
+      const y = li.getBoundingClientRect().top + window.scrollY - 90;
+      window.scrollTo({ top: y, behavior: reduced ? "auto" : "smooth" });
+      const first = li.querySelector("input:not([type=hidden]):not([readonly]), select, textarea");
+      if (first && !("ontouchstart" in window)) setTimeout(() => { try { first.focus({ preventScroll: true }); } catch (e) { } }, reduced ? 0 : 320);
+    }
+  }
+  if (form) {
+    form.addEventListener("click", e => {
+      const head = e.target.closest(".bstep-head");
+      if (head) { const li = head.closest(".bstep"); if (li && !head.disabled) goStep(+li.dataset.step, true); return; }
+      const next = e.target.closest(".bf-next");
+      if (next) { const li = next.closest(".bstep"); if (li) goStep(+li.dataset.step + 1, true); return; }
+      if (e.target.closest(".slot")) {   // a time is the last thing step 3 needs → move on
+        renderSteps();
+        if (curStep === 3 && stepDone(3)) setTimeout(() => goStep(4, true), 150);
+        return;
+      }
+      if (e.target.closest(".seg-btn")) renderSteps();
+    });
+    form.addEventListener("change", () => renderSteps());
+    form.addEventListener("input", () => renderSteps());
+  }
+
+  /* ---- Returning clients: prefill from the cabinet session, else from the last booking on this device ---- */
+  const PF_KEY = "gl_booking_prefill", CAB_KEY = "gavlove_client_token";
+  let pendingPet = null, prefillOff = false;
+  const lsGet = k => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { } };
+  const lsDel = k => { try { localStorage.removeItem(k); } catch (e) { } };
+  function setOpt(sel, v) {   // select an option only if the current list really has it
+    if (!sel || !v) return false;
+    const hit = [].filter.call(sel.options, o => o.value === v)[0];
+    if (!hit) return false;
+    sel.value = v; return true;
+  }
+  function applyPendingPet() {   // breed/weight lists depend on the chosen service, so retry after each change
+    if (!pendingPet) return;
+    if (pendingPet.breed && shown(breedField) && !val(breedSel) && setOpt(breedSel, pendingPet.breed)) {
+      if (typeof syncWeightForBreed === "function") syncWeightForBreed();
+    }
+    if (pendingPet.weight && shown(weightField) && !val(weightSel)) setOpt(weightSel, pendingPet.weight);
+    if (typeof updatePriceHint === "function") updatePriceHint();
+  }
+  function usePet(p, fromChip) {
+    if (!p) return;
+    setPet(p.species === "cat" || p.pet === "Кіт" ? "Кіт" : "Собака");
+    if (petNameInput && (p.name || p.pet_name)) petNameInput.value = p.name || p.pet_name;
+    pendingPet = { breed: p.breed || "", weight: p.weight || "" };
+    applyPendingPet();
+    if (fromChip) $$(".bf-pet", form).forEach(x => x.classList.toggle("is-sel", x === fromChip));
+    renderSteps();
+  }
+  function hello(name) {
+    const box = $("#bfHello"), txt = $("#bfHelloTxt");
+    if (!box || !txt) return;
+    txt.textContent = "Ми вас упізнали — ім'я, телефон і улюбленці вже підставлені. Перевірте та змініть за потреби.";
+    box.hidden = false;
+  }
+  function prefillContacts(d) {
+    if (prefillOff) return;
+    if (nameInput && d.name && !val(nameInput)) nameInput.value = d.name;
+    if (phoneInput && d.phone && !val(phoneInput)) phoneInput.value = d.phone;
+  }
+  const clearBtn = $("#bfHelloClear");
+  if (clearBtn) clearBtn.addEventListener("click", () => {
+    prefillOff = true; pendingPet = null; lsDel(PF_KEY);
+    if (nameInput) nameInput.value = ""; if (phoneInput) phoneInput.value = ""; if (petNameInput) petNameInput.value = "";
+    const pets = $("#bfPets"); if (pets) { pets.innerHTML = ""; pets.hidden = true; }
+    const box = $("#bfHello"); if (box) box.hidden = true;
+    setPet(""); goStep(1, false);
+  });
+  (function prefillLocal() {
+    let d = null; try { d = JSON.parse(lsGet(PF_KEY) || "null"); } catch (e) { }
+    if (!d || !d.phone) return;
+    prefillContacts(d);
+    if (d.pet) { pendingPet = { breed: d.breed || "", weight: d.weight || "" }; setPet(d.pet); applyPendingPet(); }
+    if (petNameInput && d.pet_name) petNameInput.value = d.pet_name;
+    hello(d.name || "");
+  })();
+  if (CONFIG.bookingEndpoint && lsGet(CAB_KEY)) {   // signed in to the cabinet on this device → name, phone and pets
+    fetch(`${CONFIG.bookingEndpoint}/client/me`, { headers: { Authorization: "Bearer " + lsGet(CAB_KEY) } })
+      .then(r => r.json()).then(d => {
+        if (!d || !d.ok || !d.client || prefillOff) return;
+        prefillContacts({ name: d.client.name, phone: d.client.phone });
+        hello((d.client.name || "").split(" ")[0]);
+        const box = $("#bfPets"), pets = (d.pets || []).slice(0, 6);
+        if (box && pets.length) {
+          box.innerHTML = pets.map((p, i) => `<button type="button" class="bf-pet" data-i="${i}">${p.species === "cat" ? "🐱" : "🐶"} ${esc(p.name || "Улюбленець")}</button>`).join("");
+          box.hidden = false;
+          box.addEventListener("click", e => { const b = e.target.closest(".bf-pet"); if (b) usePet(pets[+b.dataset.i], b); });
+          if (pets.length === 1) { const only = box.querySelector(".bf-pet"); usePet(pets[0], only); }
+        }
+        renderSteps();
+      }).catch(() => { });
+  }
+  serviceSel && serviceSel.addEventListener("change", () => { applyPendingPet(); renderSteps(); });
+  breedSel && breedSel.addEventListener("change", () => { applyPendingPet(); renderSteps(); });
+  stepsReady = true; renderSteps();
   form && form.addEventListener("submit", async e => {
     e.preventDefault();
     status.className = "form-status"; status.textContent = "";
@@ -721,10 +888,13 @@
         a.textContent = "🔔 Отримувати нагадування в Telegram";
         status.appendChild(document.createElement("br")); status.appendChild(a);
       }
-      form.reset(); petHidden.value = "Собака";
-      $$(".seg-btn", petSeg).forEach((x, i) => x.classList.toggle("is-active", i === 0));
-      applyPet();
-      slotsField.hidden = true;
+      lsSet(PF_KEY, JSON.stringify({ name: data.name || "", phone: data.phone || "", pet: data.pet || "", pet_name: data.pet_name || "", breed: data.breed || "", weight: data.weight || "" }));
+      const keep = { name: data.name || "", phone: data.phone || "" };
+      form.reset(); setPet(""); pendingPet = null;
+      slotsField.hidden = true; if (timeInput) timeInput.value = "";
+      const petsBox = $("#bfPets"); if (petsBox) $$(".bf-pet", petsBox).forEach(x => x.classList.remove("is-sel"));
+      prefillContacts(keep); hello(keep.name.split(" ")[0]);
+      goStep(1, false);
     } catch (err) {
       status.className = "form-status err";
       status.textContent = String(err.message || err) === "bad"

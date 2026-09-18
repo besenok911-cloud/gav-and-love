@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles/main.css?v=24" />
+<link rel="stylesheet" href="styles/main.css?v=25" />
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -389,72 +389,139 @@
       <p class="section-sub" data-cms="booking.sub">Залиште заявку — ми зв'яжемось, щоб підтвердити дату й час.</p>
     </header>
     <form class="booking-form reveal" id="bookingForm" novalidate>
-      <div class="field">
-        <label for="bf-pet">Тварина</label>
-        <div class="seg" id="bf-pet-seg" role="radiogroup" aria-label="Тварина">
-          <button type="button" class="seg-btn is-active" data-val="Собака">🐶 Собака</button>
-          <button type="button" class="seg-btn" data-val="Кіт">🐱 Кіт</button>
-        </div>
-        <input type="hidden" name="pet" id="bf-pet" value="Собака" />
+      <div class="bf-top">
+        <div class="bf-progress" aria-hidden="true"><span id="bfProgFill"></span></div>
+        <p class="bf-prog-lbl" id="bfProgLbl">Крок 1 з 4</p>
       </div>
-      <div class="field">
-        <label for="bf-petname">Кличка улюбленця</label>
-        <input type="text" id="bf-petname" name="pet_name" placeholder="Напр. Рекс" />
+      <div class="bf-hello" id="bfHello" hidden>
+        <span id="bfHelloTxt"></span>
+        <button type="button" id="bfHelloClear">Це не я</button>
       </div>
-      <div class="field">
-        <label for="bf-service">Послуга</label>
-        <select id="bf-service" name="service" required>
-          <option value="">Оберіть послугу…</option>
-        </select>
-        <small id="bf-price-hint" class="muted" style="display:block;margin-top:6px" hidden></small>
-      </div>
-      <div class="field" id="bf-breed-field">
-        <label for="bf-breed" id="bf-breed-label">Порода</label>
-        <select id="bf-breed" name="breed"></select>
-        <small id="bf-breed-note" class="muted" hidden>Для котів порода не вибирається — вкажіть лише вагу.</small>
-      </div>
-      <div class="field" id="bf-weight-field">
-        <label for="bf-weight">Вага</label>
-        <select id="bf-weight" name="weight"></select>
-      </div>
-      <div class="field field-wide" id="bf-addons-field" hidden>
-        <details id="bf-addons-details">
-          <summary style="cursor:pointer;font-weight:700;padding:6px 0"><span>Додаткові послуги</span> <span class="muted" id="bf-addons-count">(необовʼязково)</span></summary>
-          <div id="bf-addons" style="margin-top:6px"></div>
-        </details>
-      </div>
-      <div class="field">
-        <label for="bf-staff">Майстер</label>
-        <select id="bf-staff" name="staff"></select>
-      </div>
-      <div class="field">
-        <label for="bf-name">Ваше ім'я</label>
-        <input type="text" id="bf-name" name="name" placeholder="Ім'я" required />
-      </div>
-      <div class="field">
-        <label for="bf-phone">Телефон</label>
-        <input type="tel" id="bf-phone" name="phone" placeholder="+380…" required />
-      </div>
-      <div class="field">
-        <label for="bf-date">Бажана дата</label>
-        <input type="date" id="bf-date" name="date" />
-      </div>
-      <div class="field field-wide" id="bf-slots-field" hidden>
-        <label>Вільний час <span class="muted" id="bf-slots-hint"></span></label>
-        <div class="slots" id="bf-slots"></div>
-        <input type="hidden" name="time" id="bf-time" />
-        <label id="bf-waitlist-box" style="display:none;gap:8px;align-items:center;font-weight:600;cursor:pointer;margin-top:10px;color:var(--ink-soft)">
-          <input type="checkbox" id="bf-waitlist" name="waitlist" value="1" style="width:auto" /> Стати в лист очікування — повідомимо, щойно звільниться місце
-        </label>
-      </div>
-      <div class="field field-wide">
-        <label for="bf-note">Коментар <span class="muted">(особливості тварини)</span></label>
-        <textarea id="bf-note" name="note" rows="2" placeholder="Напр. хвилюється, є ковтуни, перший грумінг…"></textarea>
-      </div>
-      <div class="field field-wide booking-submit">
-        <button type="submit" class="btn btn-primary btn-lg">Надіслати заявку</button>
-        <p class="form-status" id="bfStatus" role="status" aria-live="polite"></p>
-      </div>
+      <ol class="bf-steps">
+
+        <li class="bstep is-active" data-step="1">
+          <button type="button" class="bstep-head" aria-expanded="true">
+            <span class="bstep-n">1</span>
+            <span class="bstep-t" data-cms="booking.step1">Улюбленець</span>
+            <span class="bstep-sum"></span>
+            <span class="bstep-edit">Змінити</span>
+          </button>
+          <div class="bstep-body">
+            <div class="bf-pets" id="bfPets" hidden></div>
+            <div class="bf-grid">
+              <div class="field">
+                <label for="bf-pet">Тварина</label>
+                <div class="seg" id="bf-pet-seg" role="radiogroup" aria-label="Тварина">
+                  <button type="button" class="seg-btn" data-val="Собака">🐶 Собака</button>
+                  <button type="button" class="seg-btn" data-val="Кіт">🐱 Кіт</button>
+                </div>
+                <input type="hidden" name="pet" id="bf-pet" value="" />
+              </div>
+              <div class="field">
+                <label for="bf-petname">Кличка улюбленця</label>
+                <input type="text" id="bf-petname" name="pet_name" placeholder="Напр. Рекс" />
+              </div>
+            </div>
+            <div class="bstep-act"><button type="button" class="btn btn-primary bf-next" disabled>Далі</button></div>
+          </div>
+        </li>
+
+        <li class="bstep is-locked" data-step="2">
+          <button type="button" class="bstep-head" aria-expanded="false" disabled>
+            <span class="bstep-n">2</span>
+            <span class="bstep-t" data-cms="booking.step2">Послуга</span>
+            <span class="bstep-sum"></span>
+            <span class="bstep-edit">Змінити</span>
+          </button>
+          <div class="bstep-body" hidden>
+            <div class="bf-grid">
+              <div class="field field-wide">
+                <label for="bf-service">Послуга</label>
+                <select id="bf-service" name="service" required>
+                  <option value="">Оберіть послугу…</option>
+                </select>
+                <small id="bf-price-hint" class="muted" style="display:block;margin-top:6px" hidden></small>
+              </div>
+              <div class="field" id="bf-breed-field">
+                <label for="bf-breed" id="bf-breed-label">Порода</label>
+                <select id="bf-breed" name="breed"></select>
+                <small id="bf-breed-note" class="muted" hidden>Для котів порода не вибирається — вкажіть лише вагу.</small>
+              </div>
+              <div class="field" id="bf-weight-field">
+                <label for="bf-weight">Вага</label>
+                <select id="bf-weight" name="weight"></select>
+              </div>
+              <div class="field field-wide" id="bf-addons-field" hidden>
+                <details id="bf-addons-details">
+                  <summary style="cursor:pointer;font-weight:700;padding:6px 0"><span>Додаткові послуги</span> <span class="muted" id="bf-addons-count">(необовʼязково)</span></summary>
+                  <div id="bf-addons" style="margin-top:6px"></div>
+                </details>
+              </div>
+            </div>
+            <div class="bstep-act"><button type="button" class="btn btn-primary bf-next" disabled>Далі</button></div>
+          </div>
+        </li>
+
+        <li class="bstep is-locked" data-step="3">
+          <button type="button" class="bstep-head" aria-expanded="false" disabled>
+            <span class="bstep-n">3</span>
+            <span class="bstep-t" data-cms="booking.step3">Дата й час</span>
+            <span class="bstep-sum"></span>
+            <span class="bstep-edit">Змінити</span>
+          </button>
+          <div class="bstep-body" hidden>
+            <div class="bf-grid">
+              <div class="field">
+                <label for="bf-date">Бажана дата</label>
+                <input type="date" id="bf-date" name="date" />
+              </div>
+              <div class="field">
+                <label for="bf-staff">Майстер</label>
+                <select id="bf-staff" name="staff"></select>
+              </div>
+              <div class="field field-wide" id="bf-slots-field" hidden>
+                <label>Вільний час <span class="muted" id="bf-slots-hint"></span></label>
+                <div class="slots" id="bf-slots"></div>
+                <input type="hidden" name="time" id="bf-time" />
+                <label id="bf-waitlist-box" style="display:none;gap:8px;align-items:center;font-weight:600;cursor:pointer;margin-top:10px;color:var(--ink-soft)">
+                  <input type="checkbox" id="bf-waitlist" name="waitlist" value="1" style="width:auto" /> Стати в лист очікування — повідомимо, щойно звільниться місце
+                </label>
+              </div>
+            </div>
+            <div class="bstep-act"><button type="button" class="btn btn-primary bf-next" disabled>Далі</button></div>
+          </div>
+        </li>
+
+        <li class="bstep is-locked" data-step="4">
+          <button type="button" class="bstep-head" aria-expanded="false" disabled>
+            <span class="bstep-n">4</span>
+            <span class="bstep-t" data-cms="booking.step4">Ваші контакти</span>
+            <span class="bstep-sum"></span>
+            <span class="bstep-edit">Змінити</span>
+          </button>
+          <div class="bstep-body" hidden>
+            <div class="bf-grid">
+              <div class="field">
+                <label for="bf-name">Ваше ім'я</label>
+                <input type="text" id="bf-name" name="name" placeholder="Ім'я" required />
+              </div>
+              <div class="field">
+                <label for="bf-phone">Телефон</label>
+                <input type="tel" id="bf-phone" name="phone" placeholder="+380…" required />
+              </div>
+              <div class="field field-wide">
+                <label for="bf-note">Коментар <span class="muted">(особливості тварини)</span></label>
+                <textarea id="bf-note" name="note" rows="2" placeholder="Напр. хвилюється, є ковтуни, перший грумінг…"></textarea>
+              </div>
+              <div class="field field-wide booking-submit">
+                <button type="submit" class="btn btn-primary btn-lg">Надіслати заявку</button>
+                <p class="form-status" id="bfStatus" role="status" aria-live="polite"></p>
+              </div>
+            </div>
+          </div>
+        </li>
+
+      </ol>
     </form>
     <p class="booking-hint" data-cms="booking.hint">Або напишіть нам напряму — кнопки месенджерів нижче ↓</p>
   </div>
@@ -550,6 +617,6 @@
 <script src="data/gallery.js?v=16" defer></script>
 <script src="data/videos.js?v=16" defer></script>
 <script src="data/beforeafter.js?v=2" defer></script>
-<script src="scripts/main.js?v=34" defer></script>
+<script src="scripts/main.js?v=35" defer></script>
 </body>
 </html>

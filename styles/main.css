@@ -290,8 +290,43 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 .booking .eyebrow{color:var(--gold)}
 .booking .section-head h2{color:#fff}
 .booking .section-sub{color:#cfc7ee}
-.booking-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 20px;max-width:780px;margin:0 auto;min-width:0;
-  background:var(--paper);padding:clamp(24px,3vw,38px);border-radius:var(--radius-lg);box-shadow:var(--shadow);color:var(--ink)}
+.booking-form{display:block;max-width:780px;margin:0 auto;min-width:0;
+  background:var(--paper);padding:clamp(20px,3vw,34px);border-radius:var(--radius-lg);box-shadow:var(--shadow);color:var(--ink)}
+.bf-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 20px;min-width:0}
+/* ---- guided steps ---- */
+.bf-top{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.bf-progress{flex:1;height:6px;border-radius:999px;background:var(--violet-tint);overflow:hidden}
+.bf-progress span{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--violet-d),var(--violet));transition:width .35s ease}
+.bf-prog-lbl{margin:0;font-weight:800;font-size:.8rem;color:var(--ink-soft);white-space:nowrap}
+.bf-hello{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px;padding:.7em 1em;border-radius:12px;
+  background:var(--violet-tint);color:var(--violet-deep);font-weight:700;font-size:.92rem}
+.bf-hello button{background:none;border:0;padding:0;font:inherit;font-weight:700;color:var(--violet);text-decoration:underline dotted;cursor:pointer}
+.bf-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.bstep{border:1.5px solid var(--line);border-radius:14px;background:var(--bg);transition:border-color .2s,background .2s,opacity .2s}
+.bstep.is-active{border-color:var(--violet);background:var(--paper);box-shadow:0 10px 30px -22px var(--violet)}
+.bstep.is-locked{opacity:.5}
+.bstep-head{display:flex;align-items:center;gap:10px;width:100%;padding:.85em 1em;background:none;border:0;cursor:pointer;
+  font-family:var(--font-body);font-size:1rem;color:var(--ink);text-align:left;min-width:0}
+.bstep-head:disabled{cursor:default}
+.bstep.is-active .bstep-head{cursor:default}
+.bstep-n{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:.85rem;
+  background:var(--violet-tint);color:var(--violet-deep)}
+.bstep.is-active .bstep-n{background:var(--violet);color:#fff}
+.bstep.is-done .bstep-n{background:#2f8f5b;color:#fff;font-size:0}
+.bstep.is-done .bstep-n::after{content:"✓";font-size:.9rem}
+.bstep-t{font-weight:800;white-space:nowrap}
+.bstep-sum{flex:1;min-width:0;color:var(--ink-soft);font-weight:600;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bstep-edit{flex:none;font-weight:800;font-size:.82rem;color:var(--violet);opacity:0}
+.bstep.is-done .bstep-edit{opacity:1}
+.bstep-body{padding:0 1em 1.1em}
+.bstep-act{margin-top:14px}
+.bstep-act .btn{width:100%}
+.bstep-act .btn:disabled{opacity:.45;cursor:not-allowed}
+.bf-pets{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.bf-pet{font-family:var(--font-body);font-weight:700;font-size:.9rem;color:var(--ink);background:var(--bg);
+  border:1.5px solid var(--line);border-radius:999px;padding:.45em 1em;cursor:pointer;transition:.15s}
+.bf-pet:hover{border-color:var(--violet)}
+.bf-pet.is-sel{background:var(--violet);color:#fff;border-color:var(--violet)}
 .field{display:flex;flex-direction:column;gap:6px}
 .field[hidden]{display:none} /* the hidden attribute must beat display:flex (breed / weight / slots fields) */
 [hidden]{display:none!important} /* same for sections / nav links / .btn (inline-flex) hidden from the CRM (Сайт) */
@@ -528,7 +563,12 @@ section[id],[id="booking"]{scroll-margin-top:84px}
   .section{padding:52px 0}
   .trust-inner{grid-template-columns:1fr 1fr}
   .interior-grid{grid-auto-rows:150px}
-  .booking-form{grid-template-columns:minmax(0,1fr)}
+  .bf-grid{grid-template-columns:minmax(0,1fr)}
+  .bstep-head{padding:.8em .8em;gap:8px}
+  .bstep-body{padding:0 .8em 1em}
+  .bstep-t{font-size:.95rem}
+  .bstep-sum{flex-basis:100%;order:3;font-size:.85rem;padding-left:34px}
+  .bf-prog-lbl{font-size:.75rem}
   .hero-actions .btn,.hero-actions{width:100%}
   .price-table{min-width:0}
   .price-table th,.price-table td{padding:.7em .6em;font-size:.92rem}
