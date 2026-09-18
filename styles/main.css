@@ -318,6 +318,10 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 .bstep-sum{flex:1;min-width:0;color:var(--ink-soft);font-weight:600;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bstep-edit{flex:none;font-weight:800;font-size:.82rem;color:var(--violet);opacity:0}
 .bstep.is-done .bstep-edit{opacity:1}
+.bstep.is-locked .bstep-edit{opacity:0}   /* filled, but an earlier step must be finished first */
+.bf-remember-row{margin-top:4px}
+.bf-remember{display:flex;align-items:center;gap:8px;font-weight:600;font-size:.88rem;color:var(--ink-soft);cursor:pointer}
+.bf-remember input{width:auto;flex:none}
 .bstep-body{padding:0 1em 1.1em}
 .bstep-act{margin-top:14px}
 .bstep-act .btn{width:100%}

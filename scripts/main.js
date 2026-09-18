@@ -508,12 +508,12 @@
   const slotsField = $("#bf-slots-field"), slotsBox = $("#bf-slots"),
     slotsHint = $("#bf-slots-hint"), timeInput = $("#bf-time"),
     waitBox = $("#bf-waitlist-box"), waitChk = $("#bf-waitlist");
-  let slotsToken = 0;
+  let slotsToken = 0, slotsFailed = false;
   const needsSlot = () => serviceSel && serviceSel.value && !REQUEST_SVC.includes(serviceSel.value);
 
   async function refreshSlots() {
     if (!timeInput) return;
-    timeInput.value = "";
+    timeInput.value = ""; slotsFailed = false;
     if (waitBox) { waitBox.style.display = "none"; if (waitChk) waitChk.checked = false; }
     if (!CONFIG.bookingEndpoint || !needsSlot() || !dateInput.value) { slotsField.hidden = true; return; }
     slotsField.hidden = false; slotsBox.innerHTML = ""; slotsHint.textContent = "завантаження…";
@@ -534,7 +534,7 @@
         });
         slotsBox.appendChild(b);
       });
-    } catch { if (my === slotsToken) { slotsHint.textContent = "— не вдалося завантажити час"; if (waitBox) waitBox.style.display = "flex"; } }   // never a dead end: the request can still be sent
+    } catch { if (my === slotsToken) { slotsFailed = true; slotsHint.textContent = "— не вдалося завантажити час, ми узгодимо його з вами"; } }   // never a dead end: it goes through as a request
     finally { if (my === slotsToken && typeof renderSteps === "function") renderSteps(); }
   }
   serviceSel && serviceSel.addEventListener("change", refreshSlots);
@@ -665,7 +665,7 @@
   }
   if (window.GL_CATALOG) applyCatalog(window.GL_CATALOG);   // instant, from bundled snapshot
   if (CONFIG.bookingEndpoint) {
-    fetch(`${CONFIG.bookingEndpoint}/catalog`).then(r => r.json()).then(applyCatalog).catch(() => { });
+    fetch(`${CONFIG.bookingEndpoint}/catalog`).then(r => r.json()).then(d => { applyCatalog(d); renderSteps(); }).catch(() => { });   // a live rename may invalidate the chosen service
   }
 
   // ---- Reviews / testimonials (published from the CRM) ----
@@ -703,7 +703,7 @@
     if (i === 2) return !!val(serviceSel)
       && (!shown(breedField) || breedSel.disabled || !!val(breedSel))
       && (!shown(weightField) || !weightSel.options.length || !!val(weightSel));
-    if (i === 3) return !!val(dateInput) && (!needsSlot() || !!val(timeInput) || !!(waitChk && waitChk.checked));
+    if (i === 3) return !!val(dateInput) && (!needsSlot() || slotsFailed || !!val(timeInput) || !!(waitChk && waitChk.checked));
     if (i === 4) return !!val(nameInput) && val(phoneInput).replace(/\D/g, "").length >= 9;
     return false;
   }
@@ -716,7 +716,7 @@
     }
     if (i === 3) {
       const d = val(dateInput), when = d ? d.slice(8) + "." + d.slice(5, 7) : "";
-      const t = val(timeInput) ? "о " + val(timeInput) : (waitChk && waitChk.checked ? "лист очікування" : (needsSlot() ? "" : "час узгодимо"));
+      const t = val(timeInput) ? "о " + val(timeInput) : (waitChk && waitChk.checked ? "лист очікування" : (needsSlot() && !slotsFailed ? "" : "час узгодимо"));
       return [when, t, val(staffSel)].filter(Boolean).join(" · ");
     }
     if (i === 4) return [val(nameInput), val(phoneInput)].filter(Boolean).join(" · ");
@@ -752,7 +752,13 @@
       const y = li.getBoundingClientRect().top + window.scrollY - 90;
       window.scrollTo({ top: y, behavior: reduced ? "auto" : "smooth" });
       const first = li.querySelector("input:not([type=hidden]):not([readonly]), select, textarea");
-      if (first && !("ontouchstart" in window)) setTimeout(() => { try { first.focus({ preventScroll: true }); } catch (e) { } }, reduced ? 0 : 320);
+      const sbody = $(".bstep-body", li);
+      const coarse = matchMedia("(pointer:coarse)").matches;   // phone: focus the block, not a field, so no keyboard pops up
+      const target = (first && !coarse) ? first : sbody;
+      if (target) {
+        if (target === sbody) sbody.tabIndex = -1;
+        setTimeout(() => { try { target.focus({ preventScroll: true }); } catch (e) { } }, reduced ? 0 : 320);
+      }
     }
   }
   if (form) {
@@ -774,7 +780,8 @@
 
   /* ---- Returning clients: prefill from the cabinet session, else from the last booking on this device ---- */
   const PF_KEY = "gl_booking_prefill", CAB_KEY = "gavlove_client_token";
-  let pendingPet = null, prefillOff = false;
+  let pendingPet = null, prefillOff = false, userTouched = false;
+  if (form) ["input", "change", "click"].forEach(t => form.addEventListener(t, e => { if (e.isTrusted) userTouched = true; }, true));
   const lsGet = k => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { } };
   const lsDel = k => { try { localStorage.removeItem(k); } catch (e) { } };
@@ -794,6 +801,8 @@
   }
   function usePet(p, fromChip) {
     if (!p) return;
+    if (breedSel) breedSel.value = "";   // another pet — clear before the rebuild reads the current value
+    if (weightSel) weightSel.value = "";
     setPet(p.species === "cat" || p.pet === "Кіт" ? "Кіт" : "Собака");
     if (petNameInput && (p.name || p.pet_name)) petNameInput.value = p.name || p.pet_name;
     pendingPet = { breed: p.breed || "", weight: p.weight || "" };
@@ -814,15 +823,18 @@
   }
   const clearBtn = $("#bfHelloClear");
   if (clearBtn) clearBtn.addEventListener("click", () => {
-    prefillOff = true; pendingPet = null; lsDel(PF_KEY);
+    prefillOff = true; pendingPet = null; lsDel(PF_KEY); lsDel(CAB_KEY);
     if (nameInput) nameInput.value = ""; if (phoneInput) phoneInput.value = ""; if (petNameInput) petNameInput.value = "";
     const pets = $("#bfPets"); if (pets) { pets.innerHTML = ""; pets.hidden = true; }
     const box = $("#bfHello"); if (box) box.hidden = true;
     setPet(""); goStep(1, false);
   });
+  const PF_TTL = 60 * 24 * 3600e3;   // 60 days
   (function prefillLocal() {
     let d = null; try { d = JSON.parse(lsGet(PF_KEY) || "null"); } catch (e) { }
+    if (d && (!d.t || Date.now() - d.t > PF_TTL)) { lsDel(PF_KEY); d = null; }
     if (!d || !d.phone) return;
+    const rm = $("#bf-remember"); if (rm) rm.checked = true;
     prefillContacts(d);
     if (d.pet) { pendingPet = { breed: d.breed || "", weight: d.weight || "" }; setPet(d.pet); applyPendingPet(); }
     if (petNameInput && d.pet_name) petNameInput.value = d.pet_name;
@@ -831,6 +843,7 @@
   if (CONFIG.bookingEndpoint && lsGet(CAB_KEY)) {   // signed in to the cabinet on this device → name, phone and pets
     fetch(`${CONFIG.bookingEndpoint}/client/me`, { headers: { Authorization: "Bearer " + lsGet(CAB_KEY) } })
       .then(r => r.json()).then(d => {
+        if (d && d.error === "unauthorized") lsDel(CAB_KEY);   // expired session — stop asking on every load
         if (!d || !d.ok || !d.client || prefillOff) return;
         prefillContacts({ name: d.client.name, phone: d.client.phone });
         hello((d.client.name || "").split(" ")[0]);
@@ -839,19 +852,20 @@
           box.innerHTML = pets.map((p, i) => `<button type="button" class="bf-pet" data-i="${i}">${p.species === "cat" ? "🐱" : "🐶"} ${esc(p.name || "Улюбленець")}</button>`).join("");
           box.hidden = false;
           box.addEventListener("click", e => { const b = e.target.closest(".bf-pet"); if (b) usePet(pets[+b.dataset.i], b); });
-          if (pets.length === 1) { const only = box.querySelector(".bf-pet"); usePet(pets[0], only); }
+          if (pets.length === 1 && !userTouched) { const only = box.querySelector(".bf-pet"); usePet(pets[0], only); }
         }
         renderSteps();
       }).catch(() => { });
   }
   serviceSel && serviceSel.addEventListener("change", () => { applyPendingPet(); renderSteps(); });
-  breedSel && breedSel.addEventListener("change", () => { applyPendingPet(); renderSteps(); });
+  breedSel && breedSel.addEventListener("change", () => { if (pendingPet) pendingPet.breed = val(breedSel); applyPendingPet(); renderSteps(); });   // a manual choice replaces what we remembered
+  weightSel && weightSel.addEventListener("change", () => { if (pendingPet) pendingPet.weight = val(weightSel); });
   stepsReady = true; renderSteps();
   form && form.addEventListener("submit", async e => {
     e.preventDefault();
     status.className = "form-status"; status.textContent = "";
-    if (!form.checkValidity()) { form.reportValidity(); return; }
-    if (CONFIG.bookingEndpoint && needsSlot() && !timeInput.value && !(waitChk && waitChk.checked)) {
+    if (!form.checkValidity()) { goStep(firstOpen(), true); form.reportValidity(); return; }   // the invalid field must be on screen
+    if (CONFIG.bookingEndpoint && needsSlot() && !slotsFailed && !timeInput.value && !(waitChk && waitChk.checked)) {
       status.className = "form-status err"; status.textContent = "Оберіть, будь ласка, вільний час.";
       return;
     }
@@ -888,12 +902,16 @@
         a.textContent = "🔔 Отримувати нагадування в Telegram";
         status.appendChild(document.createElement("br")); status.appendChild(a);
       }
-      lsSet(PF_KEY, JSON.stringify({ name: data.name || "", phone: data.phone || "", pet: data.pet || "", pet_name: data.pet_name || "", breed: data.breed || "", weight: data.weight || "" }));
+      const rememberMe = $("#bf-remember"), rememberOn = !rememberMe || rememberMe.checked;
+      if (rememberOn) lsSet(PF_KEY, JSON.stringify({ t: Date.now(), name: data.name || "", phone: data.phone || "", pet: data.pet || "", pet_name: data.pet_name || "", breed: data.breed || "", weight: data.weight || "" }));
+      else lsDel(PF_KEY);
       const keep = { name: data.name || "", phone: data.phone || "" };
       form.reset(); setPet(""); pendingPet = null;
       slotsField.hidden = true; if (timeInput) timeInput.value = "";
       const petsBox = $("#bfPets"); if (petsBox) $$(".bf-pet", petsBox).forEach(x => x.classList.remove("is-sel"));
-      prefillContacts(keep); hello(keep.name.split(" ")[0]);
+      prefillOff = false;
+      if (rememberMe) rememberMe.checked = rememberOn;
+      if (rememberOn) { prefillContacts(keep); hello(""); } else { const hb = $("#bfHello"); if (hb) hb.hidden = true; }
       goStep(1, false);
     } catch (err) {
       status.className = "form-status err";
