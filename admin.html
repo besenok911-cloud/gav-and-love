@@ -598,6 +598,7 @@
       <div class="fld wide"><label>Побажання по стрижці</label><textarea id="pt-prefs" rows="2"></textarea></div>
       <div class="fld wide"><label>Ветрекомендації</label><textarea id="pt-vet" rows="2"></textarea></div>
       <div class="fld wide"><label>⚠️ Протипоказання / попередження</label><textarea id="pt-warnings" rows="2"></textarea></div>
+      <div class="fld wide" id="pt-cnotes-wrap" hidden><label>💬 Від клієнта (з кабінету)</label><p class="muted" id="pt-cnotes" style="margin:0;font-size:.9rem;line-height:1.45"></p></div>
     </div>
     <div id="pt-photos-wrap" hidden style="margin-top:18px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
@@ -1693,6 +1694,7 @@
     $("#pt-special").checked=p?!!p.special:false;$("#pt-allergies").value=p?p.allergies||"":"";
     $("#pt-behavior").value=p?p.behavior||"":"";$("#pt-reactions").value=p?p.reactions||"":"";
     $("#pt-prefs").value=p?p.prefs||"":"";$("#pt-vet").value=p?p.vet_notes||"":"";$("#pt-warnings").value=p?p.warnings||"":"";
+    var cn=$("#pt-cnotes-wrap");if(cn){cn.hidden=!(p&&p.client_notes);$("#pt-cnotes").textContent=(p&&p.client_notes)||"";}
     $("#pt-del").hidden=!p;$("#pt-photos-wrap").hidden=!p;$("#pt-ph-hint").textContent=PH_HINT;if(p)loadPetPhotos();
     $("#petModalErr").textContent="";$("#petModal").classList.add("open");
   }
@@ -1986,7 +1988,7 @@
     try{var r=await api("/admin/site-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(st)});
       if(!r||!r.ok)throw new Error((r&&r.error)||"");
       SITE.cfg=st;toast("Збережено — сайт оновиться протягом хвилини");btn.classList.add("saved");setTimeout(function(){btn.classList.remove("saved");},1600);
-    }catch(e){toast("Не вдалося зберегти"+(e&&e.message?": "+e.message:""),true);}
+    }catch(e){if(e&&e.code===401){showLogin("Сесія завершилась — увійдіть знову.");return;}toast("Не вдалося зберегти"+(e&&e.message?": "+e.message:""),true);}
     btn.disabled=false;btn.textContent=old;
   }
 
@@ -2106,7 +2108,7 @@
     var tpl=$("#ntf-tpl");tpl.innerHTML="";
     (ctx.broadcast?[["Акція",function(){return "🎁 Цього тижня у GAV&LOVE знижка 10% на повний комплекс. Записуйтесь: /book";}],["Вільний текст",function(){return "";}]]:NTF_TPL).forEach(function(t){
       var p=document.createElement("button");p.className="pill";p.textContent=t[0];p.addEventListener("click",function(){$("#ntf-text").value=t[1](b);$("#ntf-text").focus();ntfCount();});tpl.appendChild(p);});
-    $("#ntf-text").value=ctx.broadcast?"":(NTF_TPL[0][1](b));ntfCount();
+    $("#ntf-text").value=(ctx.broadcast||!b)?"":(NTF_TPL[0][1](b));ntfCount();
     $("#ntfErr").textContent="";$("#ntf-send").disabled=false;$("#ntf-send").textContent="Надіслати";
     $("#ntfModal").classList.add("open");setTimeout(function(){$("#ntf-text").focus();},60);}
   function ntfCount(){var n=$("#ntf-text").value.length;$("#ntf-cnt").textContent=n?n+" симв.":"";}

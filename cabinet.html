@@ -323,7 +323,7 @@
         <select id="pt-behavior"><option value="">—</option><option value="спокійно">Спокійно</option><option value="тривожно">Тривожно</option><option value="агресивно">Агресивно</option></select></div>
       <div class="fld wide"><label for="pt-allergies">Алергії / чутливість</label><input id="pt-allergies" autocomplete="off" maxlength="200"></div>
       <div class="fld wide"><label for="pt-prefs">Побажання по стрижці</label><textarea id="pt-prefs" rows="2" maxlength="500"></textarea></div>
-      <div class="fld wide"><label for="pt-warnings">Попередження для майстра</label><textarea id="pt-warnings" rows="2" maxlength="500" placeholder="Наприклад: боїться фена, не любить лапи"></textarea></div>
+      <div class="fld wide"><label for="pt-warnings">Що важливо знати майстру</label><textarea id="pt-warnings" rows="2" maxlength="500" placeholder="Наприклад: боїться фена, не любить лапи"></textarea></div>
     </div>
     <div class="err" id="petErr"></div>
     <div class="mod-act">
@@ -482,7 +482,7 @@
   /* visits */
   function isUpcoming(b){var st=b.status||"new";if(CLOSED.indexOf(st)>=0)return false;if(!b.date)return true;return b.date>=todayISO();}
   function canCancel(b){var st=b.status||"new";if(["new","confirmed","waitlist"].indexOf(st)<0)return false;if(!b.date)return st==="waitlist";return b.date>=todayISO();}
-  function canMove(b){var st=b.status||"new";return ["new","confirmed"].indexOf(st)>=0&&!!b.date&&b.date>=todayISO();}
+  function canMove(b){var st=b.status||"new";return ["new","confirmed"].indexOf(st)>=0&&!!b.date&&!!b.time&&!b.is_request&&b.date>=todayISO();}
   function petEmoji(b){var p=String(b.pet||"").toLowerCase();return (p.indexOf("кіт")>=0||p.indexOf("кот")>=0||p==="cat")?"🐱":"🐶";}
   function visitHtml(b){
     var st=b.status||"new";
@@ -567,7 +567,7 @@
       if(!d){note("Спочатку оберіть дату.");return;}
       if(d<t||d>max){note("Оберіть дату в межах найближчих 30 днів.");return;}
       var req=++me.req;note("Шукаємо вільний час…");
-      call("/slots?date="+encodeURIComponent(d)+"&service="+encodeURIComponent(me.service),null,true).then(function(r){
+      call("/slots?date="+encodeURIComponent(d)+"&service="+encodeURIComponent(me.service)+"&exclude="+encodeURIComponent(me.id),null,true).then(function(r){
         if(mv!==me||me.req!==req)return;
         var slots=(r&&r.ok&&r.slots instanceof Array)?r.slots:[];
         if(!slots.length){note((r&&!r.ok&&r.error)||"На цю дату вільного часу немає — спробуйте іншу.");return;}
@@ -611,7 +611,7 @@
           (meta?'<div class="pmeta">'+esc(meta)+'</div>':'')+(extra?'<div class="pmeta">'+esc(extra)+'</div>':'')+'</div>'+
         '<button type="button" class="btn sm ghost2" data-act="edit" data-id="'+esc(p.id)+'" title="Редагувати">✎ Редагувати</button></div>'+
       (p.allergies?'<div class="pnote">⚠️ Алергії: '+esc(p.allergies)+'</div>':'')+
-      (p.warnings?'<div class="pnote">📌 '+esc(p.warnings)+'</div>':'')+
+      (p.client_notes?'<div class="pnote">📌 '+esc(p.client_notes)+'</div>':'')+
       (photos?'<div class="pphotos">'+photos+'</div>':'')+
     '</div>';
   }
@@ -656,7 +656,7 @@
     $("#pt-allergies").value=p?(p.allergies||""):"";
     setSelect($("#pt-behavior"),p?p.behavior:"");
     $("#pt-prefs").value=p?(p.prefs||""):"";
-    $("#pt-warnings").value=p?(p.warnings||""):"";
+    $("#pt-warnings").value=p?(p.client_notes||""):"";
     $("#petErr").textContent="";speciesUI();setBusy($("#pt-save"),false);
     $("#petBack").hidden=false;
     setTimeout(function(){$("#pt-name").focus();},50);
@@ -669,7 +669,7 @@
     if(bd&&bd>todayISO()){$("#petErr").textContent="Дата народження не може бути в майбутньому.";return;}
     var body={name:name,species:$("#pt-species").value,breed:$("#pt-breed").value.trim(),weight:$("#pt-weight").value,
       birthdate:bd,sex:$("#pt-sex").value,color:$("#pt-color").value.trim(),allergies:$("#pt-allergies").value.trim(),
-      behavior:$("#pt-behavior").value,prefs:$("#pt-prefs").value.trim(),warnings:$("#pt-warnings").value.trim()};
+      behavior:$("#pt-behavior").value,prefs:$("#pt-prefs").value.trim(),client_notes:$("#pt-warnings").value.trim()};
     var isEdit=editPetId!=null;if(isEdit)body.id=editPetId;
     var btn=$("#pt-save");setBusy(btn,true,"Зберігаємо…");$("#petErr").textContent="";
     call("/client/pet-save",body).then(function(r){

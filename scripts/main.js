@@ -35,11 +35,18 @@
   const onScroll = () => header.classList.toggle("scrolled", window.scrollY > 12);
   onScroll(); addEventListener("scroll", onScroll, { passive: true });
 
+  /* ---- Hero scroll hint: go to the first section that is actually shown (CMS may hide some) ---- */
+  const hint = $(".scroll-hint");
+  if (hint) hint.addEventListener("click", e => {
+    const target = $("main > section, body > section").find(s => s.id !== "home" && !s.hidden && s.offsetParent !== null);
+    if (target) { e.preventDefault(); target.scrollIntoView({ behavior: "smooth" }); }
+  });
+
   /* ---- Mobile sticky CTA: appears after the hero, hides while the booking form is on screen ---- */
   const mobCta = $("#mobCta"), bookingSec = $("#booking");
   if (mobCta && "IntersectionObserver" in window) {
     let heroOut = false, bookingIn = false;
-    const apply = () => { const show = heroOut && !bookingIn; mobCta.classList.toggle("show", show); document.body.classList.toggle("has-cta", show); };
+    const apply = () => { const show = heroOut && !bookingIn; mobCta.classList.toggle("show", show); mobCta.setAttribute("aria-hidden", String(!show)); document.body.classList.toggle("has-cta", show); };
     const heroEl = $("#home"); if (heroEl) new IntersectionObserver(es => { heroOut = !es[0].isIntersecting; apply(); }, { threshold: 0.15 }).observe(heroEl);
     if (bookingSec) new IntersectionObserver(es => { bookingIn = es[0].isIntersecting; apply(); }, { threshold: 0.05 }).observe(bookingSec);
   }

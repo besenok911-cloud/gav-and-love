@@ -95,7 +95,7 @@ export default {
         return json(await publicMasters(env), cors);   // public: for the booking form
       }
       // ---- Master cabinet (per-master access code, no ADMIN_TOKEN) ----
-      if (url.pathname === "/client/otp" && request.method === "POST") return json(await clientOtp(await request.json(), env), cors);
+      if (url.pathname === "/client/otp" && request.method === "POST") return json(await clientOtp(await request.json(), env, request), cors);
       if (url.pathname === "/client/verify" && request.method === "POST") return json(await clientVerify(await request.json(), env), cors);
       if (url.pathname === "/client/me" && request.method === "GET") return json(await clientMe(request, url, env), cors);
       if (url.pathname === "/client/booking-cancel" && request.method === "POST") return json(await clientCancel(request, env), cors);
@@ -341,6 +341,7 @@ async function listEvents(env, token, timeMin, timeMax) {
   const res = await fetch(u, { headers: { Authorization: `Bearer ${token}` } });
   const d = await res.json();
   return (d.items || []).filter(e => e.start && e.start.dateTime).map(e => ({
+    id: e.id,
     start: new Date(e.start.dateTime).getTime(),
     end: new Date(e.end.dateTime).getTime(),
     staff: (e.extendedProperties && e.extendedProperties.private && e.extendedProperties.private.staff) || "",
@@ -412,7 +413,12 @@ async function getSlots(url, env) {
   const token = await getAccessToken(env);
   const dayStart = wallToUTC(y, m, d, 0, BUSINESS.tz);
   const dayEnd = wallToUTC(y, m, d, 24 * 60, BUSINESS.tz);
-  const events = await listEvents(env, token, dayStart, dayEnd);
+  let events = await listEvents(env, token, dayStart, dayEnd);
+  const excl = Number(url.searchParams.get("exclude"));   // booking being rescheduled: its own event must not block the picker
+  if (Number.isInteger(excl) && excl > 0 && env.DB) {
+    const row = await env.DB.prepare(`SELECT event_id FROM bookings WHERE id=?`).bind(excl).first();
+    if (row && row.event_id) events = events.filter(ev => ev.id !== row.event_id);
+  }
 
   const earliest = Date.now() + BUSINESS.minLeadMin * 60000;
   const maxTime = Date.now() + BUSINESS.maxAheadDays * 86400000;
@@ -724,9 +730,11 @@ async function adminUpdate(request, env) {
   catch (e) { calendar = "error: " + String(e && e.message || e); }
   // tell a linked client what changed: confirmed / cancelled / moved to another date-time
   const newStatus = body.status != null ? body.status : prev.status;
-  if (body.status === "confirmed" && prev.status !== "confirmed") await tgNotifyClient(env, id, "confirmed");
-  else if (body.status === "cancelled" && prev.status !== "cancelled") await tgNotifyClient(env, id, "cancelled");
-  else if (moved && newStatus !== "cancelled" && newStatus !== "no_show") await tgNotifyClient(env, id, "moved");
+  const newDate = body.date != null ? body.date : prev.date;
+  const upcoming = !!newDate && newDate >= isoInTz(new Date(), BUSINESS.tz);   // past or finished visits get no messages
+  if (body.status === "confirmed" && prev.status !== "confirmed" && upcoming) await tgNotifyClient(env, id, "confirmed");
+  else if (body.status === "cancelled" && ["new", "confirmed"].includes(prev.status) && upcoming) await tgNotifyClient(env, id, "cancelled");
+  else if (moved && ["new", "confirmed"].includes(newStatus) && upcoming) await tgNotifyClient(env, id, "moved");
   return { ok: true, calendar };
 }
 
@@ -835,15 +843,21 @@ async function clientByPhone(env, phone) {   // prefer the row that already has 
 }
 function maskPhone(p) { const d = (p || "").replace(/\D/g, ""); return d.length >= 9 ? `+${d.slice(0, d.length - 9)} ** *** ${d.slice(-4, -2)} ${d.slice(-2)}` : p; }
 function siteUrl(env) { return String(env.SITE_URL || env.ALLOW_ORIGIN || "").replace(/\/$/, "") + "/"; }
-async function clientOtp(body, env) {
+async function clientOtp(body, env, request) {
+  const ip = (request && request.headers.get("CF-Connecting-IP")) || "";
+  const nowIso = new Date().toISOString();
+  if (ip) {   // one caller may not hammer many numbers
+    const byIp = await env.DB.prepare(`SELECT COUNT(*) AS n FROM client_otp WHERE ip=? AND expires_at>?`).bind(ip, nowIso).first();
+    if (byIp && byIp.n >= 10) return { ok: false, error: "Забагато запитів коду. Зачекайте 10 хвилин і спробуйте знову." };
+  }
   const c = await clientByPhone(env, body && body.phone);
   const bot = (await loadSettings(env)).tg_bot || "";
-  if (!c) return { ok: false, error: "Не знайшли клієнта з таким номером. Спочатку запишіться на сайті або підключіть Telegram-бот.", need_link: true, bot };
-  if (!c.tg_chat_id) return { ok: false, error: "Щоб увійти, підключіть Telegram-бот: відкрийте бота й натисніть «Поділитися номером».", need_link: true, bot };
-  const recent = await env.DB.prepare(`SELECT COUNT(*) AS n FROM client_otp WHERE client_id=? AND expires_at>?`).bind(c.id, new Date().toISOString()).first();
+  // same answer whether the number is unknown or just not linked — no customer-list enumeration
+  if (!c || !c.tg_chat_id) return { ok: false, error: "Код надсилаємо лише клієнтам із підключеним Telegram-ботом. Відкрийте бота, натисніть «Поділитися номером» і спробуйте ще раз.", need_link: true, bot };
+  const recent = await env.DB.prepare(`SELECT COUNT(*) AS n FROM client_otp WHERE client_id=? AND expires_at>?`).bind(c.id, nowIso).first();
   if (recent && recent.n >= 3) return { ok: false, error: "Забагато запитів коду. Зачекайте 10 хвилин і спробуйте знову." };
   const code = String(Math.floor(100000 + Math.random() * 900000));
-  await env.DB.prepare(`INSERT INTO client_otp (client_id,code,expires_at,attempts) VALUES (?,?,?,0)`).bind(c.id, code, new Date(Date.now() + 10 * 60000).toISOString()).run();
+  await env.DB.prepare(`INSERT INTO client_otp (client_id,code,expires_at,attempts,ip) VALUES (?,?,?,0,?)`).bind(c.id, code, new Date(Date.now() + 10 * 60000).toISOString(), ip).run();
   const r = await tgSendTo(env, c.tg_chat_id, `🔑 Код для входу в кабінет: <b>${code}</b>\nДійсний 10 хвилин. Якщо це не ви — просто проігноруйте це повідомлення.`);
   if (!r || !r.ok) return { ok: false, error: "Не вдалося надіслати код у Telegram. Спробуйте ще раз." };
   return { ok: true, masked: maskPhone(c.phone) };
@@ -870,8 +884,8 @@ async function clientBookings(env, c) {   // own rows by client_id, plus legacy 
 async function clientMe(request, url, env) {
   const c = await requireClient(request, env);
   const st = await loadSettings(env);
-  const pets = (await env.DB.prepare(`SELECT id,name,species,breed,weight,birthdate,sex,color,allergies,behavior,prefs,warnings FROM pets WHERE client_id=? ORDER BY id`).bind(c.id).all()).results || [];
-  let photos = []; try { photos = (await env.DB.prepare(`SELECT id,pet_id,kind,token,created_at FROM pet_photos WHERE client_id=? ORDER BY created_at DESC`).bind(c.id).all()).results || []; } catch (e) { }
+  const pets = (await env.DB.prepare(`SELECT id,name,species,breed,weight,birthdate,sex,color,allergies,behavior,prefs,client_notes FROM pets WHERE client_id=? ORDER BY id`).bind(c.id).all()).results || [];
+  let photos = []; try { photos = (await env.DB.prepare(`SELECT id,pet_id,kind,token,created_at FROM pet_photos WHERE pet_id IN (SELECT id FROM pets WHERE client_id=?) ORDER BY created_at DESC`).bind(c.id).all()).results || []; } catch (e) { }
   pets.forEach(p => { p.photos = photos.filter(x => x.pet_id === p.id).map(x => ({ id: x.id, kind: x.kind, created_at: x.created_at, url: photoUrl(url.origin, x) })); });
   const bookings = await clientBookings(env, c);
   const visits = bookings.filter(b => b.status === "done" || b.status === "paid").length;
@@ -881,7 +895,8 @@ async function clientMe(request, url, env) {
     bot: st.tg_bot || "", site: siteUrl(env) };
 }
 async function clientOwnBooking(env, c, id) {
-  const b = await env.DB.prepare(`SELECT * FROM bookings WHERE id=?`).bind(+id).first();
+  const n = Number(id); if (!Number.isInteger(n) || n <= 0) return null;
+  const b = await env.DB.prepare(`SELECT * FROM bookings WHERE id=?`).bind(n).first();
   if (!b) return null;
   const np = normPhone(c.phone);
   return (b.client_id === c.id || (np && normPhone(b.phone) === np)) ? b : null;
@@ -904,10 +919,11 @@ async function clientMove(request, env) {
   const b = await clientOwnBooking(env, c, body.id);
   if (!b) return { ok: false, error: "Запис не знайдено" };
   if (!["new", "confirmed"].includes(b.status)) return { ok: false, error: "Цей запис уже не можна перенести" };
+  if (b.is_request || !b.time) return { ok: false, error: "Заявку без точного часу не можна перенести самостійно — напишіть нам, будь ласка" };
   const date = String(body.date || ""), time = String(body.time || "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return { ok: false, error: "Оберіть дату й час" };
   if (date < isoInTz(new Date(), BUSINESS.tz)) return { ok: false, error: "Ця дата вже минула" };
-  let staff = null; try { staff = await freeMasterAt(env, { date, time, service: b.service, prefer: b.staff }); } catch (e) { staff = null; }
+  let staff = null; try { staff = await freeMasterAt(env, { date, time, service: b.service, prefer: b.staff, excludeEventId: b.event_id }); } catch (e) { staff = null; }
   if (!staff) return { ok: false, error: "На жаль, цей час уже зайнятий. Оберіть інший." };
   await env.DB.prepare(`UPDATE bookings SET date=?, time=?, staff=?, remind_day_sent=0, remind_hour_sent=0 WHERE id=?`).bind(date, time, staff, b.id).run();
   try { await syncCalendar(env, b.id); } catch (e) { }
@@ -916,14 +932,15 @@ async function clientMove(request, env) {
   try { await tgNotifyClient(env, b.id, "moved"); } catch (e) { }
   return { ok: true, staff };
 }
-const CLIENT_PET_FIELDS = ["name", "species", "breed", "weight", "birthdate", "sex", "color", "allergies", "behavior", "prefs", "warnings"];
+const CLIENT_PET_FIELDS = ["name", "species", "breed", "weight", "birthdate", "sex", "color", "allergies", "behavior", "prefs", "client_notes"];   // vet_notes / warnings / reactions / special are staff-only
 async function clientPetSave(request, env) {
   const c = await requireClient(request, env);
   const b = await request.json();
   const name = String(b.name || "").trim().slice(0, 60);
   if (!name) return { ok: false, error: "Вкажіть кличку" };
   const vals = CLIENT_PET_FIELDS.map(f => f === "name" ? name : f === "species" ? (["dog", "cat", "other"].includes(b.species) ? b.species : "dog") : String(b[f] == null ? "" : b[f]).slice(0, 500));
-  if (b.id) {
+  if (b.id != null && b.id !== "") {
+    if (!Number.isInteger(Number(b.id)) || Number(b.id) <= 0) return { ok: false, error: "Улюбленця не знайдено" };
     const p = await env.DB.prepare(`SELECT id FROM pets WHERE id=? AND client_id=?`).bind(+b.id, c.id).first();
     if (!p) return { ok: false, error: "Улюбленця не знайдено" };
     await env.DB.prepare(`UPDATE pets SET ${CLIENT_PET_FIELDS.map(f => f + "=?").join(",")} WHERE id=?`).bind(...vals, +b.id).run();
@@ -940,7 +957,10 @@ async function clientProfile(request, env) {
   await env.DB.prepare(`UPDATE clients SET name=?, email=? WHERE id=?`).bind(name, email, c.id).run();
   return { ok: true };
 }
-async function clientLogout(request, env) { try { await env.DB.prepare(`DELETE FROM client_sessions WHERE token=?`).bind(bearer(request)).run(); } catch (e) { } return { ok: true }; }
+async function clientLogout(request, env) {   // «Вийти» revokes every session of this client, incl. links sent by the bot
+  try { const s = await clientSession(env, bearer(request)); if (s) await env.DB.prepare(`DELETE FROM client_sessions WHERE client_id=?`).bind(s.client_id).run(); } catch (e) { }
+  return { ok: true };
+}
 async function cabinetLinkButton(env, clientId) {   // one-tap login link for the bot (fresh 90-day session)
   const token = await issueClientSession(env, clientId);
   return kb([[{ text: "🔑 Відкрити кабінет", url: `${siteUrl(env)}cabinet.html#t=${token}` }]]);
@@ -952,7 +972,7 @@ const photoUrl = (origin, p) => `${origin}/photo/${p.id}/${p.token}`;
 async function photoUpload(request, env) {
   await requireAdmin(request, env);
   const b = await request.json();
-  const petId = +b.pet_id; if (!petId) return { ok: false, error: "pet_id required" };
+  const petId = Number(b.pet_id); if (!Number.isInteger(petId) || petId <= 0) return { ok: false, error: "pet_id required" };
   const kind = b.kind === "after" ? "after" : "before";
   const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.data || ""));
   if (!m) return { ok: false, error: "Очікується зображення JPEG / PNG / WebP" };
@@ -974,8 +994,8 @@ async function adminPhotos(request, url, env) {
 }
 async function photoDelete(request, env) {
   await requireAdmin(request, env);
-  const { id } = await request.json(); if (!id) return { ok: false, error: "id required" };
-  await env.DB.prepare(`DELETE FROM pet_photos WHERE id=?`).bind(+id).run();
+  const { id } = await request.json(); if (!Number.isInteger(Number(id)) || Number(id) <= 0) return { ok: false, error: "id required" };
+  await env.DB.prepare(`DELETE FROM pet_photos WHERE id=?`).bind(Number(id)).run();
   return { ok: true };
 }
 async function photoServe(url, env, cors) {   // public but unguessable (16-hex token), cached for a year
@@ -1033,6 +1053,7 @@ async function petDelete(request, env) {
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
   await env.DB.prepare(`DELETE FROM pets WHERE id=?`).bind(id).run();
+  try { await env.DB.prepare(`DELETE FROM pet_photos WHERE pet_id=?`).bind(id).run(); } catch (e) { }
   return { ok: true };
 }
 
@@ -1581,7 +1602,7 @@ function kyivNow() { // { iso, min } in Europe/Kyiv
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(d).map(x => [x.type, x.value]));
   return { iso: isoInTz(d, tz), min: ((+p.hour) % 24) * 60 + (+p.minute) };
 }
-const CLIENT_COLS = `id,date,time,name,phone,pet_name,service,staff,status,client_id,remind_day_sent,remind_hour_sent`;
+const CLIENT_COLS = `id,date,time,name,phone,pet_name,service,staff,status,client_id,remind_day_sent,remind_hour_sent,is_request,event_id`;
 function visitText(b) { return `${fmtDdMm(b.date)} о <b>${tgEsc(b.time)}</b> — ${tgEsc(b.service || "грумінг")}${b.pet_name ? " для " + tgEsc(b.pet_name) : ""}${b.staff ? "\n👩‍🔧 Майстер: " + tgEsc(b.staff) : ""}`; }
 function visitButtons(b) { return { reply_markup: { inline_keyboard: [[{ text: "✅ Буду", callback_data: `ok:${b.id}` }], [{ text: "🔁 Перенести", callback_data: `mv:${b.id}` }, { text: "❌ Скасувати", callback_data: `cancel:${b.id}` }]] } }; }
 async function clientChatFor(env, b) { // the booking's client's chat id (by client_id, else by phone)
@@ -1635,7 +1656,7 @@ async function notifyBroadcast(request, env) {
   return { ok: true, sent, failed, total: seen.size };
 }
 // Free master for a date-time (same rule as book()): prefer `prefer`, else the first free one; null = nobody.
-async function freeMasterAt(env, { date, time, service, prefer }) {
+async function freeMasterAt(env, { date, time, service, prefer, excludeEventId }) {
   const { y, m, d } = parseDate(date);
   const tm = /^(\d{2}):(\d{2})$/.exec(time || ""); if (!tm) return null;
   const startMin = (+tm[1]) * 60 + (+tm[2]);
@@ -1644,7 +1665,9 @@ async function freeMasterAt(env, { date, time, service, prefer }) {
   const masters = await loadMasters(env);
   const token = await getAccessToken(env);
   const start = wallToUTC(y, m, d, startMin, BUSINESS.tz), end = new Date(start.getTime() + duration * 60000);
-  const events = await listEvents(env, token, new Date(start.getTime() - BUSINESS.bufferMin * 60000), new Date(end.getTime() + BUSINESS.bufferMin * 60000));
+  if (start.getTime() < Date.now() + BUSINESS.minLeadMin * 60000 || start.getTime() > Date.now() + BUSINESS.maxAheadDays * 86400000) return null; // same bounds as the slot picker
+  const events = (await listEvents(env, token, new Date(start.getTime() - BUSINESS.bufferMin * 60000), new Date(end.getTime() + BUSINESS.bufferMin * 60000)))
+    .filter(ev => !excludeEventId || ev.id !== excludeEventId);   // the booking's own event is not a conflict
   const isFree = mst => startMin >= mst.startMin && startMin + duration <= mst.endMin &&
     !inBreak(mst, startMin, startMin + duration) && masterWorks(mst, date, dow) &&
     !overlappingAt(events, start.getTime(), end.getTime()).some(ev => ev.staff === mst.name);
@@ -1712,10 +1735,16 @@ async function handleTgUpdate(env, u) {
     const clearButtons = () => tgApi(env, "editMessageReplyMarkup", { chat_id: chat, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] } });
     if (m[1] === "mv") {   // reschedule: reuse the booking dialogue's date/time pickers with move_id in the state
       if (!["new", "confirmed"].includes(b.status)) { await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id, text: "Цей запис уже не можна перенести" }); return; }
+      if (b.is_request || !b.time) { await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id, text: "Заявку без точного часу переносимо вручну — напишіть нам" }); return; }
       await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id });
       const st = { step: "date", move_id: b.id, service: b.service, staff: b.staff || "", pet_name: b.pet_name || "", old_date: b.date, old_time: b.time };
       await tgSendTo(env, chat, `🔁 Переносимо запис: ${visitText(b)}`);
       await bookingAskDate(env, chat, st, 0);
+      return;
+    }
+    if (!["new", "confirmed"].includes(b.status)) {   // stale buttons on a finished / cancelled booking
+      await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id, text: b.status === "cancelled" ? "Цей запис уже скасовано" : "Цей запис уже завершено", show_alert: false });
+      await clearButtons();
       return;
     }
     if (m[1] === "ok") {
@@ -1886,7 +1915,7 @@ async function bookingAskDate(env, chat, st, page) {
 }
 async function bookingAskTime(env, chat, st) {
   let slots = [];
-  try { slots = ((await getSlots(new URL(`https://x/slots?date=${st.date}&service=${encodeURIComponent(st.service || "")}`), env)) || {}).slots || []; } catch (e) { }
+  try { slots = ((await getSlots(new URL(`https://x/slots?date=${st.date}&service=${encodeURIComponent(st.service || "")}${st.move_id ? "&exclude=" + st.move_id : ""}`), env)) || {}).slots || []; } catch (e) { }
   if (!slots.length) {
     st.step = "date"; await tgSetState(env, chat, st);
     await tgSendTo(env, chat, `На ${fmtDdMm(st.date)} вільного часу немає 😔`, kb([[{ text: "📅 Інша дата", callback_data: `b:dp:${st.page || 0}` }], CANCEL_ROW])); return;
@@ -1941,9 +1970,9 @@ async function moveConfirm(env, chat, st) {
 async function moveApply(env, chat, st) {
   const b = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE id=?`).bind(+st.move_id).first();
   const owner = b ? await clientChatFor(env, b) : null;
-  if (!b || String(owner) !== String(chat) || !["new", "confirmed"].includes(b.status)) { await tgClearState(env, chat); await tgSendTo(env, chat, "Цей запис уже не можна перенести — напишіть нам, будь ласка."); return; }
+  if (!b || String(owner) !== String(chat) || !["new", "confirmed"].includes(b.status) || b.is_request || !b.time) { await tgClearState(env, chat); await tgSendTo(env, chat, "Цей запис уже не можна перенести — напишіть нам, будь ласка."); return; }
   let staff = null;
-  try { staff = await freeMasterAt(env, { date: st.date, time: st.time, service: b.service, prefer: b.staff }); } catch (e) { staff = null; }
+  try { staff = await freeMasterAt(env, { date: st.date, time: st.time, service: b.service, prefer: b.staff, excludeEventId: b.event_id }); } catch (e) { staff = null; }
   if (!staff) { await tgSendTo(env, chat, "На жаль, цей час щойно зайняли. Оберіть інший, будь ласка.", kb([[{ text: "🕐 Інший час", callback_data: "b:back:time" }], [{ text: "✖ Залишити як є", callback_data: "b:x" }]])); return; }
   await env.DB.prepare(`UPDATE bookings SET date=?, time=?, staff=?, remind_day_sent=0, remind_hour_sent=0 WHERE id=?`).bind(st.date, st.time, staff, b.id).run();
   try { await syncCalendar(env, b.id); } catch (e) { }
