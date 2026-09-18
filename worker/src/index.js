@@ -1729,7 +1729,30 @@ async function runClientReminders(env, kind, force) {
   }
   return { ok: true, kind, candidates: rows.length, sent, unlinked };
 }
-async function linkClientChat(env, clientId, chatId) { await env.DB.prepare(`UPDATE clients SET tg_chat_id=? WHERE id=?`).bind(chatId, clientId).run(); }
+async function linkClientChat(env, clientId, chatId) {
+  await env.DB.prepare(`UPDATE clients SET tg_chat_id=NULL WHERE tg_chat_id=? AND id<>?`).bind(chatId, clientId).run();
+  await env.DB.prepare(`UPDATE clients SET tg_chat_id=? WHERE id=?`).bind(chatId, clientId).run();
+}
+// "Give us your phone" step: the contact handler continues wherever st.after says.
+const PHONE_KB = { reply_markup: { keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }]], resize_keyboard: true, one_time_keyboard: true } };
+function bookBtn() { return kb([[{ text: "📅 Записатися", callback_data: "b:start" }, { text: "🔑 Кабінет", callback_data: "cab" }]]); }
+async function askPhone(env, chat, after, text) {
+  await tgSetState(env, chat, { step: "contact", after: after || "" });
+  await tgSendTo(env, chat, text, PHONE_KB);
+}
+async function sendCabinetLink(env, chat, clientId) {
+  await tgSendTo(env, chat, "Ваш кабінет: візити, перенесення, улюбленці та бонуси. Посилання відкриває кабінет без коду:", await cabinetLinkButton(env, clientId));
+}
+async function sendVisits(env, chat, c) {
+  const rows = (await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE client_id=? AND date>=? AND time<>'' AND status IN ('new','confirmed','arrived') AND service<>'Блокування' ORDER BY date, time LIMIT 6`).bind(c.id, isoInTz(new Date(), BUSINESS.tz)).all()).results || [];
+  if (!rows.length) { await tgSendTo(env, chat, "👤 " + tgEsc(c.name || "") + "\n\nНайближчих візитів немає. Записатися можна прямо тут 👇", bookBtn()); return; }
+  await tgSendTo(env, chat, `👤 ${tgEsc(c.name || "")} — ваші найближчі візити (${rows.length}):`);
+  for (const b of rows) {
+    const canChange = b.status !== "arrived";
+    await tgSendTo(env, chat, `${b.status === "confirmed" ? "✅" : b.status === "arrived" ? "🏠" : "🕐"} ${visitText(b)}`,
+      canChange ? kb([[{ text: "🔁 Перенести", callback_data: `mv:${b.id}` }, { text: "❌ Скасувати", callback_data: `cancel:${b.id}` }]]) : undefined);
+  }
+}
 async function nextVisitsText(env, clientId) {
   const today = isoInTz(new Date(), BUSINESS.tz);
   const r = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE client_id=? AND date>=? AND time<>'' AND status IN ('new','confirmed','arrived') AND service<>'Блокування' ORDER BY date,time LIMIT 3`).bind(clientId, today).all();
@@ -1750,8 +1773,8 @@ async function handleTgUpdate(env, u) {
     if (cq.data === "cab") {   // «🔑 Кабінет» button → personal login link
       try { await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id }); } catch (e) { }
       const c = await clientByChat(env, chat);
-      if (!c) { await tgSendTo(env, chat, "Спочатку підключіться: /start"); return; }
-      await tgSendTo(env, chat, "Ваш кабінет: візити, перенесення, улюбленці та бонуси. Посилання відкриває кабінет без коду:", await cabinetLinkButton(env, c.id));
+      if (!c) { await askPhone(env, chat, "cab", "Щоб відкрити кабінет, поділіться номером телефону — ми знайдемо або створимо ваш профіль:"); return; }
+      await sendCabinetLink(env, chat, c.id);
       return;
     }
     const m = /^(ok|cancel|mv):(\d+)$/.exec(cq.data);
@@ -1794,41 +1817,42 @@ async function handleTgUpdate(env, u) {
   if (!msg || !msg.chat) return;
   const chat = msg.chat.id, text = String(msg.text || "").trim();
   const st = await tgGetState(env, chat);   // booking dialogue in progress (if any)
-  const BOOK_BTN = kb([[{ text: "📅 Записатися", callback_data: "b:start" }, { text: "🔑 Кабінет", callback_data: "cab" }]]);
+  const BOOK_BTN = bookBtn();
   if (msg.contact && msg.contact.phone_number) {
-    const np = normPhone(msg.contact.phone_number);
+    // only the sender's OWN contact — a forwarded card must never attach this chat to someone else's profile
+    const own = msg.from && msg.contact.user_id && String(msg.contact.user_id) === String(msg.from.id);
+    if (!own) { await tgSendTo(env, chat, "Приймаємо лише ваш власний номер 🙏\nНатисніть кнопку «📱 Поділитися номером» унизу екрана.", PHONE_KB); return; }
+    const phone = "+" + String(msg.contact.phone_number).replace(/\D/g, "");
+    const np = normPhone(phone);
+    const after = (st && st.step === "contact" && st.after) || "";
     const cs = await env.DB.prepare(`SELECT id,name,phone FROM clients`).all();
-    let c = (cs.results || []).find(x => normPhone(x.phone) === np);
-    if (!c && st && st.step === "contact") {   // brand-new client booking through the bot → create the record
-      const nm = [msg.contact.first_name, msg.contact.last_name].filter(Boolean).join(" ") || "Клієнт з Telegram";
-      const r = await env.DB.prepare(`INSERT INTO clients (created_at,name,phone,source,status) VALUES (?,?,?,'telegram','active')`).bind(new Date().toISOString(), nm, msg.contact.phone_number).run();
-      c = { id: r.meta && r.meta.last_row_id, name: nm, phone: msg.contact.phone_number };
+    let c = (cs.results || []).find(x => normPhone(x.phone) === np), created = false;
+    if (!c) {   // nobody with this number yet → register them right here
+      const nm = [msg.from.first_name, msg.from.last_name].filter(Boolean).join(" ") || [msg.contact.first_name, msg.contact.last_name].filter(Boolean).join(" ") || "Клієнт з Telegram";
+      const r = await env.DB.prepare(`INSERT INTO clients (created_at,name,phone,source,status) VALUES (?,?,?,'telegram','active')`).bind(new Date().toISOString(), nm, phone).run();
+      c = { id: r.meta && r.meta.last_row_id, name: nm, phone }; created = true;
+      try { await sendTelegram(env, `🆕 <b>Новий клієнт через Telegram-бот</b>\n👤 ${tgEsc(nm)} — ${tgEsc(phone)}`); } catch (e) { }
     }
-    if (!c) { await tgSendTo(env, chat, "Не знайшли записів на цей номер 🤔 Ви можете записатися прямо тут:", Object.assign({ reply_markup: { remove_keyboard: true } })); await tgSendTo(env, chat, "Натисніть, щоб записатися:", BOOK_BTN); return; }
     await linkClientChat(env, c.id, chat);
-    await tgSendTo(env, chat, `✅ Готово, ${tgEsc(c.name || "")}! Нагадування про візити приходитимуть сюди.${await nextVisitsText(env, c.id)}`, { reply_markup: { remove_keyboard: true } });
-    if (st && st.step === "contact") await bookingAskPet(env, chat, c);
-    else await tgSendTo(env, chat, "Записатися на грумінг можна прямо тут 👇", BOOK_BTN);
+    await tgSendTo(env, chat, `✅ Готово, ${tgEsc(c.name || "")}! Нагадування про візити приходитимуть сюди.${created ? "" : await nextVisitsText(env, c.id)}`, { reply_markup: { remove_keyboard: true } });
+    if (after === "book") { await bookingAskPet(env, chat, c); return; }
+    await tgClearState(env, chat);
+    if (after === "cab") { await sendCabinetLink(env, chat, c.id); return; }
+    if (after === "visits") { await sendVisits(env, chat, c); return; }
+    await tgSendTo(env, chat, "Записатися на грумінг можна прямо тут 👇", BOOK_BTN);
     return;
   }
   if (/^\/book/.test(text)) { await bookingStart(env, chat); return; }
   if (/^\/cabinet/.test(text)) {
     const c = await clientByChat(env, chat);
-    if (!c) { await tgSendTo(env, chat, "Спочатку підключіться: /start", BOOK_BTN); return; }
-    await tgSendTo(env, chat, "Ваш кабінет: візити, перенесення, улюбленці та бонуси. Посилання відкриває кабінет без коду:", await cabinetLinkButton(env, c.id));
+    if (!c) { await askPhone(env, chat, "cab", "Щоб відкрити кабінет, поділіться номером телефону — ми знайдемо або створимо ваш профіль:"); return; }
+    await sendCabinetLink(env, chat, c.id);
     return;
   }
   if (/^\/(visits|my)/.test(text)) {   // each upcoming visit as its own card with Перенести / Скасувати
     const c = await clientByChat(env, chat);
-    if (!c) { await tgSendTo(env, chat, "Спочатку підключіться: /start", BOOK_BTN); return; }
-    const rows = (await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE client_id=? AND date>=? AND time<>'' AND status IN ('new','confirmed','arrived') AND service<>'Блокування' ORDER BY date, time LIMIT 6`).bind(c.id, isoInTz(new Date(), BUSINESS.tz)).all()).results || [];
-    if (!rows.length) { await tgSendTo(env, chat, "👤 " + tgEsc(c.name || "") + "\n\nНайближчих візитів немає. Записатися можна прямо тут 👇", BOOK_BTN); return; }
-    await tgSendTo(env, chat, `👤 ${tgEsc(c.name || "")} — ваші найближчі візити (${rows.length}):`);
-    for (const b of rows) {
-      const canChange = b.status !== "arrived";
-      await tgSendTo(env, chat, `${b.status === "confirmed" ? "✅" : b.status === "arrived" ? "🏠" : "🕐"} ${visitText(b)}`,
-        canChange ? kb([[{ text: "🔁 Перенести", callback_data: `mv:${b.id}` }, { text: "❌ Скасувати", callback_data: `cancel:${b.id}` }]]) : undefined);
-    }
+    if (!c) { await askPhone(env, chat, "visits", "Щоб побачити ваші візити, поділіться номером телефону:"); return; }
+    await sendVisits(env, chat, c);
     return;
   }
   if (st && st.step === "breed_text" && text && !text.startsWith("/")) {   // the client typed the breed
@@ -1839,7 +1863,8 @@ async function handleTgUpdate(env, u) {
   }
   if (/^\/start/.test(text)) {
     const code = text.replace(/^\/start\s*/, "").trim();
-    if (code) {
+    const wantCab = code === "cab";   // deep link from the site cabinet: t.me/<bot>?start=cab
+    if (code && !wantCab) {
       const b = await env.DB.prepare(`SELECT id,client_id,name FROM bookings WHERE tg_code=? LIMIT 1`).bind(code).first();
       if (b && b.client_id) {
         await linkClientChat(env, b.client_id, chat);
@@ -1848,9 +1873,12 @@ async function handleTgUpdate(env, u) {
       }
     }
     const c = await clientByChat(env, chat);
-    if (c) { await tgSendTo(env, chat, `Вітаємо знову, ${tgEsc(c.name || "")} 🐾${await nextVisitsText(env, c.id)}`, BOOK_BTN); return; }
-    await tgSendTo(env, chat, "Вітаємо в GAV&amp;LOVE 🐾\nЩоб отримувати нагадування або записатися, поділіться номером телефону:",
-      { reply_markup: { keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }]], resize_keyboard: true, one_time_keyboard: true } });
+    if (c) {
+      if (wantCab) { await sendCabinetLink(env, chat, c.id); return; }
+      await tgSendTo(env, chat, `Вітаємо знову, ${tgEsc(c.name || "")} 🐾${await nextVisitsText(env, c.id)}`, BOOK_BTN);
+      return;
+    }
+    await askPhone(env, chat, wantCab ? "cab" : "", "Вітаємо в GAV&amp;LOVE 🐾\nЩоб отримувати нагадування, записатися або відкрити кабінет, поділіться номером телефону:");
     return;
   }
   await tgSendTo(env, chat, "Я нагадую про візити в GAV&amp;LOVE і можу записати вас на грумінг — натисніть кнопку або /book.", BOOK_BTN);
@@ -1877,9 +1905,7 @@ const DOW_UA = ["Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
 async function bookingStart(env, chat) {
   const c = await clientByChat(env, chat);
   if (!c) {   // need a phone first — the contact handler continues the dialogue
-    await tgSetState(env, chat, { step: "contact" });
-    await tgSendTo(env, chat, "Щоб записатися, спочатку поділіться номером телефону:",
-      { reply_markup: { keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }]], resize_keyboard: true, one_time_keyboard: true } });
+    await askPhone(env, chat, "book", "Щоб записатися, спочатку поділіться номером телефону:");
     return;
   }
   await bookingAskPet(env, chat, c);

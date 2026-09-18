@@ -225,8 +225,8 @@
         <button class="btn" id="otpBtn" type="button">Отримати код у Telegram</button>
         <div class="needlink" id="needLink" hidden>
           <div id="needLinkTxt"></div>
-          <a class="btn" id="botLink" href="https://t.me/GAV_and_LOVE_bot" target="_blank" rel="noopener">Відкрити бота</a>
-          <div class="hint">У боті натисніть «Поділитися номером», а потім поверніться сюди й запросіть код ще раз.</div>
+          <a class="btn" id="botLink" href="https://t.me/GAV_and_LOVE_bot?start=cab" target="_blank" rel="noopener">Відкрити бота</a>
+          <div class="hint">У боті натисніть «📱 Поділитися номером» — бот одразу надішле посилання у ваш кабінет. Можна також повернутися сюди й запросити код ще раз.</div>
         </div>
       </div>
 
@@ -451,7 +451,7 @@
       }
       if(d.need_link){
         $("#stepPhone").hidden=false;$("#stepCode").hidden=true;
-        $("#botLink").href="https://t.me/"+botName(d.bot);
+        $("#botLink").href="https://t.me/"+botName(d.bot)+"?start=cab";
         $("#needLinkTxt").textContent=d.error||"Ваш Telegram ще не підключено до салону.";
         $("#needLink").hidden=false;return;
       }
