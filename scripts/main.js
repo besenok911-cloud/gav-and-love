@@ -53,6 +53,59 @@
   observeReveals();
 
   /* ============================================================
+     SITE CMS — sections hidden / texts overridden from the CRM («Сайт» tab)
+     Markup contract: [data-cms-section="Назва"] = hideable section (by id),
+     [data-cms="key"] = editable text. cfg = { hidden: [id…], texts: { key: text } }.
+     ============================================================ */
+  const CMS_HIDDEN = new Set(); window.GL_CMS_HIDDEN = CMS_HIDDEN;
+  const CMS_DEFAULTS = new Map();                 // el -> { html, rich } captured before the first override
+  let reviewsReady = false;                       // renderReviews() received published reviews
+  const cmsIsRich = html => /<br|class="script"|<b>/i.test(html);
+  // Rich fields (headings with accents, texts with <b>/<br>): "*слово*" → <span class="script">,
+  // "**слово**" → <b>, newline → <br>. Nodes are built one by one — saved text is never used as HTML.
+  function cmsRender(el, text) {
+    el.textContent = "";
+    String(text).split("\n").forEach((line, li) => {
+      if (li) el.appendChild(document.createElement("br"));
+      const re = /\*\*([^*\n]+)\*\*|\*([^*\n]+)\*/g; let last = 0, m;
+      while ((m = re.exec(line))) {
+        if (m.index > last) el.appendChild(document.createTextNode(line.slice(last, m.index)));
+        const bold = m[1] != null, node = document.createElement(bold ? "b" : "span");
+        if (!bold) node.className = "script";
+        node.textContent = bold ? m[1] : m[2];
+        el.appendChild(node); last = m.index + m[0].length;
+      }
+      if (last < line.length) el.appendChild(document.createTextNode(line.slice(last)));
+    });
+  }
+  function applySiteCms(cfg) {
+    const hidden = (cfg && Array.isArray(cfg.hidden)) ? cfg.hidden.map(String) : [];
+    const texts = (cfg && cfg.texts && typeof cfg.texts === "object") ? cfg.texts : {};
+    CMS_HIDDEN.clear(); hidden.forEach(id => CMS_HIDDEN.add(id));
+    $$("[data-cms-section]").forEach(sec => {
+      const hide = CMS_HIDDEN.has(sec.id);
+      sec.hidden = hide || (sec.id === "reviews" && !reviewsReady);   // #reviews also waits for published reviews
+      $$(`#mainNav a[href="#${sec.id}"], .footer-nav a[href="#${sec.id}"]`).forEach(a => { a.hidden = hide; });
+    });
+    $$("[data-cms]").forEach(el => {
+      if (!CMS_DEFAULTS.has(el)) CMS_DEFAULTS.set(el, { html: el.innerHTML, rich: cmsIsRich(el.innerHTML) });
+      const def = CMS_DEFAULTS.get(el), val = texts[el.dataset.cms];
+      if (typeof val === "string" && val.trim()) { if (def.rich) cmsRender(el, val); else el.textContent = val; }
+      else if (el.innerHTML !== def.html) el.innerHTML = def.html;                // override removed → back to the markup default
+    });
+  }
+  // cached copy first (no flash on repeat visits), then the live config from the worker
+  try { const c = localStorage.getItem("gl_site_cms"); if (c) applySiteCms(JSON.parse(c)); } catch (e) { }
+  if (CONFIG.bookingEndpoint) {
+    fetch(`${CONFIG.bookingEndpoint}/site`).then(r => r.json()).then(d => {
+      if (!d || !d.ok) return;
+      const cfg = { hidden: d.hidden || [], texts: d.texts || {} };
+      applySiteCms(cfg);
+      try { localStorage.setItem("gl_site_cms", JSON.stringify(cfg)); } catch (e) { }
+    }).catch(() => { });
+  }
+
+  /* ============================================================
      PRICES
      ============================================================ */
   const ICONS = { paw:"i-paw", scissors:"i-scissors", cat:"i-cat", star:"i-star", home:"i-home", play:"i-play" };
@@ -563,7 +616,8 @@
     }).join("");
     const avg = $("#reviewsAvg");
     if (avg && d.avg) avg.textContent = `Середня оцінка ${d.avg} з 5 · ${d.count} ${d.count % 10 === 1 && d.count % 100 !== 11 ? "відгук" : (d.count % 10 >= 2 && d.count % 10 <= 4 && (d.count % 100 < 10 || d.count % 100 >= 20) ? "відгуки" : "відгуків")}`;
-    sec.hidden = false;
+    reviewsReady = true;
+    sec.hidden = CMS_HIDDEN.has("reviews");   // the CRM («Сайт») may keep the section hidden even with reviews
   }
   if (CONFIG.bookingEndpoint) {
     fetch(`${CONFIG.bookingEndpoint}/reviews`).then(r => r.json()).then(renderReviews).catch(() => { });

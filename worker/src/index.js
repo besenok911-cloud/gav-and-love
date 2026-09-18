@@ -204,6 +204,13 @@ export default {
       if (url.pathname === "/admin/settings-save" && request.method === "POST") {
         return json(await settingsSave(request, env), cors);
       }
+      // ---- Site CMS (CRM «Сайт» tab): hidden sections + text overrides for index.html ----
+      if (url.pathname === "/site" && request.method === "GET") {
+        return json(await publicSite(env), { ...cors, "Cache-Control": "public, max-age=60" });   // public: read by the site
+      }
+      if (url.pathname === "/admin/site-save" && request.method === "POST") {
+        return json(await siteSave(request, env), cors);
+      }
       if (url.pathname === "/admin/send-digest" && request.method === "POST") {
         await requireAdmin(request, env);
         return json(await runDailyDigest(env, true), cors);
@@ -1375,6 +1382,48 @@ async function settingsSave(request, env) {
     if (b[k] != null) await env.DB.prepare(`INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(k, String(b[k]), String(b[k])).run();
   }
   return { ok: true, settings: await loadSettings(env) };
+}
+
+/* ----------------------------- Site CMS ----------------------------- */
+// One JSON blob in `settings` (key "site_cms"): { hidden: [sectionId…], texts: { key: text } }.
+// The site (scripts/main.js) hides the listed [data-cms-section] ids and replaces [data-cms] texts.
+const SITE_CMS_MAX = 64 * 1024;
+function normalizeSiteCms(b) {
+  const hidden = [], texts = {}, seen = new Set();
+  (Array.isArray(b && b.hidden) ? b.hidden : []).forEach(x => {
+    const id = String(x == null ? "" : x).trim();
+    if (/^[\w-]{1,40}$/.test(id) && !seen.has(id)) { seen.add(id); hidden.push(id); }
+  });
+  const t = b && b.texts;
+  if (t && typeof t === "object" && !Array.isArray(t)) {
+    for (const k of Object.keys(t)) {
+      if (!/^[\w.-]{1,80}$/.test(k) || typeof t[k] !== "string") continue;
+      const v = t[k].trim();
+      if (v) texts[k] = v;
+    }
+  }
+  return { hidden, texts };
+}
+async function loadSiteCms(env) {
+  if (!env.DB) return { hidden: [], texts: {} };
+  try {
+    const row = await env.DB.prepare(`SELECT value FROM settings WHERE key='site_cms'`).first();
+    if (row && row.value) return normalizeSiteCms(JSON.parse(row.value));
+  } catch (e) { }
+  return { hidden: [], texts: {} };
+}
+async function publicSite(env) {
+  const c = await loadSiteCms(env);
+  return { ok: true, hidden: c.hidden, texts: c.texts };
+}
+async function siteSave(request, env) {
+  await requireAdmin(request, env);
+  const b = await request.json().catch(() => null);
+  if (!b || typeof b !== "object") { const e = new Error("bad request"); e.status = 400; throw e; }
+  const raw = JSON.stringify(normalizeSiteCms(b));
+  if (raw.length > SITE_CMS_MAX) { const e = new Error("Занадто багато тексту (ліміт 64 КБ)"); e.status = 413; throw e; }
+  await env.DB.prepare(`INSERT INTO settings (key,value) VALUES ('site_cms',?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(raw, raw).run();
+  return { ok: true };
 }
 // YYYY-MM-DD for a Date in a timezone.
 function isoInTz(d, tz) {

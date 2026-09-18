@@ -340,6 +340,31 @@
   .hist-row .hp{font-family:var(--font-head);font-weight:700;text-align:right}
   .hist-badge{font-size:.68rem;font-weight:800;padding:.15em .5em;border-radius:999px;color:#fff}
 
+  /* site CMS (Сайт): hide sections / edit texts of index.html */
+  .site-intro{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin:18px 0 14px;padding:12px 16px;background:var(--violet-soft);border:1px solid #ddd3ff;border-radius:16px;font-size:.9rem;line-height:1.45}
+  .site-intro p{margin:0;flex:1 1 260px}
+  .site-card{margin-bottom:12px;padding:16px 18px}
+  .site-card.off{opacity:.62;background:var(--bg-2)}
+  .site-head{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap}
+  .site-head h3{margin:0;flex:1 1 180px;min-width:0}
+  .site-toggle{display:flex;align-items:center;gap:7px;font-weight:800;font-size:.85rem;color:var(--ink);cursor:pointer;white-space:nowrap}
+  .site-toggle input{width:18px;height:18px;margin:0;accent-color:var(--violet);cursor:pointer}
+  .site-body{margin-top:14px;padding-top:12px;border-top:1px solid var(--line-soft);display:grid;gap:12px}
+  .site-sub{margin:8px 0 -2px;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--violet)}
+  .site-fld{display:flex;flex-direction:column;gap:4px;min-width:0}
+  .site-lbl{display:flex;align-items:center;gap:8px}
+  .site-lbl label{font-weight:700;font-size:.82rem;color:var(--ink)}
+  .site-rich{font-size:.72rem;color:var(--ink-soft);cursor:help;border-bottom:1px dotted var(--ink-soft)}
+  .site-reset{margin-left:auto;border:1px solid var(--line);background:var(--paper);color:var(--ink-soft);border-radius:8px;cursor:pointer;font-size:.95rem;line-height:1;padding:.2em .5em;visibility:hidden}
+  .site-reset:hover{border-color:var(--violet);color:var(--violet)}
+  .site-fld.changed .site-reset{visibility:visible}
+  .site-in{width:100%;min-width:0;font-family:var(--font-body);font-size:.95rem;color:var(--ink);padding:.6em .75em;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);resize:vertical}
+  .site-in:focus{outline:none;border-color:var(--violet);background:#fff}
+  .site-fld.changed .site-in{border-color:var(--violet);background:#fff}
+  .site-bar{position:sticky;bottom:10px;z-index:5;display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px;padding:12px 16px;background:var(--paper);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
+  .site-bar .muted{flex:1 1 200px;font-size:.85rem;font-weight:700}
+  @media(max-width:760px){.site-head .btn{flex:1 1 100%}.site-bar .btn{flex:1 1 auto;text-align:center}}
+
   /* modal */
   .modal{position:fixed;inset:0;background:rgba(28,19,64,.5);display:none;align-items:flex-start;justify-content:center;z-index:50;padding:24px;overflow:auto}
   #pwSetModal{z-index:60} /* stacks above the Доступи modal */
@@ -419,6 +444,7 @@
     <button class="tabbtn" data-view="services">Послуги</button>
     <button class="tabbtn" data-view="finance">Фінанси</button>
     <button class="tabbtn" data-view="reviews">Відгуки</button>
+    <button class="tabbtn" data-view="site">Сайт</button>
   </div>
   <span class="sp"></span>
   <span class="whoami" id="whoami" hidden></span>
@@ -477,6 +503,7 @@
 <div class="wrap" id="servicesView" hidden></div>
 <div class="wrap" id="financeView" hidden></div>
 <div class="wrap" id="reviewsView" hidden></div>
+<div class="wrap" id="siteView" hidden></div>
 
 <div class="modal" id="modal">
   <div class="sheet">
@@ -802,9 +829,9 @@
     var finBtn=document.querySelector('.tabbtn[data-view="finance"]');if(finBtn)finBtn.style.display=isOwner()?"":"none";
     if(!isOwner()&&view==="finance")view="dash";
   }
-  function setView(v){if(v==="finance"&&!isOwner())v="dash";view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");$("#reportsView").hidden=(v!=="reports");$("#servicesView").hidden=(v!=="services");$("#financeView").hidden=(v!=="finance");$("#reviewsView").hidden=(v!=="reviews");
+  function setView(v){if(v==="finance"&&!isOwner())v="dash";view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");$("#reportsView").hidden=(v!=="reports");$("#servicesView").hidden=(v!=="services");$("#financeView").hidden=(v!=="finance");$("#reviewsView").hidden=(v!=="reviews");$("#siteView").hidden=(v!=="site");
     [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.classList.toggle("on",b.dataset.view===v);});
-    if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else if(v==="reports")renderReports(); else if(v==="services")renderServices(); else if(v==="finance")renderFinance(); else if(v==="reviews")renderReviews(); else render();}
+    if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else if(v==="reports")renderReports(); else if(v==="services")renderServices(); else if(v==="finance")renderFinance(); else if(v==="reviews")renderReviews(); else if(v==="site")renderSite(); else render();}
   [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.addEventListener("click",function(){setView(b.dataset.view);});});
 
   async function loadClientsPets(){
@@ -1845,6 +1872,122 @@
     if(!confirm("Видалити відгук?"))return;
     try{await api("/admin/review-delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id})});
       reviewsList=reviewsList.filter(function(x){return x.id!==id;});drawReviews();}catch(e){toast("Не вдалося видалити",true);}
+  }
+
+  /* ---------- Сайт: hide sections / edit texts of index.html (site CMS) ---------- */
+  // The editor is built from index.html itself (no duplicated registry):
+  //   [data-cms-section="Назва"] — a section that can be hidden (by its id)
+  //   [data-cms-group="Назва"]   — texts of a section that is always shown (hero, services, booking, contacts)
+  //   [data-cms="key"]           — an editable text; only values that differ from the markup are saved
+  var SITE={cfg:{hidden:[],texts:{}},sections:[],groups:[],defs:{}};
+  var SITE_LBL={eyebrow:"Надзаголовок",kicker:"Надзаголовок",h1:"Заголовок",h2:"Заголовок",h3:"Заголовок",h4:"Заголовок",title:"Заголовок",sub:"Підзаголовок",lead:"Опис",p:"Текст",text:"Текст",
+    q:"Питання",a:"Відповідь",name:"Ім'я",role:"Посада",tag:"Мітка",meta:"Деталі",btn:"Кнопка",quote:"Цитата",qa:"Питання-відповідь",member:"Майстер",item:"Пункт",expect:"Очікуємо",offer:"Пропонуємо",
+    cap:"Підпис фото",point:"Пункт",rules:"Умови заселення",interview:"Інтерв'ю",note:"Примітка",address:"Адреса",hours:"Графік роботи",hint:"Підказка"};
+  function siteLabel(key){
+    return key.split(".").slice(1).map(function(seg){
+      if(SITE_LBL[seg])return SITE_LBL[seg];
+      var m=/^([a-z]+)(\d+)$/.exec(seg);
+      return m?((SITE_LBL[m[1]]||m[1])+" "+m[2]):seg;
+    }).join(" · ");
+  }
+  var SITE_WS=/[ \t\r\n]+/g;   // not \s — keeps the non-breaking spaces used in headings
+  function siteIsRich(el){return !!el.querySelector("br,b,span.script");}
+  // element markup → editor text: <span class="script"> → *слово*, <b> → **слово**, <br> → new line (mirrors cmsRender in scripts/main.js)
+  function siteText(el){
+    var out="";
+    [].forEach.call(el.childNodes,function(n){
+      if(n.nodeType===3){out+=n.nodeValue.replace(SITE_WS," ");return;}
+      if(n.nodeType!==1)return;
+      var t=n.tagName.toLowerCase(),txt=n.textContent.replace(SITE_WS," ");
+      if(t==="br")out+="\n";
+      else if(t==="b"||t==="strong")out+="**"+txt.trim()+"**";
+      else if(t==="span"&&n.classList.contains("script"))out+="*"+txt.trim()+"*";
+      else out+=txt;
+    });
+    return out.replace(/ *\n */g,"\n").trim();
+  }
+  function siteCollect(doc){
+    SITE.defs={};
+    function fieldsOf(root){return [].map.call(root.querySelectorAll("[data-cms]"),function(el){var f={key:el.getAttribute("data-cms"),def:siteText(el),rich:siteIsRich(el)};SITE.defs[f.key]=f.def;return f;});}
+    SITE.groups=[].map.call(doc.querySelectorAll("[data-cms-group]"),function(s){return {id:s.id,title:s.getAttribute("data-cms-group"),fields:fieldsOf(s)};});
+    SITE.sections=[].map.call(doc.querySelectorAll("[data-cms-section]"),function(s){return {id:s.id,title:s.getAttribute("data-cms-section"),fields:fieldsOf(s)};});
+  }
+  async function renderSite(){
+    wireSite();
+    var v=$("#siteView");v.innerHTML='<p class="nodata">Завантаження…</p>';
+    var page,cfg;
+    try{page=await fetch("index.html",{cache:"no-store"}).then(function(r){if(!r.ok)throw new Error("index");return r.text();});}
+    catch(e){v.innerHTML='<p class="nodata">Не вдалося завантажити сторінку сайту. Перевірте з’єднання.</p>';return;}
+    try{cfg=await fetch(API+"/site",{cache:"no-store"}).then(function(r){return r.json();});}catch(e){cfg=null;}
+    siteCollect(new DOMParser().parseFromString(page,"text/html"));
+    SITE.cfg={hidden:(cfg&&Array.isArray(cfg.hidden))?cfg.hidden.slice():[],texts:(cfg&&cfg.texts&&typeof cfg.texts==="object")?cfg.texts:{}};
+    drawSite();
+    if(!cfg||!cfg.ok)toast("Не вдалося отримати збережені зміни — показано тексти з сайту",true);
+  }
+  function siteFieldHtml(f){
+    var ov=SITE.cfg.texts[f.key];var val=(typeof ov==="string"&&ov.trim())?ov:f.def;var changed=val.trim()!==f.def;
+    var multi=f.def.length>=90||f.def.indexOf("\n")>=0;
+    var ctl=multi
+      ?'<textarea class="site-in" rows="'+Math.min(8,Math.max(2,Math.ceil(val.length/70)+val.split("\n").length-1))+'">'+esc(val)+'</textarea>'
+      :'<input class="site-in" type="text" value="'+esc(val)+'">';
+    return '<div class="site-fld'+(changed?" changed":"")+'" data-key="'+esc(f.key)+'"><div class="site-lbl"><label>'+esc(siteLabel(f.key))+'</label>'+
+      (f.rich?'<span class="site-rich" title="*слово* — рукописний акцент, **слово** — жирний, Enter — новий рядок">✎ форматування</span>':'')+
+      '<button type="button" class="site-reset" title="Повернути початковий текст">↺</button></div>'+ctl+'</div>';
+  }
+  function siteCardHtml(sec,hideable){
+    var off=hideable&&SITE.cfg.hidden.indexOf(sec.id)>=0;
+    return '<div class="panel site-card'+(off?" off":"")+'" data-sec="'+esc(sec.id)+'">'+
+      '<div class="site-head"><h3>'+esc(sec.title)+' <span class="tag site-cnt" hidden></span></h3>'+
+      (hideable?'<label class="site-toggle"><input type="checkbox" class="site-show"'+(off?"":" checked")+'> Показувати на сайті</label>':'')+
+      (sec.fields.length?'<button type="button" class="btn outline sm site-open">Тексти ('+sec.fields.length+') ▾</button>':'')+'</div>'+
+      (sec.fields.length?'<div class="site-body" hidden>'+sec.fields.map(siteFieldHtml).join("")+'</div>':'')+
+    '</div>';
+  }
+  function siteGroupsHtml(){
+    var n=SITE.groups.reduce(function(s,g){return s+g.fields.length;},0);
+    if(!n)return "";
+    return '<div class="panel site-card" data-sec=""><div class="site-head"><h3>Основні тексти <span class="tag site-cnt" hidden></span></h3>'+
+      '<button type="button" class="btn outline sm site-open">Тексти ('+n+') ▾</button></div>'+
+      '<div class="site-body" hidden>'+SITE.groups.map(function(g){return '<h4 class="site-sub">'+esc(g.title)+'</h4>'+g.fields.map(siteFieldHtml).join("");}).join("")+'</div></div>';
+  }
+  function drawSite(){
+    var v=$("#siteView");
+    v.innerHTML='<div class="site-intro"><p>Приховуйте розділи головної сторінки або змінюйте їхні тексти. Порожнє поле чи ↺ повертає початковий текст. Головний екран, послуги, запис і контакти показуються завжди. Зміни з’являться на сайті протягом хвилини після збереження.</p>'+
+      '<a class="btn outline sm" href="index.html" target="_blank" rel="noopener">↗ Відкрити сайт</a></div>'+
+      siteGroupsHtml()+SITE.sections.map(function(s){return siteCardHtml(s,true);}).join("")+
+      '<div class="site-bar"><span class="muted" id="site-stat"></span><a class="btn outline sm" href="index.html" target="_blank" rel="noopener">↗ Відкрити сайт</a><button type="button" class="btn save-main" id="site-save">Зберегти зміни</button></div>';
+    [].forEach.call(v.querySelectorAll(".site-card"),siteCardSync);
+    siteUpdateStat();
+  }
+  function siteFldSync(fld){var t=fld.querySelector(".site-in").value.trim();fld.classList.toggle("changed",!!t&&t!==SITE.defs[fld.dataset.key]);}
+  function siteCardSync(card){var n=card.querySelectorAll(".site-fld.changed").length,tag=card.querySelector(".site-cnt");if(tag){tag.textContent="змінено: "+n;tag.hidden=!n;}}
+  function siteState(){
+    var hidden=[],texts={},v=$("#siteView");
+    [].forEach.call(v.querySelectorAll(".site-show"),function(c){if(!c.checked)hidden.push(c.closest(".site-card").dataset.sec);});
+    [].forEach.call(v.querySelectorAll(".site-fld"),function(f){var t=f.querySelector(".site-in").value.trim();if(t&&t!==SITE.defs[f.dataset.key])texts[f.dataset.key]=t;});
+    return {hidden:hidden,texts:texts};
+  }
+  function siteUpdateStat(){var el=$("#site-stat");if(!el)return;var st=siteState();
+    el.textContent="Приховано розділів: "+st.hidden.length+" · змінено текстів: "+Object.keys(st.texts).length;}
+  function wireSite(){var v=$("#siteView");if(v.dataset.wired)return;v.dataset.wired="1";
+    v.addEventListener("click",function(e){
+      var t=e.target.closest(".site-open,.site-reset,#site-save");if(!t)return;
+      if(t.id==="site-save"){saveSite();return;}
+      var card=t.closest(".site-card");
+      if(t.classList.contains("site-open")){var body=card.querySelector(".site-body");body.hidden=!body.hidden;t.textContent=t.textContent.replace(/[▾▴]$/,body.hidden?"▾":"▴");return;}
+      var fld=t.closest(".site-fld");fld.querySelector(".site-in").value=SITE.defs[fld.dataset.key]||"";siteFldSync(fld);siteCardSync(card);siteUpdateStat();
+    });
+    v.addEventListener("input",function(e){var fld=e.target.closest(".site-fld");if(!fld)return;siteFldSync(fld);siteCardSync(fld.closest(".site-card"));siteUpdateStat();});
+    v.addEventListener("change",function(e){if(!e.target.classList.contains("site-show"))return;e.target.closest(".site-card").classList.toggle("off",!e.target.checked);siteUpdateStat();});
+  }
+  async function saveSite(){
+    var btn=$("#site-save"),st=siteState();if(!btn)return;
+    btn.disabled=true;var old=btn.textContent;btn.textContent="Зберігаємо…";
+    try{var r=await api("/admin/site-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(st)});
+      if(!r||!r.ok)throw new Error((r&&r.error)||"");
+      SITE.cfg=st;toast("Збережено — сайт оновиться протягом хвилини");btn.classList.add("saved");setTimeout(function(){btn.classList.remove("saved");},1600);
+    }catch(e){toast("Не вдалося зберегти"+(e&&e.message?": "+e.message:""),true);}
+    btn.disabled=false;btn.textContent=old;
   }
 
   /* ---------- change password ---------- */
