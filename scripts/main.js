@@ -309,12 +309,12 @@
     const vids = (window.LP_VIDEOS && window.LP_VIDEOS.items) || [];
     const photos = data.items || [];
     const bas = baItems((window.LP_BEFORE_AFTER && window.LP_BEFORE_AFTER.items) || []);
-    // interleave: photos lead, a «До / після» pair every 3rd photo, a video roughly every 4th
+    // interleave: photos lead, a «До / після» reel every 5th photo, another video roughly every 7th
     galleryItems = []; let vi = 0, bi = 0;
     photos.forEach((p, idx) => {
       galleryItems.push(p);
-      if (idx % 3 === 1 && bi < bas.length) galleryItems.push(bas[bi++]);
-      if (idx % 4 === 3 && vi < vids.length) galleryItems.push(vids[vi++]);
+      if (idx % 5 === 2 && bi < bas.length) galleryItems.push(bas[bi++]);
+      if (idx % 7 === 5 && vi < vids.length) galleryItems.push(vids[vi++]);
     });
     while (bi < bas.length) galleryItems.push(bas[bi++]);
     while (vi < vids.length) galleryItems.push(vids[vi++]);
@@ -341,8 +341,15 @@
     renderGallery();
   })();
 
-  // «До / після» pair → gallery item (src = after image, so the lightbox and species filters keep working)
-  function baItems(list) { return list.filter(b => b && b.before && b.after).map(b => Object.assign({ kind: "beforeafter", ba: true, src: b.after, w: b.w || 800, h: b.h || 800 }, b)); }
+  // «До / після» → gallery items: a transformation reel (video + poster) or a photo pair published from the
+  // CRM pet card (before + after image; src = after, so the lightbox and species filters keep working)
+  function baItems(list) {
+    return list.filter(b => b && (b.video || (b.before && b.after))).map(b => b.video
+      ? Object.assign({ kind: "video", ba: true, w: 540, h: 960 }, b)
+      : Object.assign({ kind: "beforeafter", ba: true, src: b.after, w: b.w || 800, h: b.h || 800 }, b));
+  }
+  function baWho(it) { return [it.name, it.breed].filter(Boolean).join(" · "); }
+  function baLabel(it) { const who = baWho(it); return "✨ До / після" + (who ? " · " + esc(who) : ""); }
   function renderGallery() {
     const grid = $("#galleryGrid");
     const f = filters.find(x => x.id === currentFilter);
@@ -362,19 +369,22 @@
       if (!reduced) fig.style.transitionDelay = Math.min(i, 9) * 55 + "ms";
       if (it.video) {
         fig.classList.add("g-video");
-        fig.innerHTML =
-          `<span class="g-badge g-badge-play"><svg class="i"><use href="#i-play"/></svg> Відео</span>` + hint +
-          `<video src="${it.video}" poster="${it.src}" muted loop playsinline preload="none" width="${it.w}" height="${it.h}"></video>`;
+        const badge = it.ba
+          ? `<span class="g-badge g-badge-ba">${baLabel(it)}</span>`
+          : `<span class="g-badge g-badge-play"><svg class="i"><use href="#i-play"/></svg> Відео</span>`;
+        fig.innerHTML = badge + hint +
+          `<video src="${it.video}" poster="${it.src}" muted loop playsinline preload="none" width="${it.w}" height="${it.h}"` +
+          (it.ba ? ` aria-label="${baLabel(it).replace(/^✨ /, "")}"` : "") + `></video>`;
         fig.addEventListener("click", () => openLightbox(i));
         grid.appendChild(fig);
         gObserver.observe(fig);
         if (!reduced) videoObserver.observe(fig);
-      } else if (it.ba) {   // before/after slider tile
+      } else if (it.ba) {   // before/after slider tile (photo pair from the CRM)
         fig.classList.add("g-ba");
-        const who = [it.name, it.breed].filter(Boolean).join(" · ");
+        const who = baWho(it);
         const alt = `GAV&LOVE — ${who || "улюбленець"}: до і після грумінгу`;
         fig.innerHTML =
-          `<span class="g-badge">✨ До / після${who ? " · " + esc(who) : ""}</span>` +
+          `<span class="g-badge g-badge-ba">${baLabel(it)}</span>` +
           `<img class="ba-after" src="${it.after}" alt="${esc(alt)}" loading="lazy" width="${it.w}" height="${it.h}">` +
           `<div class="ba-before"><img src="${it.before}" alt="" loading="lazy" width="${it.w}" height="${it.h}"></div>` +
           `<span class="ba-lbl ba-l">До</span><span class="ba-lbl ba-r">Після</span><div class="ba-handle"></div>` +
@@ -408,7 +418,8 @@
   function renderLb() {
     const it = visibleList[lbIndex]; if (!it) return;
     lbStage.innerHTML = it.video
-      ? `<video src="${it.video}" controls autoplay playsinline></video>`
+      ? (it.ba ? `<div class="lb-vid"><video src="${it.video}" controls autoplay playsinline></video><span class="lb-cap">${baLabel(it)}</span></div>`
+               : `<video src="${it.video}" controls autoplay playsinline></video>`)
       : it.ba
         ? `<div class="lb-ba"><figure><img src="${it.before}" alt=""><figcaption>До</figcaption></figure><figure><img src="${it.after}" alt=""><figcaption>Після</figcaption></figure></div>`
         : `<img src="${it.src}" alt="">`;

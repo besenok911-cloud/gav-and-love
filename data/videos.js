@@ -81,16 +81,6 @@ window.LP_VIDEOS = {
       "h": 900
     },
     {
-      "id": "v009",
-      "video": "assets/video/v009.mp4",
-      "src": "assets/video/poster.webp",
-      "species": "dog",
-      "kind": "video",
-      "breed": "",
-      "w": 360,
-      "h": 640
-    },
-    {
       "id": "v010",
       "video": "assets/video/v010.mp4",
       "src": "assets/video/poster.webp",
@@ -119,26 +109,6 @@ window.LP_VIDEOS = {
       "breed": "",
       "w": 720,
       "h": 900
-    },
-    {
-      "id": "v013",
-      "video": "assets/video/v013.mp4",
-      "src": "assets/video/poster.webp",
-      "species": "dog",
-      "kind": "video",
-      "breed": "",
-      "w": 360,
-      "h": 640
-    },
-    {
-      "id": "v014",
-      "video": "assets/video/v014.mp4",
-      "src": "assets/video/poster.webp",
-      "species": "dog",
-      "kind": "video",
-      "breed": "",
-      "w": 720,
-      "h": 1280
     },
     {
       "id": "v015",
@@ -211,16 +181,6 @@ window.LP_VIDEOS = {
       "h": 1280
     },
     {
-      "id": "v022",
-      "video": "assets/video/v022.mp4",
-      "src": "assets/video/poster.webp",
-      "species": "dog",
-      "kind": "video",
-      "breed": "",
-      "w": 720,
-      "h": 1280
-    },
-    {
       "id": "v023",
       "video": "assets/video/v023.mp4",
       "src": "assets/video/poster.webp",
@@ -251,56 +211,6 @@ window.LP_VIDEOS = {
       "h": 900
     },
     {
-      "id": "v026",
-      "video": "assets/video/v026.mp4",
-      "src": "assets/video/poster.webp",
-      "species": "dog",
-      "kind": "video",
-      "breed": "",
-      "w": 720,
-      "h": 1280
-    },
-    {
-      "id": "v027",
-      "video": "assets/video/v027.mp4",
-      "src": "assets/video/poster.webp",
-      "species": "dog",
-      "kind": "video",
-      "breed": "",
-      "w": 720,
-      "h": 1280
-    },
-    {
-      "id": "v028",
-      "video": "assets/video/v028.mp4",
-      "src": "assets/video/poster.webp",
-      "species": "dog",
-      "kind": "video",
-      "breed": "",
-      "w": 720,
-      "h": 1280
-    },
-    {
-      "id": "v029",
-      "video": "assets/video/v029.mp4",
-      "src": "assets/video/poster.webp",
-      "species": "dog",
-      "kind": "video",
-      "breed": "",
-      "w": 720,
-      "h": 1280
-    },
-    {
-      "id": "v030",
-      "video": "assets/video/v030.mp4",
-      "src": "assets/video/poster.webp",
-      "species": "dog",
-      "kind": "video",
-      "breed": "",
-      "w": 720,
-      "h": 1280
-    },
-    {
       "id": "v031",
       "video": "assets/video/v031.mp4",
       "src": "assets/video/poster.webp",
@@ -323,16 +233,6 @@ window.LP_VIDEOS = {
     {
       "id": "v033",
       "video": "assets/video/v033.mp4",
-      "src": "assets/video/poster.webp",
-      "species": "dog",
-      "kind": "video",
-      "breed": "",
-      "w": 720,
-      "h": 1280
-    },
-    {
-      "id": "v034",
-      "video": "assets/video/v034.mp4",
       "src": "assets/video/poster.webp",
       "species": "dog",
       "kind": "video",
