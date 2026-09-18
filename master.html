@@ -98,6 +98,7 @@
   .foot{text-align:center;color:var(--ink-soft);font-size:.78rem;padding:8px 0 24px}
   /* password modal */
   .pw-back{position:fixed;inset:0;background:rgba(28,19,64,.45);display:flex;align-items:center;justify-content:center;z-index:200;padding:16px}
+  .pw-back[hidden]{display:none} /* the hidden attribute must beat display:flex above */
   .pw-modal{background:var(--paper);border-radius:20px;padding:24px 22px;width:100%;max-width:380px;box-shadow:var(--shadow)}
   .pw-modal h2{font-family:var(--font-head);font-weight:600;margin:0 0 4px;font-size:1.35rem}
   .pw-hint{color:var(--ink-soft);font-size:.88rem;margin:0 0 16px}
