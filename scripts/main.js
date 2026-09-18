@@ -361,9 +361,9 @@
     }).catch(() => { });
   }
 
-  // Breed/weight are driven by the selected service (see syncBreedWeight); pet
-  // segment stays as record metadata only.
-  function applyPet() { }
+  // Pet segment filters the service list by species (cat services for cats, dog
+  // services for dogs, "both" always); breed/weight then follow the service.
+  function applyPet() { fillServiceSelect(); }
 
   const petSeg = $("#bf-pet-seg");
   if (petSeg) petSeg.addEventListener("click", e => {
@@ -503,20 +503,27 @@
   breedSel && breedSel.addEventListener("change", () => { syncWeightForBreed(); updatePriceHint(); });
   weightSel && weightSel.addEventListener("change", updatePriceHint);
   addonsBox && addonsBox.addEventListener("change", updatePriceHint);
+  function petSpecies() { const v = petHidden ? petHidden.value : ""; return v === "Кіт" ? "cat" : v === "Собака" ? "dog" : ""; }
+  // Rebuild the service <select> for the chosen pet: cat → cat/both services, dog → dog/both.
+  function fillServiceSelect() {
+    if (!serviceSel || !SERVICES) return;
+    const allBookable = SERVICES.filter(s => s.bookable !== 0);
+    const sp = petSpecies();
+    const list = allBookable.filter(s => !sp || !s.species || s.species === "both" || s.species === sp);
+    if (!list.length) return;
+    const prev = serviceSel.value;
+    const ph = serviceSel.querySelector('option[value=""]');
+    const phHtml = ph ? ph.outerHTML : '<option value="">Оберіть послугу…</option>';
+    serviceSel.innerHTML = phHtml + list.map(s =>
+      `<option value="${esc(s.name)}">${esc(s.name)}${s.duration ? " · ~" + fmtDur(s.duration) : ""}</option>`).join("");
+    serviceSel.value = (prev && list.some(s => s.name === prev)) ? prev : "";   // drop a service that doesn't fit the pet
+    REQUEST_SVC = allBookable.filter(s => s.is_request).map(s => s.name);
+    syncBreedWeight(); renderAddons(); updatePriceHint();
+  }
   function applyCatalog(d) {
     if (!d || !d.services) return;
     SERVICES = d.services;
-    const bookable = SERVICES.filter(s => s.bookable !== 0);
-    if (bookable.length && serviceSel) {
-      const prev = serviceSel.value;
-      const ph = serviceSel.querySelector('option[value=""]');
-      const phHtml = ph ? ph.outerHTML : '<option value="">Оберіть послугу…</option>';
-      serviceSel.innerHTML = phHtml + bookable.map(s =>
-        `<option value="${esc(s.name)}">${esc(s.name)}${s.duration ? " · ~" + fmtDur(s.duration) : ""}</option>`).join("");
-      if (prev && bookable.some(s => s.name === prev)) serviceSel.value = prev;
-      REQUEST_SVC = bookable.filter(s => s.is_request).map(s => s.name);
-      syncBreedWeight(); renderAddons(); updatePriceHint();
-    }
+    fillServiceSelect();
     renderPrices(servicesToCatalog(SERVICES, d.notes));
   }
   if (window.GL_CATALOG) applyCatalog(window.GL_CATALOG);   // instant, from bundled snapshot

@@ -697,7 +697,10 @@
     if(fld)fld.hidden=false;}
   var priceAuto=false;
   function autoPrice(){var el=$("#f-price");if(!el)return;if(el.value.trim()!==""&&!priceAuto)return;var t=modalTotal();if(t!=null){el.value=t;priceAuto=true;}else if(priceAuto){el.value="";priceAuto=false;}}
-  function applyPetModal(){syncModalBreed();renderModalAddons();autoPrice();}
+  // service suggestions follow the pet: cat → cat/both services, dog → dog/both
+  function fillModalSvcList(){var dl=$("#svcList");if(!dl||!svcCatalog.length)return;var pet=$("#f-pet").value,sp=pet==="Кіт"?"cat":pet==="Собака"?"dog":"";
+    dl.innerHTML=svcCatalog.filter(function(s){return !sp||!s.species||s.species==="both"||s.species===sp;}).map(function(s){return '<option>'+esc(s.name)+'</option>';}).join("");}
+  function applyPetModal(){fillModalSvcList();syncModalBreed();renderModalAddons();autoPrice();}
   $("#f-pet").addEventListener("change",applyPetModal);
   $("#f-price").addEventListener("input",function(){priceAuto=false;});
   $("#f-service").addEventListener("change",function(){syncModalBreed();renderModalAddons();autoPrice();});
