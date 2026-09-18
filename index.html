@@ -8,22 +8,22 @@
 <meta property="og:title" content="GAV&LOVE — грумінг з любов'ю · dog hotel & spa" />
 <meta property="og:description" content="Грумінг-салон, міні-готель та садочок для ваших улюбленців. Догляд без стресу, з турботою й любов'ю. Київ, Позняки." />
 <meta property="og:type" content="website" />
-<meta property="og:image" content="assets/people/hero.webp" />
-<meta property="og:image:width" content="1440" />
-<meta property="og:image:height" content="1440" />
+<meta property="og:image" content="assets/people/og.jpg" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
 <meta name="theme-color" content="#4a25c9" />
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles/main.css?v=19" />
+<link rel="stylesheet" href="styles/main.css?v=20" />
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "PetGroomer",
   "name": "GAV&LOVE",
   "description": "Грумінг-салон, dog hotel & spa та садочок для собак і котів.",
-  "image": "assets/people/hero.webp",
+  "image": "assets/people/og.jpg",
   "url": "https://besenok911-cloud.github.io/gav-and-love/",
   "telephone": "+380685575727",
   "address": {
@@ -70,7 +70,9 @@
       <a href="#hotel">Готель</a>
       <a href="#jobs">Вакансії</a>
       <a href="#contacts">Контакти</a>
+      <a href="cabinet.html" class="nav-only-mobile">Кабінет клієнта</a>
     </nav>
+    <a href="cabinet.html" class="nav-cabinet" title="Кабінет клієнта: візити, улюбленці, бонуси"><svg class="i"><use href="#i-paw"/></svg><span>Кабінет</span></a>
     <a href="#booking" class="btn btn-primary btn-book-nav">Записатися</a>
     <button class="nav-toggle" id="navToggle" aria-label="Меню" aria-expanded="false">
       <span></span><span></span><span></span>
@@ -100,9 +102,11 @@
       </div>
     </div>
     <div class="hero-photo reveal">
+      <div class="hero-photo-glow" aria-hidden="true"></div>
       <div class="hero-photo-frame">
-        <img src="assets/people/hero.webp" alt="Грумер GAV&LOVE тримає доглянутого білого песика" width="1440" height="1440" fetchpriority="high" />
+        <img src="assets/people/hero-bichon.webp" alt="Доглянутий бішон фрізе після грумінгу в салоні GAV&LOVE" width="1200" height="1500" fetchpriority="high" />
       </div>
+      <div class="hero-photo-tag hero-tag-top"><svg class="i"><use href="#i-heart"/></svg> Без стресу · без поспіху</div>
       <div class="hero-photo-tag"><svg class="i"><use href="#i-paw"/></svg> Тут ваш улюбленець — як удома</div>
     </div>
   </div>
@@ -485,23 +489,53 @@
 <!-- ===== Footer ===== -->
 <footer class="site-footer">
   <div class="container footer-inner">
-    <div class="footer-brand">
+    <div class="footer-col footer-brand">
       <img src="assets/brand/logo.svg" alt="GAV&LOVE" width="460" height="130" />
       <p>Грумінг з любов'ю</p>
+      <p class="footer-about">Грумінг-салон, dog hotel &amp; spa і денний садочок на Позняках. Дбайливо, без стресу, з увагою до кожного хвостика.</p>
     </div>
-    <nav class="footer-nav" aria-label="Підвал">
-      <a href="#about">Про нас</a>
-      <a href="#team">Команда</a>
-      <a href="#services">Послуги та ціни</a>
-      <a href="#interior">Простір</a>
-      <a href="#gallery">Галерея</a>
-      <a href="#hotel">Готель</a>
-      <a href="#jobs">Вакансії</a>
-      <a href="#contacts">Контакти</a>
-    </nav>
-    <p class="footer-copy">© <span id="year"></span> GAV&LOVE · Київ, вул. Драгоманова, 2</p>
+    <div class="footer-col">
+      <h4>Контакти</h4>
+      <ul class="footer-list">
+        <li><svg class="i"><use href="#i-pin"/></svg><span>м. Київ, вул. Драгоманова, 2</span></li>
+        <li><svg class="i"><use href="#i-phone"/></svg><a href="tel:+380685575727">+38 068 557 57 27</a></li>
+        <li><svg class="i"><use href="#i-clock"/></svg><span>Щодня, за попереднім записом</span></li>
+      </ul>
+      <div class="footer-social">
+        <a href="https://instagram.com/gav.and.love" target="_blank" rel="noopener">Instagram</a>
+        <a href="https://t.me/+380685575727" target="_blank" rel="noopener">Telegram</a>
+        <a href="viber://chat?number=%2B380685575727" target="_blank" rel="noopener">Viber</a>
+      </div>
+    </div>
+    <div class="footer-col">
+      <h4>Навігація</h4>
+      <nav class="footer-nav" aria-label="Підвал">
+        <a href="#about">Про нас</a>
+        <a href="#team">Команда</a>
+        <a href="#services">Послуги та ціни</a>
+        <a href="#interior">Простір</a>
+        <a href="#gallery">Галерея</a>
+        <a href="#hotel">Готель</a>
+        <a href="#jobs">Вакансії</a>
+        <a href="#contacts">Контакти</a>
+      </nav>
+    </div>
+    <div class="footer-col">
+      <h4>Для клієнтів</h4>
+      <nav class="footer-nav" aria-label="Сервіси">
+        <a href="#booking">Онлайн-запис</a>
+        <a href="cabinet.html">Кабінет клієнта</a>
+        <a href="review.html">Залишити відгук</a>
+        <a href="https://t.me/GAV_and_LOVE_bot" target="_blank" rel="noopener">Telegram-бот нагадувань</a>
+      </nav>
+    </div>
+    <p class="footer-copy">© <span id="year"></span> GAV&LOVE · Київ, вул. Драгоманова, 2 · <a href="master.html" class="footer-staff">для співробітників</a></p>
   </div>
 </footer>
+<div class="mob-cta" id="mobCta" aria-hidden="true">
+  <a href="tel:+380685575727" class="btn btn-ghost">Подзвонити</a>
+  <a href="#booking" class="btn btn-primary">Записатися</a>
+</div>
 
 <!-- ===== Lightbox ===== -->
 <div class="lightbox" id="lightbox" aria-hidden="true">
@@ -515,6 +549,6 @@
 <script src="data/catalog.js?v=23" defer></script>
 <script src="data/gallery.js?v=15" defer></script>
 <script src="data/videos.js?v=15" defer></script>
-<script src="scripts/main.js?v=29" defer></script>
+<script src="scripts/main.js?v=30" defer></script>
 </body>
 </html>
