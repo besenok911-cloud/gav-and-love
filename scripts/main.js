@@ -285,6 +285,7 @@
     { id: "all", label: "Усі", test: () => true },
     { id: "dog", label: "🐶 Собаки", test: it => it.species === "dog" },
     { id: "cat", label: "🐱 Коти", test: it => it.species === "cat" },
+    { id: "ba", label: "✨ До / після", test: it => !!it.ba },
     { id: "video", label: "🎬 Відео", test: it => !!it.video },
   ];
   let galleryItems = [], currentFilter = "all", visibleList = [], lbIndex = 0;
@@ -307,13 +308,21 @@
     if (!data) { $("#galleryGrid").innerHTML = '<p class="price-empty">Галерея тимчасово недоступна.</p>'; return; }
     const vids = (window.LP_VIDEOS && window.LP_VIDEOS.items) || [];
     const photos = data.items || [];
-    // interleave: photos lead, one video sprinkled roughly every 4 photos
-    galleryItems = []; let vi = 0;
+    const bas = baItems((window.LP_BEFORE_AFTER && window.LP_BEFORE_AFTER.items) || []);
+    // interleave: photos lead, a «До / після» pair every 3rd photo, a video roughly every 4th
+    galleryItems = []; let vi = 0, bi = 0;
     photos.forEach((p, idx) => {
       galleryItems.push(p);
+      if (idx % 3 === 1 && bi < bas.length) galleryItems.push(bas[bi++]);
       if (idx % 4 === 3 && vi < vids.length) galleryItems.push(vids[vi++]);
     });
+    while (bi < bas.length) galleryItems.push(bas[bi++]);
     while (vi < vids.length) galleryItems.push(vids[vi++]);
+    // pairs published from the CRM pet cards come first once they arrive
+    if (CONFIG.bookingEndpoint) fetch(`${CONFIG.bookingEndpoint}/before-after`).then(r => r.json()).then(d => {
+      const live = baItems((d && d.items) || []); if (!live.length) return;
+      galleryItems = live.concat(galleryItems); renderGallery();
+    }).catch(() => { });
     const fb = $("#galleryFilters");
     filters.forEach(f => {
       const b = document.createElement("button");
@@ -332,6 +341,8 @@
     renderGallery();
   })();
 
+  // «До / після» pair → gallery item (src = after image, so the lightbox and species filters keep working)
+  function baItems(list) { return list.filter(b => b && b.before && b.after).map(b => Object.assign({ kind: "beforeafter", ba: true, src: b.after, w: b.w || 800, h: b.h || 800 }, b)); }
   function renderGallery() {
     const grid = $("#galleryGrid");
     const f = filters.find(x => x.id === currentFilter);
@@ -358,6 +369,22 @@
         grid.appendChild(fig);
         gObserver.observe(fig);
         if (!reduced) videoObserver.observe(fig);
+      } else if (it.ba) {   // before/after slider tile
+        fig.classList.add("g-ba");
+        const who = [it.name, it.breed].filter(Boolean).join(" · ");
+        const alt = `GAV&LOVE — ${who || "улюбленець"}: до і після грумінгу`;
+        fig.innerHTML =
+          `<span class="g-badge">✨ До / після${who ? " · " + esc(who) : ""}</span>` +
+          `<img class="ba-after" src="${it.after}" alt="${esc(alt)}" loading="lazy" width="${it.w}" height="${it.h}">` +
+          `<div class="ba-before"><img src="${it.before}" alt="" loading="lazy" width="${it.w}" height="${it.h}"></div>` +
+          `<span class="ba-lbl ba-l">До</span><span class="ba-lbl ba-r">Після</span><div class="ba-handle"></div>` +
+          `<input type="range" class="ba-range" min="0" max="100" value="50" aria-label="Порівняти: до і після">`;
+        const before = fig.querySelector(".ba-before"), handle = fig.querySelector(".ba-handle"), range = fig.querySelector(".ba-range");
+        const setPos = v => { before.style.clipPath = `inset(0 ${100 - v}% 0 0)`; handle.style.left = v + "%"; };
+        range.addEventListener("input", () => setPos(+range.value));
+        setPos(50);
+        grid.appendChild(fig);
+        gObserver.observe(fig);
       } else {
         const badge = it.kind === "beforeafter" ? "До / Після" : (it.breed || "");
         const alt = `GAV&LOVE — грумінг, ${SPECIES[it.species] || "улюбленець"}${badge ? " — " + badge : ""}`;
@@ -382,7 +409,9 @@
     const it = visibleList[lbIndex]; if (!it) return;
     lbStage.innerHTML = it.video
       ? `<video src="${it.video}" controls autoplay playsinline></video>`
-      : `<img src="${it.src}" alt="">`;
+      : it.ba
+        ? `<div class="lb-ba"><figure><img src="${it.before}" alt=""><figcaption>До</figcaption></figure><figure><img src="${it.after}" alt=""><figcaption>Після</figcaption></figure></div>`
+        : `<img src="${it.src}" alt="">`;
   }
   const step = d => { lbIndex = (lbIndex + d + visibleList.length) % visibleList.length; renderLb(); };
   $("#lbClose").addEventListener("click", closeLightbox);

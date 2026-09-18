@@ -250,6 +250,28 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 .g-item:hover{box-shadow:var(--shadow)}
 .g-item:hover img{transform:scale(1.06)}
 .g-video video{width:100%;height:100%;object-fit:cover;display:block;transition:transform .5s ease}
+/* «До / після» slider tiles */
+.g-ba{cursor:ew-resize}
+.g-ba img{transition:none!important}
+.g-ba:hover img{transform:none!important}
+.g-ba::after{display:none}
+.g-ba .g-hint{display:none}
+.g-ba .g-badge{z-index:4;background:rgba(74,37,201,.92)}
+.g-ba .ba-before{position:absolute;inset:0;clip-path:inset(0 50% 0 0);z-index:1}
+.g-ba .ba-before img{width:100%;height:100%;object-fit:cover;display:block}
+.ba-handle{position:absolute;top:0;bottom:0;left:50%;width:2px;margin-left:-1px;background:#fff;box-shadow:0 0 0 1px rgba(28,19,64,.25);pointer-events:none;z-index:2}
+.ba-handle::after{content:"⇆";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:32px;height:32px;border-radius:50%;background:#fff;color:var(--violet);display:grid;place-items:center;font-size:.95rem;font-weight:800;box-shadow:0 4px 14px rgba(28,19,64,.25)}
+.ba-lbl{position:absolute;bottom:10px;z-index:2;font-size:.66rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:.32em .7em;border-radius:999px;background:rgba(28,19,64,.72);color:#fff;pointer-events:none}
+.ba-l{left:10px}.ba-r{right:10px;background:rgba(74,37,201,.92)}
+.ba-range{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:ew-resize;z-index:3;-webkit-appearance:none;appearance:none;touch-action:pan-y}
+.ba-range:focus-visible{opacity:.001}
+.g-ba:focus-within{box-shadow:0 0 0 3px rgba(74,37,201,.45)}
+.lb-ba{display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:min(96vw,1100px)}
+.lb-ba figure{margin:0;position:relative}
+.lb-ba img{width:100%;height:auto;max-height:80vh;object-fit:contain;display:block;border-radius:12px}
+.lb-ba figcaption{position:absolute;left:10px;bottom:10px;font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:.35em .8em;border-radius:999px;background:rgba(28,19,64,.75);color:#fff}
+.lb-ba figure:last-child figcaption{background:rgba(74,37,201,.92)}
+@media (max-width:640px){.lb-ba{grid-template-columns:1fr;max-width:94vw}.lb-ba img{max-height:40vh}}
 .gallery-more{text-align:center;margin-top:32px}
 .gallery-more .btn{min-width:220px}
 .g-video:hover video{transform:scale(1.03)}

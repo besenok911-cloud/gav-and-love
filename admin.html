@@ -233,6 +233,8 @@
   .ph .k{position:absolute;left:6px;top:6px;font-size:.66rem;font-weight:800;padding:.2em .55em;border-radius:999px;color:#fff;background:var(--violet)}
   .ph .k.after{background:var(--confirmed)}
   .ph .d{position:absolute;left:0;right:0;bottom:0;font-size:.64rem;padding:3px 6px;background:rgba(0,0,0,.45);color:#fff}
+  .ph .pb{position:absolute;right:4px;bottom:26px;border:0;background:rgba(0,0,0,.55);color:#fff;border-radius:999px;width:24px;height:24px;cursor:pointer;font-size:.8rem;line-height:1;padding:0}
+  .ph .pb.on{background:var(--confirmed)}
   .ph .x{position:absolute;right:4px;top:4px;border:0;background:rgba(0,0,0,.55);color:#fff;border-radius:999px;width:22px;height:22px;cursor:pointer;font-size:.8rem;line-height:1;padding:0}
   .ph-act{display:flex;gap:8px;flex-wrap:wrap}
   .ph-act input{display:none}
@@ -1699,10 +1701,12 @@
     $("#petModalErr").textContent="";$("#petModal").classList.add("open");
   }
   /* ---------- pet photos: shrink in the browser, store via the worker ---------- */
-  var PH_HINT="Фото стискаються до 1280 px і зберігаються в картці улюбленця. Знімайте «До» перед процедурою та «Після» в кінці.";
+  var PH_HINT="Фото стискаються до 1280 px і зберігаються в картці улюбленця. Знімайте «До» перед процедурою та «Після» в кінці. 🌐 на фото — показати на сайті: пара «До» + «Після» одного дня з'явиться в галереї «До / після».";
   function loadPetPhotos(){var box=$("#pt-photos");if(!editPetId){box.innerHTML="";return;}box.innerHTML='<p class="muted" style="font-size:.85rem">Завантаження…</p>';
     api("/admin/photos?pet_id="+editPetId).then(function(r){var ps=(r&&r.photos)||[];
-      box.innerHTML=ps.length?ps.map(function(p){return '<div class="ph" data-id="'+p.id+'"><a href="'+esc(p.url)+'" target="_blank" rel="noopener"><img src="'+esc(p.url)+'" alt="" loading="lazy"></a><span class="k'+(p.kind==="after"?" after":"")+'">'+(p.kind==="after"?"Після":"До")+'</span><span class="d">'+esc(fmtD((p.created_at||"").slice(0,10)))+'</span><button type="button" class="x" title="Видалити">✕</button></div>';}).join(""):'<p class="muted" style="font-size:.85rem">Фото ще немає.</p>';
+      box.innerHTML=ps.length?ps.map(function(p){return '<div class="ph" data-id="'+p.id+'"><a href="'+esc(p.url)+'" target="_blank" rel="noopener"><img src="'+esc(p.url)+'" alt="" loading="lazy"></a><span class="k'+(p.kind==="after"?" after":"")+'">'+(p.kind==="after"?"Після":"До")+'</span><span class="d">'+esc(fmtD((p.created_at||"").slice(0,10)))+'</span><button type="button" class="pb'+(p.published?" on":"")+'" title="'+(p.published?"Показується на сайті — натисніть, щоб прибрати":"Показати на сайті в галереї «До / після»")+'">🌐</button><button type="button" class="x" title="Видалити">✕</button></div>';}).join(""):'<p class="muted" style="font-size:.85rem">Фото ще немає.</p>';
+      [].forEach.call(box.querySelectorAll(".ph .pb"),function(b){b.addEventListener("click",async function(){var id=b.closest(".ph").dataset.id,on=!b.classList.contains("on");
+        try{await api("/admin/photo-publish",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:+id,published:on?1:0})});toast(on?"Фото піде на сайт (потрібна пара «До» + «Після» одного дня)":"Фото прибрано з сайту");loadPetPhotos();}catch(e){toast("Не вдалося змінити",true);}});});
       [].forEach.call(box.querySelectorAll(".ph .x"),function(b){b.addEventListener("click",async function(){if(!confirm("Видалити це фото?"))return;var id=b.closest(".ph").dataset.id;
         try{await api("/admin/photo-delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:+id})});loadPetPhotos();refreshPetCounts();}catch(e){toast("Не вдалося видалити фото",true);}});});
     }).catch(function(){box.innerHTML='<p class="muted" style="font-size:.85rem">Не вдалося завантажити фото.</p>';});}

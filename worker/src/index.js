@@ -171,6 +171,10 @@ export default {
       if (url.pathname === "/catalog" && request.method === "GET") {
         return json(await publicCatalog(env), { ...cors, "Cache-Control": "public, max-age=60" });
       }
+      if (url.pathname === "/before-after" && request.method === "GET") {   // published «До / після» pairs for the site gallery
+        return json(await publicBeforeAfter(url, env), { ...cors, "Cache-Control": "public, max-age=60" });
+      }
+      if (url.pathname === "/admin/photo-publish" && request.method === "POST") return json(await photoPublish(request, env), cors);
       if (url.pathname === "/admin/services" && request.method === "GET") {
         return json(await adminServices(request, env), cors);
       }
@@ -989,8 +993,31 @@ async function photoUpload(request, env) {
 async function adminPhotos(request, url, env) {
   await requireAdmin(request, env);
   const petId = +url.searchParams.get("pet_id"); if (!petId) return { ok: false, error: "pet_id required" };
-  const { results } = await env.DB.prepare(`SELECT id,pet_id,booking_id,kind,token,created_at,note,length(data) AS size FROM pet_photos WHERE pet_id=? ORDER BY created_at DESC, id DESC`).bind(petId).all();
-  return { ok: true, photos: (results || []).map(p => ({ id: p.id, booking_id: p.booking_id, kind: p.kind, created_at: p.created_at, note: p.note, size: p.size, url: photoUrl(url.origin, p) })) };
+  const { results } = await env.DB.prepare(`SELECT id,pet_id,booking_id,kind,token,created_at,note,published,length(data) AS size FROM pet_photos WHERE pet_id=? ORDER BY created_at DESC, id DESC`).bind(petId).all();
+  return { ok: true, photos: (results || []).map(p => ({ id: p.id, booking_id: p.booking_id, kind: p.kind, created_at: p.created_at, note: p.note, size: p.size, published: p.published ? 1 : 0, url: photoUrl(url.origin, p) })) };
+}
+// CRM: mark a photo for the public «До / після» gallery. A pair = «before» + «after» of the same pet on the same day, both published.
+async function photoPublish(request, env) {
+  await requireAdmin(request, env);
+  const b = await request.json();
+  const id = Number(b.id); if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "id required" };
+  await env.DB.prepare(`UPDATE pet_photos SET published=? WHERE id=?`).bind(b.published ? 1 : 0, id).run();
+  return { ok: true, id, published: b.published ? 1 : 0 };
+}
+// Public: published pairs, newest first (max 40). Only pet name / breed / species leave the salon — no client data.
+async function publicBeforeAfter(url, env) {
+  let rows = [];
+  try {
+    rows = (await env.DB.prepare(`SELECT p.id,p.pet_id,p.kind,p.token,p.created_at,t.name AS pet_name,t.species,t.breed
+      FROM pet_photos p JOIN pets t ON t.id=p.pet_id WHERE COALESCE(p.published,0)=1 ORDER BY p.created_at DESC, p.id DESC`).all()).results || [];
+  } catch (e) { return { ok: true, items: [] }; }
+  const groups = {}, order = [];
+  rows.forEach(r => { const k = r.pet_id + "|" + String(r.created_at || "").slice(0, 10); if (!groups[k]) { groups[k] = {}; order.push(k); } if (!groups[k][r.kind]) groups[k][r.kind] = r; });
+  const items = order.map(k => groups[k]).filter(g => g.before && g.after).slice(0, 40).map(g => ({
+    id: "live" + g.after.id, before: photoUrl(url.origin, g.before), after: photoUrl(url.origin, g.after),
+    name: g.after.pet_name || "", species: g.after.species === "cat" ? "cat" : "dog", breed: g.after.breed || "", date: String(g.after.created_at || "").slice(0, 10), w: 1280, h: 1280,
+  }));
+  return { ok: true, items };
 }
 async function photoDelete(request, env) {
   await requireAdmin(request, env);
