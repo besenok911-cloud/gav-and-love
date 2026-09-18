@@ -172,6 +172,8 @@
         const p = s.price ? (String(s.price) + (/^\d/.test(String(s.price)) ? (" " + (s.unit || "₴")) : "")) : "за домовленістю";
         rows = [[s.name, p]];
       } else if (!columns) { columns = ["Послуга", "Ціна, ₴"]; }
+      // add-ons: an empty «Для кого» tag means the item suits every pet — say so on the price page
+      if (s.price_type === "addon" && columns.length === 3) rows = rows.map(r => (r.length >= 3 && !r[1]) ? [r[0], "усі", r[2]] : r);
       return { id: "svc-" + i, title: s.name, icon: iconForSvc(s), searchable: s.price_type === "breed", columns, rows, note: s.note };
     });
     return { note_gift: (notes && notes.gift) || "", note_big: (notes && notes.big) || "", categories: cats };
@@ -461,7 +463,18 @@
     } else { weightSel.innerHTML = ""; weightSel.value = ""; if (weightField) weightField.hidden = true; }
   }
   // Add-ons: items from price_type "addon" services, shown as checkboxes for grooming.
-  const addonItems = () => { const out = [], seen = {}; SERVICES.forEach(s => { if (s.price_type === "addon" && s.active !== 0) (s.rows || []).forEach(r => { if (r[0] && !seen[r[0]]) { seen[r[0]] = 1; out.push({ name: r[0], price: r[r.length - 1] }); } }); }); return out; };
+  // Add-ons follow the pet: the addon service's species (dog/cat/both) and an optional
+  // per-row "Для кого" middle column (собаки / коти / empty = усі) both filter the list.
+  const addonSpecies = r => { if (!r || r.length < 3) return ""; const t = String(r[1] || "").toLowerCase(); return /соб|dog/.test(t) ? "dog" : /кіт|кот|cat/.test(t) ? "cat" : ""; };
+  const addonItems = () => {
+    const out = [], seen = {}, sp = petSpecies();
+    SERVICES.forEach(s => {
+      if (s.price_type !== "addon" || s.active === 0) return;
+      if (sp && s.species && s.species !== "both" && s.species !== sp) return;
+      (s.rows || []).forEach(r => { const rs = addonSpecies(r); if (r[0] && !seen[r[0]] && (!sp || !rs || rs === sp)) { seen[r[0]] = 1; out.push({ name: r[0], price: r[r.length - 1] }); } });
+    });
+    return out;
+  };
   const parseAddonPrice = v => { const t = String(v == null ? "" : v).trim(); if (/%/.test(t)) { const n = numOf(t); return n != null ? { t: "pct", v: n } : { t: "m" }; } if (/^\+?\s*\d+$/.test(t)) return { t: "abs", v: +t.replace(/[^\d]/g, "") }; return { t: "m" }; };
   function basePrice(s, breed, weight) {
     if (!s) return null;

@@ -1063,14 +1063,22 @@ function parseAddon(price) {
   if (/^\+?\s*\d+$/.test(s)) return { type: "abs", val: +s.replace(/[^\d]/g, "") };
   return { type: "manual" };
 }
-async function loadAddonItems(env) {
+// Add-on rows may carry a "Для кого" middle column: собаки → dog, коти → cat, empty → both.
+function addonRowSpecies(r) { if (!r || r.length < 3) return ""; const t = String(r[1] || "").toLowerCase(); return /соб|dog/.test(t) ? "dog" : /кіт|кот|cat/.test(t) ? "cat" : ""; }
+function petSpeciesOf(pet) { const p = String(pet || "").toLowerCase(); return /кіт|кот|cat/.test(p) ? "cat" : /соб|dog/.test(p) ? "dog" : ""; }
+// Add-ons offered for a species: the addon service's own species and each row's "Для кого" tag both apply.
+async function loadAddonItems(env, species) {
   const items = {};
-  (await loadServices(env)).forEach(s => { if (s.price_type === "addon" && s.active) (s.rows || []).forEach(r => { if (r[0]) items[r[0]] = r[r.length - 1]; }); });
+  (await loadServices(env)).forEach(s => {
+    if (s.price_type !== "addon" || !s.active) return;
+    if (species && s.species && s.species !== "both" && s.species !== species) return;
+    (s.rows || []).forEach(r => { const rs = addonRowSpecies(r); if (r[0] && (!species || !rs || rs === species)) items[r[0]] = r[r.length - 1]; });
+  });
   return items;
 }
-async function computeAddons(env, addons, base) {
+async function computeAddons(env, addons, base, pet) {
   if (!Array.isArray(addons) || !addons.length) return { addTotal: 0, hasManual: false, names: [] };
-  const items = await loadAddonItems(env);
+  const items = await loadAddonItems(env, petSpeciesOf(pet));   // an add-on that doesn't fit the pet is ignored
   let add = 0, manual = false; const names = [];
   addons.forEach(nm => {
     if (!(nm in items)) return; names.push(nm);
@@ -1084,7 +1092,7 @@ async function computeAddons(env, addons, base) {
 // Fill price (base + add-ons) when empty and record chosen add-ons in the note.
 async function applyPricing(env, b) {
   const base = await priceForBooking(env, b);
-  const ad = await computeAddons(env, b.addons, base);
+  const ad = await computeAddons(env, b.addons, base, b.pet);
   if ((b.price == null || b.price === "") && base != null) b.price = base + ad.addTotal;
   if (ad.names.length) b.note = (b.note ? b.note + " · " : "") + "Допи: " + ad.names.join(", ") + (ad.hasManual ? " (уточнити)" : "");
 }
