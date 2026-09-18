@@ -273,6 +273,8 @@
   .loy-stamps{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
   .stamp{width:30px;height:30px;border-radius:50%;border:1.5px dashed var(--line);display:flex;align-items:center;justify-content:center;font-size:.9rem;background:#fff}
   .stamp.on{border-style:solid;border-color:var(--violet);background:var(--violet-soft)}
+  .stamp.reward{border-style:solid;border-color:var(--gold);background:#fff8ea}
+  .stamp.next{box-shadow:0 0 0 3px #ffe6a8;border-color:var(--gold)}
   .loy.ready .stamp.on{border-color:var(--gold);background:#fff4d6}
   .loy-foot{display:flex;flex-direction:column;gap:2px}
   .loy-foot b{color:var(--ink)}.loy-foot span{color:var(--ink-soft);font-size:.86rem}
@@ -1396,12 +1398,15 @@
     if((settingsState.loyalty_enabled||"1")==="0"){box.hidden=true;box.innerHTML="";return;}
     box.hidden=false;
     var every=Math.max(2,parseInt(settingsState.loyalty_every,10)||6);
-    var reward=settingsState.loyalty_reward||"Бонус на наступний візит";
-    var visits=bookingsOf(c).filter(function(b){return isRevenue(b);}).length;
-    var cycle=visits%every, ready=(visits>0&&cycle===0), filled=ready?every:cycle, remaining=ready?0:(every-cycle);
-    var dots="";for(var i=0;i<every;i++)dots+='<span class="stamp'+(i<filled?" on":"")+'">'+(i<filled?"🐾":"")+'</span>';
-    var head=ready?"🎁 Наступний візит — бонусний!":("До бонусу залишилось "+remaining+" "+plural(remaining,"візит","візити","візитів"));
-    box.innerHTML='<div class="loy'+(ready?" ready":"")+'"><div class="loy-top"><span class="loy-h">🎁 Лояльність</span><span class="loy-cnt">'+visits+" "+plural(visits,"візит","візити","візитів")+'</span></div>'+
+    var reward=settingsState.loyalty_reward||"Бонус на цей візит";
+    var visits=bookingsOf(c).filter(function(b){return isRevenue(b);}).length; // завершені (оплачені/готові) візити
+    var filled=visits%every;                       // штампів у поточній картці
+    var bonusNow=(filled===every-1);               // наступний (цей) візит — саме N-й
+    var remaining=bonusNow?0:(every-1-filled);
+    var dots="";for(var i=0;i<every;i++){var isRew=(i===every-1);
+      dots+='<span class="stamp'+(i<filled?" on":"")+(isRew?" reward":"")+(bonusNow&&isRew?" next":"")+'">'+(i<filled?"🐾":(isRew?"🎁":""))+'</span>';}
+    var head=bonusNow?"🎁 Цей візит — бонусний!":("До бонусу залишилось "+remaining+" "+plural(remaining,"візит","візити","візитів"));
+    box.innerHTML='<div class="loy'+(bonusNow?" ready":"")+'"><div class="loy-top"><span class="loy-h">🎁 Лояльність</span><span class="loy-cnt">'+visits+" "+plural(visits,"візит","візити","візитів")+' усього</span></div>'+
       '<div class="loy-stamps">'+dots+'</div>'+
       '<div class="loy-foot"><b>'+esc(head)+'</b><span>'+esc(reward)+'</span></div></div>';
   }
