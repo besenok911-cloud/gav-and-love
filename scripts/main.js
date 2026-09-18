@@ -524,6 +524,27 @@
     fetch(`${CONFIG.bookingEndpoint}/catalog`).then(r => r.json()).then(applyCatalog).catch(() => { });
   }
 
+  // ---- Reviews / testimonials (published from the CRM) ----
+  function renderReviews(d) {
+    const sec = $("#reviews"), grid = $("#reviewsGrid");
+    const list = (d && d.reviews) || [];
+    if (!sec || !grid || !list.length) return;
+    grid.innerHTML = list.slice(0, 12).map(r => {
+      const st = Math.max(0, Math.min(5, Number(r.rating) || 0));
+      const stars = "★★★★★".slice(0, st) + "☆☆☆☆☆".slice(0, 5 - st);
+      const who = [esc(r.name || "Гість салону"), r.master ? "· майстер " + esc(r.master) : ""].join(" ");
+      return `<article class="rev-item"><div class="stars" aria-label="${st} з 5">${stars}</div>`
+        + (r.text ? `<p class="quote">«${esc(r.text)}»</p>` : "")
+        + `<p class="who">${who}</p></article>`;
+    }).join("");
+    const avg = $("#reviewsAvg");
+    if (avg && d.avg) avg.textContent = `Середня оцінка ${d.avg} з 5 · ${d.count} ${d.count % 10 === 1 && d.count % 100 !== 11 ? "відгук" : (d.count % 10 >= 2 && d.count % 10 <= 4 && (d.count % 100 < 10 || d.count % 100 >= 20) ? "відгуки" : "відгуків")}`;
+    sec.hidden = false;
+  }
+  if (CONFIG.bookingEndpoint) {
+    fetch(`${CONFIG.bookingEndpoint}/reviews`).then(r => r.json()).then(renderReviews).catch(() => { });
+  }
+
   const form = $("#bookingForm"), status = $("#bfStatus");
   form && form.addEventListener("submit", async e => {
     e.preventDefault();

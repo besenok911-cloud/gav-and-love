@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>GAV&LOVE · Залишити відгук</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --violet:#4a25c9; --violet-d:#3a1c9e; --violet-deep:#1c1340; --violet-soft:#efeaff;
+    --paper:#fff; --bg:#f5f2ea; --bg-2:#efeae1; --line:#e4ddcf;
+    --ink:#24203a; --ink-soft:#7a748f; --gold:#e6a817; --ok:#1a7f37;
+    --shadow:0 12px 40px rgba(28,19,64,.14);
+    --font-head:"Playfair Display",Georgia,serif; --font-body:"Nunito","Segoe UI",system-ui,sans-serif;
+  }
+  html{-webkit-text-size-adjust:100%}*{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:radial-gradient(1200px 500px at 50% -10%,#efeaff, var(--bg));
+    color:var(--ink);font-family:var(--font-body);-webkit-font-smoothing:antialiased;overflow-x:hidden;
+    display:flex;align-items:flex-start;justify-content:center;padding:24px 16px 48px}
+  .card{width:100%;max-width:440px;background:var(--paper);border:1px solid var(--line);border-radius:22px;
+    box-shadow:var(--shadow);padding:28px 24px 26px;margin-top:6vh}
+  .brand{font-family:var(--font-head);font-weight:700;color:var(--violet-deep);font-size:1.15rem;text-align:center;letter-spacing:.02em}
+  h1{font-family:var(--font-head);font-weight:600;font-size:1.55rem;margin:6px 0 4px;text-align:center}
+  .sub{color:var(--ink-soft);text-align:center;margin:0 0 20px;font-size:.94rem}
+  label{display:block;font-weight:800;font-size:.85rem;margin:14px 0 6px;color:var(--ink)}
+  input,textarea,select{width:100%;padding:.8em .9em;border:1.5px solid var(--line);border-radius:12px;font-size:1rem;font-family:var(--font-body);background:#fff}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--violet)}
+  textarea{min-height:96px;resize:vertical}
+  .opt{color:var(--ink-soft);font-weight:700;font-size:.78rem}
+  .stars{display:flex;gap:6px;justify-content:center;margin:6px 0 2px}
+  .stars button{background:none;border:none;font-size:2.5rem;line-height:1;cursor:pointer;color:#d8d2c4;padding:0 2px;transition:transform .1s}
+  .stars button:active{transform:scale(.9)}
+  .stars button.on{color:var(--gold)}
+  .rate-lbl{text-align:center;color:var(--ink-soft);font-weight:800;min-height:1.2em;font-size:.9rem;margin-bottom:4px}
+  .btn{width:100%;margin-top:20px;font-family:var(--font-body);font-weight:900;border:none;border-radius:999px;
+    padding:.95em 1.2em;cursor:pointer;background:var(--violet);color:#fff;font-size:1.05rem;transition:.15s}
+  .btn:hover{background:var(--violet-d)}.btn:active{transform:scale(.98)}
+  .btn[disabled]{opacity:.6;cursor:default}
+  .err{color:#c0472b;font-weight:800;font-size:.86rem;text-align:center;min-height:1.1em;margin-top:10px}
+  .thanks{text-align:center;padding:20px 6px}
+  .thanks .big{font-size:3.4rem}
+  .thanks h2{font-family:var(--font-head);font-weight:600;font-size:1.6rem;margin:8px 0 6px}
+  .thanks p{color:var(--ink-soft);margin:0}
+  .foot{text-align:center;color:var(--ink-soft);font-size:.78rem;margin-top:18px}
+  .foot a{color:var(--violet);font-weight:800;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="card">
+  <div id="form">
+    <div class="brand">GAV&amp;LOVE</div>
+    <h1>Ваш відгук</h1>
+    <p class="sub">Дякуємо, що довіряєте нам улюбленця 🐾<br>Розкажіть, як усе пройшло.</p>
+
+    <div class="rate-lbl" id="rateLbl">Оцініть візит</div>
+    <div class="stars" id="stars"></div>
+
+    <label>Ім'я <span class="opt">(необов'язково)</span></label>
+    <input id="r-name" placeholder="Як вас звати?" autocomplete="name">
+
+    <label>Майстер <span class="opt">(необов'язково)</span></label>
+    <select id="r-master"><option value="">— не вказувати —</option></select>
+
+    <label>Коментар <span class="opt">(необов'язково)</span></label>
+    <textarea id="r-text" placeholder="Що сподобалось? Що можна покращити?"></textarea>
+
+    <label>Телефон <span class="opt">(необов'язково, для бонусів)</span></label>
+    <input id="r-phone" inputmode="tel" placeholder="+380..." autocomplete="tel">
+
+    <button class="btn" id="submit">Надіслати відгук</button>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div id="done" class="thanks" hidden>
+    <div class="big">💜</div>
+    <h2>Дякуємо за відгук!</h2>
+    <p>Ми дуже цінуємо вашу думку.<br>До зустрічі в GAV&amp;LOVE!</p>
+  </div>
+
+  <div class="foot"><a href="index.html">← на сайт салону</a></div>
+</div>
+
+<script>
+(function(){
+  var API="https://gavlove-booking.besenok911.workers.dev";
+  var $=function(s){return document.querySelector(s);};
+  var rating=0;
+  var LBL=["","Погано 😔","Так собі","Нормально","Добре 🙂","Чудово! 🤩"];
+
+  // stars
+  var box=$("#stars");
+  for(var i=1;i<=5;i++){(function(n){
+    var b=document.createElement("button");b.type="button";b.textContent="★";b.dataset.n=n;
+    b.addEventListener("click",function(){setRating(n);});
+    b.addEventListener("mouseenter",function(){paint(n);});
+    box.appendChild(b);
+  })(i);}
+  box.addEventListener("mouseleave",function(){paint(rating);});
+  function paint(n){[].forEach.call(box.children,function(b){b.classList.toggle("on",+b.dataset.n<=n);});}
+  function setRating(n){rating=n;paint(n);$("#rateLbl").textContent=LBL[n]||"Оцініть візит";}
+
+  // masters (optional)
+  fetch(API+"/masters").then(function(r){return r.json();}).then(function(d){
+    var list=(d&&d.masters)||d||[];
+    var names=list.map(function(m){return typeof m==="string"?m:(m&&m.name);}).filter(Boolean);
+    var sel=$("#r-master");
+    names.forEach(function(n){var o=document.createElement("option");o.value=n;o.textContent=n;sel.appendChild(o);});
+  }).catch(function(){});
+
+  $("#submit").addEventListener("click",function(){
+    $("#err").textContent="";
+    if(!rating){$("#err").textContent="Будь ласка, поставте оцінку зірками.";return;}
+    var btn=$("#submit");btn.disabled=true;btn.textContent="Надсилаємо…";
+    var payload={rating:rating,name:$("#r-name").value.trim(),master:$("#r-master").value,text:$("#r-text").value.trim(),phone:$("#r-phone").value.trim()};
+    fetch(API+"/review",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
+      .then(function(r){return r.json();})
+      .then(function(res){if(res&&res.ok){$("#form").hidden=true;$("#done").hidden=false;}
+        else{btn.disabled=false;btn.textContent="Надіслати відгук";$("#err").textContent=(res&&res.error)||"Не вдалося надіслати.";}})
+      .catch(function(){btn.disabled=false;btn.textContent="Надіслати відгук";$("#err").textContent="Помилка з'єднання. Спробуйте ще.";});
+  });
+})();
+</script>
+</body>
+</html>

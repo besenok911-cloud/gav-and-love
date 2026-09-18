@@ -264,6 +264,31 @@
   .ccard .cpets{margin-top:9px;display:flex;flex-wrap:wrap;gap:5px}
   .ppill{font-size:.72rem;font-weight:800;background:var(--violet-soft);color:var(--violet);border-radius:999px;padding:.2em .65em}
   .ppill.special{background:#fff3d6;color:#a5741a}
+  /* loyalty */
+  .loy{background:linear-gradient(135deg,var(--violet-soft),#fff);border:1.5px solid var(--violet-soft);border-radius:14px;padding:14px 16px}
+  .loy.ready{background:linear-gradient(135deg,#fff4d6,#fff);border-color:var(--gold)}
+  .loy-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .loy-h{font-weight:800;color:var(--violet-deep)}
+  .loy-cnt{font-weight:800;color:var(--ink-soft);font-size:.85rem}
+  .loy-stamps{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .stamp{width:30px;height:30px;border-radius:50%;border:1.5px dashed var(--line);display:flex;align-items:center;justify-content:center;font-size:.9rem;background:#fff}
+  .stamp.on{border-style:solid;border-color:var(--violet);background:var(--violet-soft)}
+  .loy.ready .stamp.on{border-color:var(--gold);background:#fff4d6}
+  .loy-foot{display:flex;flex-direction:column;gap:2px}
+  .loy-foot b{color:var(--ink)}.loy-foot span{color:var(--ink-soft);font-size:.86rem}
+  /* reviews */
+  .rev-card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:12px;box-shadow:var(--shadow-sm)}
+  .rev-card.hidden-rev{opacity:.72}
+  .rev-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .rev-stars{color:var(--gold);font-size:1.05rem;letter-spacing:1px;white-space:nowrap}
+  .rev-name{font-weight:800}
+  .rev-meta{color:var(--ink-soft);font-size:.82rem}
+  .rev-text{margin:8px 0 0;line-height:1.45}
+  .rev-act{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  .rev-pub{font-weight:800;font-size:.8rem;padding:.35em .9em;border-radius:999px;border:1.5px solid var(--line);cursor:pointer;background:#fff;color:var(--ink-soft)}
+  .rev-pub.on{background:var(--confirmed);border-color:var(--confirmed);color:#fff}
+  .rev-share{background:var(--violet-soft);border:1px solid #ddd3ff;border-radius:12px;padding:12px 14px;margin-bottom:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .rev-share code{background:#fff;border:1px solid var(--line);border-radius:8px;padding:.35em .6em;font-size:.82rem;word-break:break-all}
   .pet-line{display:flex;align-items:center;gap:10px;padding:9px 2px;border-top:1px solid var(--line-soft);cursor:pointer}
   .pet-line:first-child{border-top:0}
   .pet-line:hover .pet-nm{color:var(--violet)}
@@ -329,6 +354,7 @@
     <button class="tabbtn" data-view="reports">Звіти</button>
     <button class="tabbtn" data-view="services">Послуги</button>
     <button class="tabbtn" data-view="finance">Фінанси</button>
+    <button class="tabbtn" data-view="reviews">Відгуки</button>
   </div>
   <span class="sp"></span>
   <button class="btn ghost sm" id="remindBtn" hidden title="Нагадування">🔔</button>
@@ -383,6 +409,7 @@
 <div class="wrap" id="reportsView" hidden></div>
 <div class="wrap" id="servicesView" hidden></div>
 <div class="wrap" id="financeView" hidden></div>
+<div class="wrap" id="reviewsView" hidden></div>
 
 <div class="modal" id="modal">
   <div class="sheet">
@@ -437,6 +464,7 @@
       </div>
       <div id="cl-pets"></div>
     </div>
+    <div id="cl-loyalty" hidden style="margin-top:18px"></div>
     <div id="cl-hist-wrap" hidden style="margin-top:20px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <h3 style="font-family:var(--font-head);font-weight:600;margin:0">Історія візитів</h3>
@@ -502,6 +530,14 @@
     <p class="muted" style="font-size:.86rem;margin:0 0 16px">Щоденний дайджест у Telegram салону: записи на завтра (щоб нагадати клієнтам) та клієнти, яким пора на повторний грумінг. Надсилається автоматично щовечора.</p>
     <div class="fld" style="margin-bottom:12px"><label style="display:flex;align-items:center;gap:8px;font-weight:700"><input type="checkbox" id="rm-enabled" style="width:auto"> Автоматичні нагадування увімкнено</label></div>
     <div class="fld" style="margin-bottom:8px"><label>Нагадувати про повторний візит через (тижнів)</label><input id="rm-weeks" type="number" min="1" max="52" step="1" style="max-width:120px" /></div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:18px 0 14px">
+    <h2 style="font-size:1.15rem;margin:0 0 4px">🎁 Програма лояльності</h2>
+    <p class="muted" style="font-size:.86rem;margin:0 0 14px">Кожен N-й візит клієнта дає винагороду. Прогрес показується в картці клієнта.</p>
+    <div class="fld" style="margin-bottom:12px"><label style="display:flex;align-items:center;gap:8px;font-weight:700"><input type="checkbox" id="rm-loy-enabled" style="width:auto"> Програму лояльності увімкнено</label></div>
+    <div class="fld" style="margin-bottom:8px;display:flex;gap:14px;flex-wrap:wrap">
+      <div><label>Винагорода кожен N-й візит</label><input id="rm-loy-every" type="number" min="2" max="30" step="1" style="max-width:120px" /></div>
+      <div style="flex:1;min-width:200px"><label>Опис винагороди</label><input id="rm-loy-reward" placeholder="напр. Знижка 50% на комплекс" /></div>
+    </div>
     <p class="modal-err" id="rmErr" style="color:var(--confirmed)"></p>
     <div class="sheet-act">
       <button class="btn ghost sm" id="rm-send" style="border-color:var(--line);color:var(--ink)">Надіслати дайджест зараз</button>
@@ -526,6 +562,7 @@
   var all=[], filter="all", q="", view="dash", editId=null, dateFrom="", dateTo="", calRef=null;
   var sortKey="", sortDir=1, filtersWired=false, colFilters={client:"",pet:"",service:"",staff:"",source:""};
   var clients=[], pets=[], clientQ="", editClientId=null, editPetId=null, petClientId=null, mastersList=[];
+  var settingsState={}, reviewsList=[];
   var repFrom="", repTo="";
   var svcList=[], notesState={gift:"",big:""}, svcCatalog=[];
   var finFrom="", finTo="", expenses=[], PAYM={cash:"Готівка",card:"Картка",transfer:"Переказ"};
@@ -600,9 +637,9 @@
   function showLogin(msg){$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;$("#loginErr").textContent=msg||"";}
   function showApp(){$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;$("#remindBtn").hidden=false;setView(view);}
-  function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");$("#reportsView").hidden=(v!=="reports");$("#servicesView").hidden=(v!=="services");$("#financeView").hidden=(v!=="finance");
+  function setView(v){view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");$("#reportsView").hidden=(v!=="reports");$("#servicesView").hidden=(v!=="services");$("#financeView").hidden=(v!=="finance");$("#reviewsView").hidden=(v!=="reviews");
     [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.classList.toggle("on",b.dataset.view===v);});
-    if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else if(v==="reports")renderReports(); else if(v==="services")renderServices(); else if(v==="finance")renderFinance(); else render();}
+    if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else if(v==="reports")renderReports(); else if(v==="services")renderServices(); else if(v==="finance")renderFinance(); else if(v==="reviews")renderReviews(); else render();}
   [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.addEventListener("click",function(){setView(b.dataset.view);});});
 
   async function loadClientsPets(){
@@ -613,6 +650,7 @@
     if(act.length){STAFF=act; if($("#f-staff"))$("#f-staff").innerHTML='<option value="">— не призначено —</option>'+STAFF.map(function(s){return '<option>'+esc(s)+'</option>';}).join("");}
     try{svcCatalog=(await api("/admin/services")).services||[];}catch(e){svcCatalog=[];}
     if(svcCatalog.length){var dl=$("#svcList");if(dl)dl.innerHTML=svcCatalog.map(function(s){return '<option>'+esc(s.name)+'</option>';}).join("");}
+    try{settingsState=(await api("/admin/settings")).settings||{};}catch(e){}
   }
   async function tryLogin(t){token=t;
     try{var d=await api("/admin/list");try{localStorage.setItem(KEY,token);}catch(e){}all=d.bookings||[];await loadClientsPets();showApp();renderPills();}
@@ -1329,8 +1367,8 @@
     $("#cl-email").value=c?c.email||"":"";$("#cl-messenger").value=c?c.messenger||"":"";
     $("#cl-source").value=c?(c.source||"site"):"site";$("#cl-status").value=c?(c.status||"active"):"active";
     $("#cl-consent").checked=c?!!c.consent:false;$("#cl-note").value=c?c.note||"":"";
-    $("#cl-del").hidden=!c;$("#cl-pets-wrap").hidden=!c;$("#cl-hist-wrap").hidden=!c;
-    if(c){renderClientPets(c);renderClientHistory(c);}
+    $("#cl-del").hidden=!c;$("#cl-pets-wrap").hidden=!c;$("#cl-hist-wrap").hidden=!c;$("#cl-loyalty").hidden=!c;
+    if(c){renderClientPets(c);renderLoyalty(c);renderClientHistory(c);}
     $("#clModalErr").textContent="";$("#clientModal").classList.add("open");
   }
   function renderClientPets(c){
@@ -1351,6 +1389,21 @@
         '<span class="hist-badge" style="background:'+(STCOLOR[b.status||"new"])+'">'+esc(stLabel(b.status||"new"))+'</span>'+
         '<span class="hp">'+(Number(b.price)>0?money(b.price):"—")+'</span></div>';
     }).join(""):'<p class="muted" style="font-size:.85rem">Ще немає візитів.</p>';
+  }
+  function plural(n,one,few,many){n=Math.abs(n)%100;var n1=n%10;if(n>10&&n<20)return many;if(n1>1&&n1<5)return few;if(n1===1)return one;return many;}
+  function renderLoyalty(c){
+    var box=$("#cl-loyalty");
+    if((settingsState.loyalty_enabled||"1")==="0"){box.hidden=true;box.innerHTML="";return;}
+    box.hidden=false;
+    var every=Math.max(2,parseInt(settingsState.loyalty_every,10)||6);
+    var reward=settingsState.loyalty_reward||"Бонус на наступний візит";
+    var visits=bookingsOf(c).filter(function(b){return isRevenue(b);}).length;
+    var cycle=visits%every, ready=(visits>0&&cycle===0), filled=ready?every:cycle, remaining=ready?0:(every-cycle);
+    var dots="";for(var i=0;i<every;i++)dots+='<span class="stamp'+(i<filled?" on":"")+'">'+(i<filled?"🐾":"")+'</span>';
+    var head=ready?"🎁 Наступний візит — бонусний!":("До бонусу залишилось "+remaining+" "+plural(remaining,"візит","візити","візитів"));
+    box.innerHTML='<div class="loy'+(ready?" ready":"")+'"><div class="loy-top"><span class="loy-h">🎁 Лояльність</span><span class="loy-cnt">'+visits+" "+plural(visits,"візит","візити","візитів")+'</span></div>'+
+      '<div class="loy-stamps">'+dots+'</div>'+
+      '<div class="loy-foot"><b>'+esc(head)+'</b><span>'+esc(reward)+'</span></div></div>';
   }
 
   $("#cl-cancel").addEventListener("click",function(){$("#clientModal").classList.remove("open");});
@@ -1502,11 +1555,58 @@
   $("#mm-close").addEventListener("click",function(){$("#mastersModal").classList.remove("open");});
   $("#mastersModal").addEventListener("click",function(e){if(e.target===$("#mastersModal"))$("#mastersModal").classList.remove("open");});
 
+  /* ---------- reviews ---------- */
+  async function renderReviews(){
+    var v=$("#reviewsView");
+    var url=location.origin+location.pathname.replace(/[^/]*$/,"review.html");
+    v.innerHTML='<div class="rev-share">🔗 <b>Посилання для відгуків:</b> <code id="rev-url">'+esc(url)+'</code>'+
+      '<button class="btn sm" id="rev-copy">Копіювати</button>'+
+      '<a class="btn ghost sm" href="'+esc(url)+'" target="_blank" style="border-color:var(--line);color:var(--ink)">Відкрити</a>'+
+      '<span class="muted" style="font-size:.82rem;flex-basis:100%">Дайте це посилання клієнту після візиту (або QR у салоні). Нові відгуки зʼявляються тут; кращі покажіть на сайті кнопкою «На сайті».</span></div>'+
+      '<p class="meta" id="rev-meta">Завантаження…</p><div id="rev-list"></div>';
+    $("#rev-copy").addEventListener("click",function(){try{navigator.clipboard.writeText(url);toast("Посилання скопійовано");}catch(e){toast(url);}});
+    try{reviewsList=(await api("/admin/reviews")).reviews||[];}catch(e){reviewsList=[];}
+    drawReviews();
+  }
+  function drawReviews(){
+    var pub=reviewsList.filter(function(r){return r.published;});
+    var avg=pub.length?(pub.reduce(function(s,r){return s+(Number(r.rating)||0);},0)/pub.length):0;
+    $("#rev-meta").innerHTML='Всього: <b>'+reviewsList.length+'</b> · на сайті: <b>'+pub.length+'</b>'+(pub.length?' · середня оцінка <b>'+avg.toFixed(1)+' ★</b>':'');
+    var box=$("#rev-list");
+    box.innerHTML=reviewsList.length?reviewsList.map(function(r){
+      var st=Math.max(0,Math.min(5,Number(r.rating)||0));var stars="★★★★★".slice(0,st)+"☆☆☆☆☆".slice(0,5-st);
+      var meta=[r.master,(r.created_at||"").slice(0,10)].filter(Boolean).join(" · ");
+      return '<div class="rev-card'+(r.published?"":" hidden-rev")+'" data-id="'+r.id+'">'+
+        '<div class="rev-head"><span class="rev-stars">'+stars+'</span><span class="rev-name">'+esc(r.name||"Анонім")+'</span><span class="rev-meta">'+esc(meta)+'</span></div>'+
+        (r.text?'<p class="rev-text">'+esc(r.text)+'</p>':'')+
+        '<div class="rev-act"><button class="rev-pub'+(r.published?" on":"")+'" data-act="pub">'+(r.published?"✓ На сайті":"Показати на сайті")+'</button>'+
+          '<span style="flex:1"></span><button class="btn danger sm" data-act="del">Видалити</button></div>'+
+      '</div>';
+    }).join(""):'<p class="nodata">Відгуків поки немає. Поділіться посиланням вище з клієнтами.</p>';
+    [].forEach.call(box.querySelectorAll(".rev-card"),function(card){
+      var id=+card.dataset.id;
+      card.querySelector('[data-act="pub"]').addEventListener("click",function(){togglePub(id);});
+      card.querySelector('[data-act="del"]').addEventListener("click",function(){delReview(id);});
+    });
+  }
+  async function togglePub(id){
+    var r=reviewsList.filter(function(x){return x.id===id;})[0];if(!r)return;
+    var np=r.published?0:1;
+    try{await api("/admin/review-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id,published:np})});
+      r.published=np;drawReviews();toast(np?"Опубліковано на сайті":"Приховано з сайту");}catch(e){toast("Не вдалося оновити",true);}
+  }
+  async function delReview(id){
+    if(!confirm("Видалити відгук?"))return;
+    try{await api("/admin/review-delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id})});
+      reviewsList=reviewsList.filter(function(x){return x.id!==id;});drawReviews();}catch(e){toast("Не вдалося видалити",true);}
+  }
+
   /* ---------- reminders ---------- */
   async function openRemindModal(){
     $("#rmErr").textContent="";
-    try{var s=(await api("/admin/settings")).settings||{};
+    try{var s=(await api("/admin/settings")).settings||{};settingsState=s;
       $("#rm-enabled").checked=s.reminders_enabled==="1";$("#rm-weeks").value=s.repeat_weeks||"6";
+      $("#rm-loy-enabled").checked=s.loyalty_enabled!=="0";$("#rm-loy-every").value=s.loyalty_every||"6";$("#rm-loy-reward").value=s.loyalty_reward||"";
     }catch(e){}
     $("#remindModal").classList.add("open");
   }
@@ -1514,8 +1614,10 @@
   $("#rm-cancel").addEventListener("click",function(){$("#remindModal").classList.remove("open");});
   $("#remindModal").addEventListener("click",function(e){if(e.target===$("#remindModal"))$("#remindModal").classList.remove("open");});
   $("#rm-save").addEventListener("click",async function(){
-    try{await api("/admin/settings-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({reminders_enabled:$("#rm-enabled").checked?"1":"0",repeat_weeks:String(parseInt($("#rm-weeks").value,10)||6)})});
-      $("#remindModal").classList.remove("open");}catch(e){$("#rmErr").style.color="var(--cancelled)";$("#rmErr").textContent="Не вдалося зберегти.";}
+    var body={reminders_enabled:$("#rm-enabled").checked?"1":"0",repeat_weeks:String(parseInt($("#rm-weeks").value,10)||6),
+      loyalty_enabled:$("#rm-loy-enabled").checked?"1":"0",loyalty_every:String(parseInt($("#rm-loy-every").value,10)||6),loyalty_reward:$("#rm-loy-reward").value.trim()};
+    try{settingsState=(await api("/admin/settings-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).settings||settingsState;
+      toast("Налаштування збережено");$("#remindModal").classList.remove("open");}catch(e){$("#rmErr").style.color="var(--cancelled)";$("#rmErr").textContent="Не вдалося зберегти.";}
   });
   $("#rm-send").addEventListener("click",async function(){
     $("#rmErr").style.color="var(--ink-soft)";$("#rmErr").textContent="Надсилаємо…";

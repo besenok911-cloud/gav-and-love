@@ -101,6 +101,22 @@ export default {
       if (url.pathname === "/master/status" && request.method === "POST") {
         return json(await masterStatus(await request.json(), env), cors);
       }
+      // ---- Reviews ----
+      if (url.pathname === "/review" && request.method === "POST") {
+        return json(await reviewCreate(await request.json(), env), cors);   // public: client submits
+      }
+      if (url.pathname === "/reviews" && request.method === "GET") {
+        return json(await publicReviews(env), { ...cors, "Cache-Control": "public, max-age=60" });
+      }
+      if (url.pathname === "/admin/reviews" && request.method === "GET") {
+        return json(await adminReviews(request, env), cors);
+      }
+      if (url.pathname === "/admin/review-save" && request.method === "POST") {
+        return json(await reviewSave(request, env), cors);
+      }
+      if (url.pathname === "/admin/review-delete" && request.method === "POST") {
+        return json(await reviewDelete(request, env), cors);
+      }
       if (url.pathname === "/catalog" && request.method === "GET") {
         return json(await publicCatalog(env), { ...cors, "Cache-Control": "public, max-age=60" });
       }
@@ -701,6 +717,57 @@ async function masterStatus(body, env) {
   return { ok: true, calendar };
 }
 
+/* ----------------------------- Reviews & loyalty ----------------------------- */
+// public: a client submits a review (hidden until the salon approves it)
+async function reviewCreate(b, env) {
+  const rating = Math.max(1, Math.min(5, parseInt(b && b.rating, 10) || 0));
+  const text = String(b && b.text || "").trim().slice(0, 1500);
+  const name = String(b && b.name || "").trim().slice(0, 80);
+  if (!rating) return { ok: false, error: "Оцініть від 1 до 5 зірок" };
+  let clientId = null;
+  const np = normPhone(b && b.phone);
+  if (np && env.DB) {
+    try { const cs = await env.DB.prepare(`SELECT id, phone FROM clients`).all();
+      const f = (cs.results || []).find(c => normPhone(c.phone) === np); if (f) clientId = f.id; } catch (e) { }
+  }
+  await env.DB.prepare(
+    `INSERT INTO reviews (created_at,name,phone,rating,text,master,client_id,published) VALUES (?,?,?,?,?,?,?,0)`
+  ).bind(new Date().toISOString(), name, String(b && b.phone || "").trim(), rating, text, String(b && b.master || "").trim(), clientId).run();
+  try { await sendTelegram(env, `🌟 Новий відгук (${rating}/5)${name ? " від " + name : ""}\n${text || "(без тексту)"}\nПідтвердьте показ у CRM → Відгуки.`); } catch (e) { }
+  return { ok: true };
+}
+// public: approved reviews for the site
+async function publicReviews(env) {
+  if (!env.DB) return { ok: true, reviews: [], avg: 0, count: 0 };
+  const { results } = await env.DB.prepare(
+    `SELECT id, created_at, name, rating, text, master, reply FROM reviews WHERE published=1 ORDER BY created_at DESC LIMIT 100`
+  ).all();
+  const rows = results || [];
+  const all = await env.DB.prepare(`SELECT AVG(rating) a, COUNT(*) c FROM reviews WHERE published=1`).first();
+  return { ok: true, reviews: rows, avg: all && all.a ? Math.round(all.a * 10) / 10 : 0, count: all && all.c || 0 };
+}
+async function adminReviews(request, env) {
+  requireAdmin(request, env);
+  const { results } = await env.DB.prepare(`SELECT * FROM reviews ORDER BY created_at DESC LIMIT 500`).all();
+  return { ok: true, reviews: results || [] };
+}
+async function reviewSave(request, env) {
+  requireAdmin(request, env);
+  const b = await request.json();
+  if (!b || !b.id) return { ok: false, error: "id required" };
+  const sets = [], vals = [];
+  for (const f of ["published", "reply", "name", "rating", "text", "master"]) if (b[f] != null) { sets.push(`${f}=?`); vals.push(b[f]); }
+  if (sets.length) { vals.push(b.id); await env.DB.prepare(`UPDATE reviews SET ${sets.join(",")} WHERE id=?`).bind(...vals).run(); }
+  return { ok: true };
+}
+async function reviewDelete(request, env) {
+  requireAdmin(request, env);
+  const { id } = await request.json();
+  if (!id) return { ok: false, error: "id required" };
+  await env.DB.prepare(`DELETE FROM reviews WHERE id=?`).bind(id).run();
+  return { ok: true };
+}
+
 /* ----------------------------- Services (booking + price = one entity) ----------------------------- */
 // One service = a bookable item AND its price list. price_type:
 //   flat   → single `price` (may be "" / "від 1000")
@@ -879,7 +946,7 @@ async function expenseDelete(request, env) {
 
 /* ----------------------------- Settings & reminders ----------------------------- */
 async function loadSettings(env) {
-  const def = { reminders_enabled: "1", repeat_weeks: "6" };
+  const def = { reminders_enabled: "1", repeat_weeks: "6", loyalty_enabled: "1", loyalty_every: "6", loyalty_reward: "Знижка 50% на наступний комплекс" };
   if (!env.DB) return def;
   try {
     const { results } = await env.DB.prepare(`SELECT key, value FROM settings`).all();
@@ -894,7 +961,7 @@ async function adminSettings(request, env) {
 async function settingsSave(request, env) {
   requireAdmin(request, env);
   const b = await request.json();
-  for (const k of ["reminders_enabled", "repeat_weeks", "note_gift", "note_big"]) {
+  for (const k of ["reminders_enabled", "repeat_weeks", "note_gift", "note_big", "loyalty_enabled", "loyalty_every", "loyalty_reward"]) {
     if (b[k] != null) await env.DB.prepare(`INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(k, String(b[k]), String(b[k])).run();
   }
   return { ok: true, settings: await loadSettings(env) };
