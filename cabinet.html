@@ -2,10 +2,17 @@
 <html lang="uk">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <title>Кабінет клієнта — GAV&LOVE</title>
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="cabinet.webmanifest" />
+<meta name="theme-color" content="#1c1340" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="GAV&LOVE" />
+<link rel="apple-touch-icon" href="assets/app/apple-touch-icon.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
 <style>
@@ -234,6 +241,7 @@
       </div>
 
       <div class="err" id="loginErr"></div>
+  <p class="pwa-hint" id="pwaHint" hidden></p>
     </div>
     <div class="foot"><a href="index.html">← на сайт</a></div>
   </div>
@@ -739,5 +747,6 @@
   if(token)restore(false);else show("login");
 })();
 </script>
+<script src="scripts/pwa.js?v=1"></script>
 </body>
 </html>

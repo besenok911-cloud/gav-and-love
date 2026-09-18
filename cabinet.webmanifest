@@ -1,0 +1,30 @@
+{
+  "name": "GAV&LOVE · Кабінет",
+  "short_name": "GAV&LOVE",
+  "description": "Кабінет клієнта: візити, перенесення, улюбленці, бонуси",
+  "start_url": "cabinet.html?src=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#faf7f2",
+  "theme_color": "#1c1340",
+  "lang": "uk",
+  "icons": [
+    {
+      "src": "assets/app/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/app/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/app/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
