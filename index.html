@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles/main.css?v=18" />
+<link rel="stylesheet" href="styles/main.css?v=19" />
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -81,16 +81,16 @@
 <main>
 
 <!-- ===== Hero ===== -->
-<section class="hero" id="home">
+<section class="hero" id="home" data-cms-group="Головний екран">
   <div class="hero-decor" aria-hidden="true"></div>
   <div class="container hero-inner">
     <div class="hero-copy reveal">
-      <p class="hero-kicker">Грумінг · dog hotel &amp; spa · садочок</p>
-      <h1 class="hero-title">Грумінг з&nbsp;любов'ю<br>та <span class="script">турботою</span></h1>
-      <p class="hero-lead">Дбайливий догляд за собаками й котами — <b>без стресу, без поспіху, з увагою до кожної деталі</b>. Гігієна, стрижка, вичісування, міні-готель 24/7 та денний садочок.</p>
+      <p class="hero-kicker" data-cms="hero.kicker">Грумінг · dog hotel &amp; spa · садочок</p>
+      <h1 class="hero-title" data-cms="hero.h1">Грумінг з&nbsp;любов'ю<br>та <span class="script">турботою</span></h1>
+      <p class="hero-lead" data-cms="hero.lead">Дбайливий догляд за собаками й котами — <b>без стресу, без поспіху, з увагою до кожної деталі</b>. Гігієна, стрижка, вичісування, міні-готель 24/7 та денний садочок.</p>
       <div class="hero-actions">
-        <a href="#booking" class="btn btn-primary">Записатися онлайн</a>
-        <a href="#services" class="btn btn-ghost">Послуги та ціни</a>
+        <a href="#booking" class="btn btn-primary" data-cms="hero.btn1">Записатися онлайн</a>
+        <a href="#services" class="btn btn-ghost" data-cms="hero.btn2">Послуги та ціни</a>
       </div>
       <div class="hero-badges">
         <span><svg class="i"><use href="#i-heart"/></svg> Любов</span>
@@ -118,68 +118,68 @@
 </div>
 
 <!-- ===== Trust strip ===== -->
-<section class="trust" id="trust">
+<section class="trust" id="trust" data-cms-section="Переваги">
   <div class="container">
     <div class="trust-inner">
-      <article class="trust-item reveal"><svg class="i-lg"><use href="#i-heart"/></svg><h3>Любов</h3><p>Кожен хвостик — особистість, а не «номер».</p></article>
-      <article class="trust-item reveal"><svg class="i-lg"><use href="#i-paw"/></svg><h3>Турбота</h3><p>Спокій тварини — понад усе, на кожному етапі.</p></article>
-      <article class="trust-item reveal"><svg class="i-lg"><use href="#i-shield"/></svg><h3>Довіра</h3><p>Ніжний підхід і безпечна косметика.</p></article>
-      <article class="trust-item reveal"><svg class="i-lg"><use href="#i-star"/></svg><h3>Досвід</h3><p>Команда майстрів, що любить свою справу.</p></article>
+      <article class="trust-item reveal"><svg class="i-lg"><use href="#i-heart"/></svg><h3 data-cms="trust.item1.h3">Любов</h3><p data-cms="trust.item1.p">Кожен хвостик — особистість, а не «номер».</p></article>
+      <article class="trust-item reveal"><svg class="i-lg"><use href="#i-paw"/></svg><h3 data-cms="trust.item2.h3">Турбота</h3><p data-cms="trust.item2.p">Спокій тварини — понад усе, на кожному етапі.</p></article>
+      <article class="trust-item reveal"><svg class="i-lg"><use href="#i-shield"/></svg><h3 data-cms="trust.item3.h3">Довіра</h3><p data-cms="trust.item3.p">Ніжний підхід і безпечна косметика.</p></article>
+      <article class="trust-item reveal"><svg class="i-lg"><use href="#i-star"/></svg><h3 data-cms="trust.item4.h3">Досвід</h3><p data-cms="trust.item4.p">Команда майстрів, що любить свою справу.</p></article>
     </div>
   </div>
 </section>
 
 <!-- ===== About ===== -->
-<section class="about section" id="about">
+<section class="about section" id="about" data-cms-section="Про нас">
   <div class="container">
     <header class="section-head reveal">
-      <p class="eyebrow">Про нас</p>
-      <h2>Грумінг, у якому головне — <span class="script">хвостик</span></h2>
-      <p class="section-sub"><b>GAV&LOVE</b> — це затишний простір на Позняках, де про ваших улюбленців дбає команда майстрів. Працюємо з усіма породами собак і котиків: делікатно знайомимо з процедурами, слухаємо ваш запит і створюємо образ, від якого неможливо відвести погляд.</p>
+      <p class="eyebrow" data-cms="about.eyebrow">Про нас</p>
+      <h2 data-cms="about.h2">Грумінг, у якому головне — <span class="script">хвостик</span></h2>
+      <p class="section-sub" data-cms="about.sub"><b>GAV&LOVE</b> — це затишний простір на Позняках, де про ваших улюбленців дбає команда майстрів. Працюємо з усіма породами собак і котиків: делікатно знайомимо з процедурами, слухаємо ваш запит і створюємо образ, від якого неможливо відвести погляд.</p>
     </header>
     <div class="about-grid">
       <div class="about-photo reveal">
         <img src="assets/people/team.webp" alt="Команда грумерів GAV&LOVE з улюбленцями" width="1440" height="1440" loading="lazy" />
       </div>
       <div class="about-quotes">
-        <blockquote class="cloud reveal">Ми не працюємо через силу й не поспішаємо. Слухаємо, спостерігаємо та підлаштовуємось — бо комфорт і безпека тварини важливіші за ідеальну «картинку».</blockquote>
-        <blockquote class="cloud reveal">Уважно ставимось до кожного побажання власника й до особливостей шерсті, щоб підкреслити індивідуальність вашого малюка.</blockquote>
-        <blockquote class="cloud reveal">У нас настільки затишно, що навіть під час грумінгу улюбленці дрімають від насолоди. А йдуть — доглянутими й щасливими.</blockquote>
+        <blockquote class="cloud reveal" data-cms="about.quote1">Ми не працюємо через силу й не поспішаємо. Слухаємо, спостерігаємо та підлаштовуємось — бо комфорт і безпека тварини важливіші за ідеальну «картинку».</blockquote>
+        <blockquote class="cloud reveal" data-cms="about.quote2">Уважно ставимось до кожного побажання власника й до особливостей шерсті, щоб підкреслити індивідуальність вашого малюка.</blockquote>
+        <blockquote class="cloud reveal" data-cms="about.quote3">У нас настільки затишно, що навіть під час грумінгу улюбленці дрімають від насолоди. А йдуть — доглянутими й щасливими.</blockquote>
       </div>
     </div>
     <div class="interview">
       <header class="interview-head reveal">
-        <h3>Наш <span class="script">підхід</span> до кожного гостя</h3>
-        <p>Кілька щирих відповідей про те, як ми працюємо.</p>
+        <h3 data-cms="about.interview.h3">Наш <span class="script">підхід</span> до кожного гостя</h3>
+        <p data-cms="about.interview.p">Кілька щирих відповідей про те, як ми працюємо.</p>
       </header>
       <div class="qa-grid">
         <article class="qa reveal">
-          <p class="q">Як ви працюєте з тваринами, які бояться?</p>
-          <p class="a">Не ламаємо страх — заспокоюємо. Даємо час, знайомимо з процедурами поступово й хвалимо за спокій.</p>
+          <p class="q" data-cms="about.qa1.q">Як ви працюєте з тваринами, які бояться?</p>
+          <p class="a" data-cms="about.qa1.a">Не ламаємо страх — заспокоюємо. Даємо час, знайомимо з процедурами поступово й хвалимо за спокій.</p>
         </article>
         <article class="qa reveal">
-          <p class="q">Що важливіше: ідеальна стрижка чи комфорт?</p>
-          <p class="a">Комфорт. Завжди. Краса не має бути через стрес — вона народжується зі спокою.</p>
+          <p class="q" data-cms="about.qa2.q">Що важливіше: ідеальна стрижка чи комфорт?</p>
+          <p class="a" data-cms="about.qa2.a">Комфорт. Завжди. Краса не має бути через стрес — вона народжується зі спокою.</p>
         </article>
         <article class="qa reveal">
-          <p class="q">Як минає перший грумінг цуценяти?</p>
-          <p class="a">М'яко й без повної стрижки: знайомимо з водою, звуками й приладами, щоб залишити позитивні спогади на все життя.</p>
+          <p class="q" data-cms="about.qa3.q">Як минає перший грумінг цуценяти?</p>
+          <p class="a" data-cms="about.qa3.a">М'яко й без повної стрижки: знайомимо з водою, звуками й приладами, щоб залишити позитивні спогади на все життя.</p>
         </article>
         <article class="qa reveal">
-          <p class="q">А котиків ви теж доглядаєте?</p>
-          <p class="a">Так. Вичісуємо підшерсток, прибираємо ковтуни, купаємо — дбайливо й без зайвого стресу для мурчика.</p>
+          <p class="q" data-cms="about.qa4.q">А котиків ви теж доглядаєте?</p>
+          <p class="a" data-cms="about.qa4.a">Так. Вичісуємо підшерсток, прибираємо ковтуни, купаємо — дбайливо й без зайвого стресу для мурчика.</p>
         </article>
         <article class="qa reveal">
-          <p class="q">Чи можна привести двох улюбленців разом?</p>
-          <p class="a">Звісно. Паралельний грумінг — коли двоє проходять процедури одночасно: їм спокійніше, а вам зручніше.</p>
+          <p class="q" data-cms="about.qa5.q">Чи можна привести двох улюбленців разом?</p>
+          <p class="a" data-cms="about.qa5.a">Звісно. Паралельний грумінг — коли двоє проходять процедури одночасно: їм спокійніше, а вам зручніше.</p>
         </article>
         <article class="qa reveal">
-          <p class="q">Якою косметикою ви користуєтесь?</p>
-          <p class="a">Професійною та безпечною для шкіри й шерсті — без агресивних засобів, з турботою про здоров'я.</p>
+          <p class="q" data-cms="about.qa6.q">Якою косметикою ви користуєтесь?</p>
+          <p class="a" data-cms="about.qa6.a">Професійною та безпечною для шкіри й шерсті — без агресивних засобів, з турботою про здоров'я.</p>
         </article>
         <article class="qa qa-wide reveal">
-          <p class="q">Який результат для вас ідеальний?</p>
-          <p class="a">Коли улюбленець виходить не лише гарним, а спокійним і щасливим — а власник бачить, що його хвостика тут справді берегли.</p>
+          <p class="q" data-cms="about.qa7.q">Який результат для вас ідеальний?</p>
+          <p class="a" data-cms="about.qa7.a">Коли улюбленець виходить не лише гарним, а спокійним і щасливим — а власник бачить, що його хвостика тут справді берегли.</p>
         </article>
       </div>
     </div>
@@ -187,36 +187,36 @@
 </section>
 
 <!-- ===== Team ===== -->
-<section class="team section" id="team">
+<section class="team section" id="team" data-cms-section="Наші співробітники">
   <div class="container">
     <header class="section-head reveal">
-      <p class="eyebrow">Наші співробітники</p>
-      <h2>Команда, якій довіряють <span class="script">хвостики</span></h2>
-      <p class="section-sub">Три майстри — і жодного конвеєра. Кожного гостя зустрічають по імені, слухають власника й працюють без поспіху.</p>
+      <p class="eyebrow" data-cms="team.eyebrow">Наші співробітники</p>
+      <h2 data-cms="team.h2">Команда, якій довіряють <span class="script">хвостики</span></h2>
+      <p class="section-sub" data-cms="team.sub">Три майстри — і жодного конвеєра. Кожного гостя зустрічають по імені, слухають власника й працюють без поспіху.</p>
     </header>
     <div class="team-grid">
       <article class="team-card reveal">
         <div class="team-photo"><img src="assets/people/darya.webp" alt="Дар'я Краснопольська, грумер GAV&LOVE, з білим бішоном" width="800" height="800" loading="lazy" /></div>
         <div class="team-body">
-          <h3>Дар'я Краснопольська</h3>
-          <p class="team-role">Грумер</p>
-          <p>Делікатно знайомить малюків із першим грумінгом і терпляче працює з тривожними хвостиками. Гігієнічний і повний комплекси для собак та котиків.</p>
+          <h3 data-cms="team.member1.name">Дар'я Краснопольська</h3>
+          <p class="team-role" data-cms="team.member1.role">Грумер</p>
+          <p data-cms="team.member1.text">Делікатно знайомить малюків із першим грумінгом і терпляче працює з тривожними хвостиками. Гігієнічний і повний комплекси для собак та котиків.</p>
         </div>
       </article>
       <article class="team-card reveal">
         <div class="team-photo"><img src="assets/people/symon.webp" alt="Симон Волик, грумер GAV&LOVE, з померанським шпіцем після купання" width="800" height="800" loading="lazy" /></div>
         <div class="team-body">
-          <h3>Симон Волик</h3>
-          <p class="team-role">Грумер</p>
-          <p>Спокійний і уважний підхід: навіть найнепосидючіші гості поступово розслабляються в його руках. Купання, вичісування, стрижки за породою.</p>
+          <h3 data-cms="team.member2.name">Симон Волик</h3>
+          <p class="team-role" data-cms="team.member2.role">Грумер</p>
+          <p data-cms="team.member2.text">Спокійний і уважний підхід: навіть найнепосидючіші гості поступово розслабляються в його руках. Купання, вичісування, стрижки за породою.</p>
         </div>
       </article>
       <article class="team-card reveal">
         <div class="team-photo"><img src="assets/people/yuliia.webp" alt="Юлія Литвинова, грумер GAV&LOVE, з пуделем і бультер'єром" width="800" height="800" loading="lazy" /></div>
         <div class="team-body">
-          <h3>Юлія Литвинова</h3>
-          <p class="team-role">Грумер</p>
-          <p>Майстриня перевтілень — від мальтіпу до великих порід. Породні стрижки, робота з ковтунами й підшерстком, дбайливий догляд за котиками.</p>
+          <h3 data-cms="team.member3.name">Юлія Литвинова</h3>
+          <p class="team-role" data-cms="team.member3.role">Грумер</p>
+          <p data-cms="team.member3.text">Майстриня перевтілень — від мальтіпу до великих порід. Породні стрижки, робота з ковтунами й підшерстком, дбайливий догляд за котиками.</p>
         </div>
       </article>
     </div>
@@ -224,35 +224,35 @@
 </section>
 
 <!-- ===== Vacancies ===== -->
-<section class="jobs section" id="jobs">
+<section class="jobs section" id="jobs" data-cms-section="Вакансії">
   <div class="container">
     <header class="section-head reveal">
-      <p class="eyebrow">Вакансії</p>
-      <h2>Приєднуйтесь до <span class="script">команди</span></h2>
-      <p class="section-sub">Ми шукаємо людей, які розділяють нашу любов до тварин і хочуть дбати про їхній вигляд та здоров'я — без поспіху і з повагою до кожного хвостика.</p>
+      <p class="eyebrow" data-cms="jobs.eyebrow">Вакансії</p>
+      <h2 data-cms="jobs.h2">Приєднуйтесь до <span class="script">команди</span></h2>
+      <p class="section-sub" data-cms="jobs.sub">Ми шукаємо людей, які розділяють нашу любов до тварин і хочуть дбати про їхній вигляд та здоров'я — без поспіху і з повагою до кожного хвостика.</p>
     </header>
     <div class="jobs-grid">
       <article class="job-card reveal">
         <div class="job-head">
-          <h3>Грумер</h3>
-          <span class="job-tag">Відкрита вакансія</span>
+          <h3 data-cms="jobs.title">Грумер</h3>
+          <span class="job-tag" data-cms="jobs.tag">Відкрита вакансія</span>
         </div>
-        <p class="job-meta">Позняки, м. Київ · повна або часткова зайнятість</p>
+        <p class="job-meta" data-cms="jobs.meta">Позняки, м. Київ · повна або часткова зайнятість</p>
         <div class="job-cols">
           <div>
-            <h4>Що очікуємо</h4>
+            <h4 data-cms="jobs.expect.h4">Що очікуємо</h4>
             <ul>
-              <li>Досвід у грумінгу собак (котики — плюс)</li>
-              <li>Уміння знайти підхід до тривожних і непосидючих гостей</li>
-              <li>Акуратність, любов до своєї справи та до тварин</li>
+              <li data-cms="jobs.expect1">Досвід у грумінгу собак (котики — плюс)</li>
+              <li data-cms="jobs.expect2">Уміння знайти підхід до тривожних і непосидючих гостей</li>
+              <li data-cms="jobs.expect3">Акуратність, любов до своєї справи та до тварин</li>
             </ul>
           </div>
           <div>
-            <h4>Що пропонуємо</h4>
+            <h4 data-cms="jobs.offer.h4">Що пропонуємо</h4>
             <ul>
-              <li>Затишний салон із професійним обладнанням і косметикою</li>
-              <li>Стабільний потік клієнтів і дружню команду з трьох майстрів</li>
-              <li>Оплату за домовленістю — ставка + відсоток від виконаних робіт</li>
+              <li data-cms="jobs.offer1">Затишний салон із професійним обладнанням і косметикою</li>
+              <li data-cms="jobs.offer2">Стабільний потік клієнтів і дружню команду з трьох майстрів</li>
+              <li data-cms="jobs.offer3">Оплату за домовленістю — ставка + відсоток від виконаних робіт</li>
             </ul>
           </div>
         </div>
@@ -263,33 +263,33 @@
         </div>
       </article>
       <aside class="job-note reveal">
-        <h3>Не знайшли свою роль?</h3>
-        <p>Асистенти грумера, адміністратори салону, доглядачі готелю — напишіть нам кілька слів про себе. Ми відповідаємо кожному.</p>
+        <h3 data-cms="jobs.note.h3">Не знайшли свою роль?</h3>
+        <p data-cms="jobs.note.p">Асистенти грумера, адміністратори салону, доглядачі готелю — напишіть нам кілька слів про себе. Ми відповідаємо кожному.</p>
       </aside>
     </div>
   </div>
 </section>
 
 <!-- ===== Why us ===== -->
-<section class="why section reveal">
+<section class="why section reveal" id="why" data-cms-section="Чому ми">
   <div class="container why-inner">
-    <h2 class="why-title">Чому нас обирають</h2>
+    <h2 class="why-title" data-cms="why.h2">Чому нас обирають</h2>
     <ul class="why-list">
-      <li><svg class="i"><use href="#i-paw"/></svg><span><b>Без стресу й поспіху.</b> Підлаштовуємось під ритм і потреби тварини.</span></li>
-      <li><svg class="i"><use href="#i-heart"/></svg><span><b>Індивідуальний підхід.</b> Враховуємо тип шерсті, вік і характер улюбленця.</span></li>
-      <li><svg class="i"><use href="#i-shield"/></svg><span><b>Безпечна косметика.</b> Дбаємо про шкіру та шерсть, без агресивних засобів.</span></li>
-      <li><svg class="i"><use href="#i-star"/></svg><span><b>Усе в одному місці.</b> Грумінг, dog hotel &amp; spa та денний садочок.</span></li>
+      <li><svg class="i"><use href="#i-paw"/></svg><span><b data-cms="why.item1.title">Без стресу й поспіху.</b> <span data-cms="why.item1.text">Підлаштовуємось під ритм і потреби тварини.</span></span></li>
+      <li><svg class="i"><use href="#i-heart"/></svg><span><b data-cms="why.item2.title">Індивідуальний підхід.</b> <span data-cms="why.item2.text">Враховуємо тип шерсті, вік і характер улюбленця.</span></span></li>
+      <li><svg class="i"><use href="#i-shield"/></svg><span><b data-cms="why.item3.title">Безпечна косметика.</b> <span data-cms="why.item3.text">Дбаємо про шкіру та шерсть, без агресивних засобів.</span></span></li>
+      <li><svg class="i"><use href="#i-star"/></svg><span><b data-cms="why.item4.title">Усе в одному місці.</b> <span data-cms="why.item4.text">Грумінг, dog hotel &amp; spa та денний садочок.</span></span></li>
     </ul>
   </div>
 </section>
 
 <!-- ===== Services & Prices ===== -->
-<section class="services section" id="services">
+<section class="services section" id="services" data-cms-group="Послуги та ціни">
   <div class="container">
     <header class="section-head reveal">
-      <p class="eyebrow">Послуги та ціни</p>
-      <h2>Наш <span class="script">прайс</span></h2>
-      <p class="section-sub">Оберіть категорію послуг. Точну вартість підкажемо за телефоном або в Direct.</p>
+      <p class="eyebrow" data-cms="services.eyebrow">Послуги та ціни</p>
+      <h2 data-cms="services.h2">Наш <span class="script">прайс</span></h2>
+      <p class="section-sub" data-cms="services.sub">Оберіть категорію послуг. Точну вартість підкажемо за телефоном або в Direct.</p>
     </header>
     <div class="price-tabs" id="priceTabs" role="tablist" aria-label="Категорії послуг"></div>
     <div class="price-panels" id="pricePanels"></div>
@@ -301,44 +301,44 @@
 </section>
 
 <!-- ===== Interior showcase ===== -->
-<section class="interior section" id="interior">
+<section class="interior section" id="interior" data-cms-section="Простір">
   <div class="container">
     <header class="interior-head reveal">
       <div>
-        <p class="eyebrow">Простір</p>
-        <h2>Затишний <span class="script">dog hotel &amp; spa</span></h2>
+        <p class="eyebrow" data-cms="interior.eyebrow">Простір</p>
+        <h2 data-cms="interior.h2">Затишний <span class="script">dog hotel &amp; spa</span></h2>
       </div>
-      <p>Стильний, теплий простір із деревом і м'яким світлом — місце, де хочеться залишитися. Загляньте всередину.</p>
+      <p data-cms="interior.p">Стильний, теплий простір із деревом і м'яким світлом — місце, де хочеться залишитися. Загляньте всередину.</p>
     </header>
     <div class="interior-grid reveal" id="interiorGrid">
-      <figure class="span2 row2"><img src="assets/interior/hotel-3.webp" alt="Лаунж-зона GAV&LOVE dog hotel and spa" loading="lazy"><figcaption class="interior-cap">Лаунж-зона</figcaption></figure>
-      <figure><img src="assets/interior/hotel-front.webp" alt="Вхід до GAV&LOVE dog hotel and spa" loading="lazy"><figcaption class="interior-cap">Вхід</figcaption></figure>
-      <figure><img src="assets/interior/hotel-suites.webp" alt="Дерев'яні номери-бокси GAV&LOVE" loading="lazy"><figcaption class="interior-cap">Номери</figcaption></figure>
-      <figure><img src="assets/interior/hotel-reception.webp" alt="Ресепшн GAV&LOVE" loading="lazy"><figcaption class="interior-cap">Ресепшн</figcaption></figure>
-      <figure><img src="assets/interior/hotel-box.webp" alt="Затишний бокс із лежанкою у GAV&LOVE" loading="lazy"><figcaption class="interior-cap">Особистий бокс</figcaption></figure>
+      <figure class="span2 row2"><img src="assets/interior/hotel-3.webp" alt="Лаунж-зона GAV&LOVE dog hotel and spa" loading="lazy"><figcaption class="interior-cap" data-cms="interior.cap1">Лаунж-зона</figcaption></figure>
+      <figure><img src="assets/interior/hotel-front.webp" alt="Вхід до GAV&LOVE dog hotel and spa" loading="lazy"><figcaption class="interior-cap" data-cms="interior.cap2">Вхід</figcaption></figure>
+      <figure><img src="assets/interior/hotel-suites.webp" alt="Дерев'яні номери-бокси GAV&LOVE" loading="lazy"><figcaption class="interior-cap" data-cms="interior.cap3">Номери</figcaption></figure>
+      <figure><img src="assets/interior/hotel-reception.webp" alt="Ресепшн GAV&LOVE" loading="lazy"><figcaption class="interior-cap" data-cms="interior.cap4">Ресепшн</figcaption></figure>
+      <figure><img src="assets/interior/hotel-box.webp" alt="Затишний бокс із лежанкою у GAV&LOVE" loading="lazy"><figcaption class="interior-cap" data-cms="interior.cap5">Особистий бокс</figcaption></figure>
     </div>
   </div>
 </section>
 
 <!-- ===== Hotel & Garden ===== -->
-<section class="hotel section" id="hotel">
+<section class="hotel section" id="hotel" data-cms-section="Готель">
   <div class="container hotel-inner">
     <div class="hotel-copy reveal">
-      <p class="eyebrow">Міні-готель 24/7 та садочок</p>
-      <h2>Місце, де хвостик <span class="script">почувається як удома</span></h2>
-      <p>Поки вас немає поруч — ваш улюбленець у теплій компанії й під наглядом. Окремі дерев'яні номери, щоденні прогулянки у безпечній зоні та цілодобова турбота.</p>
+      <p class="eyebrow" data-cms="hotel.eyebrow">Міні-готель 24/7 та садочок</p>
+      <h2 data-cms="hotel.h2">Місце, де хвостик <span class="script">почувається як удома</span></h2>
+      <p data-cms="hotel.p">Поки вас немає поруч — ваш улюбленець у теплій компанії й під наглядом. Окремі дерев'яні номери, щоденні прогулянки у безпечній зоні та цілодобова турбота.</p>
       <ul class="hotel-points">
-        <li><svg class="i"><use href="#i-home"/></svg> Окремі комфортні номери-бокси з лежанкою</li>
-        <li><svg class="i"><use href="#i-heart"/></svg> Щоденні прогулянки та цілодобовий нагляд</li>
-        <li><svg class="i"><use href="#i-paw"/></svg> Приймаємо маленьких собак до 10 кг</li>
+        <li><svg class="i"><use href="#i-home"/></svg> <span data-cms="hotel.point1">Окремі комфортні номери-бокси з лежанкою</span></li>
+        <li><svg class="i"><use href="#i-heart"/></svg> <span data-cms="hotel.point2">Щоденні прогулянки та цілодобовий нагляд</span></li>
+        <li><svg class="i"><use href="#i-paw"/></svg> <span data-cms="hotel.point3">Приймаємо маленьких собак до 10 кг</span></li>
       </ul>
       <div class="hotel-rules">
         <svg class="i"><use href="#i-shield"/></svg>
-        <p><b>Для заселення знадобиться:</b> ветпаспорт з актуальними щепленнями, обробка від бліх і глистів, гарний стан здоров'я. З собою — звична їжа, улюблена іграшка чи лежанка та амуніція для прогулянок.</p>
+        <p data-cms="hotel.rules"><b>Для заселення знадобиться:</b> ветпаспорт з актуальними щепленнями, обробка від бліх і глистів, гарний стан здоров'я. З собою — звична їжа, улюблена іграшка чи лежанка та амуніція для прогулянок.</p>
       </div>
       <div class="hotel-actions">
-        <a href="#booking" class="btn btn-primary">Забронювати місце</a>
-        <a href="#contacts" class="btn btn-ghost">Запитати про умови</a>
+        <a href="#booking" class="btn btn-primary" data-cms="hotel.btn1">Забронювати місце</a>
+        <a href="#contacts" class="btn btn-ghost" data-cms="hotel.btn2">Запитати про умови</a>
       </div>
     </div>
     <div class="hotel-photos reveal">
@@ -350,12 +350,12 @@
 </section>
 
 <!-- ===== Gallery ===== -->
-<section class="gallery section" id="gallery">
+<section class="gallery section" id="gallery" data-cms-section="Галерея">
   <div class="container">
     <header class="section-head reveal">
-      <p class="eyebrow">Галерея робіт</p>
-      <h2>Наші <span class="script">хвостики</span></h2>
-      <p class="section-sub">Реальні роботи наших майстрів — перевтілення, портрети та щасливі гості салону.</p>
+      <p class="eyebrow" data-cms="gallery.eyebrow">Галерея робіт</p>
+      <h2 data-cms="gallery.h2">Наші <span class="script">хвостики</span></h2>
+      <p class="section-sub" data-cms="gallery.sub">Реальні роботи наших майстрів — перевтілення, портрети та щасливі гості салону.</p>
     </header>
     <div class="gallery-filters" id="galleryFilters" role="tablist" aria-label="Фільтри галереї"></div>
     <div class="gallery-grid" id="galleryGrid"></div>
@@ -364,25 +364,25 @@
 </section>
 
 <!-- ===== Reviews / testimonials ===== -->
-<section class="reviews section reveal" id="reviews" hidden>
+<section class="reviews section reveal" id="reviews" data-cms-section="Відгуки" hidden>
   <div class="container">
     <header class="section-head">
-      <p class="eyebrow">Відгуки</p>
-      <h2>Що кажуть <span class="script">наші гості</span></h2>
+      <p class="eyebrow" data-cms="reviews.eyebrow">Відгуки</p>
+      <h2 data-cms="reviews.h2">Що кажуть <span class="script">наші гості</span></h2>
       <p class="section-sub" id="reviewsAvg"></p>
     </header>
     <div class="reviews-grid" id="reviewsGrid"></div>
-    <div class="reviews-cta"><a class="btn btn-ghost" href="review.html">Залишити відгук</a></div>
+    <div class="reviews-cta"><a class="btn btn-ghost" href="review.html" data-cms="reviews.btn">Залишити відгук</a></div>
   </div>
 </section>
 
 <!-- ===== Booking ===== -->
-<section class="booking section" id="booking">
+<section class="booking section" id="booking" data-cms-group="Онлайн-запис">
   <div class="container booking-inner">
     <header class="section-head reveal">
-      <p class="eyebrow">Онлайн-запис</p>
-      <h2>Записатися на <span class="script">прийом</span></h2>
-      <p class="section-sub">Залиште заявку — ми зв'яжемось, щоб підтвердити дату й час.</p>
+      <p class="eyebrow" data-cms="booking.eyebrow">Онлайн-запис</p>
+      <h2 data-cms="booking.h2">Записатися на <span class="script">прийом</span></h2>
+      <p class="section-sub" data-cms="booking.sub">Залиште заявку — ми зв'яжемось, щоб підтвердити дату й час.</p>
     </header>
     <form class="booking-form reveal" id="bookingForm" novalidate>
       <div class="field">
@@ -452,19 +452,19 @@
         <p class="form-status" id="bfStatus" role="status" aria-live="polite"></p>
       </div>
     </form>
-    <p class="booking-hint">Або напишіть нам напряму — кнопки месенджерів нижче ↓</p>
+    <p class="booking-hint" data-cms="booking.hint">Або напишіть нам напряму — кнопки месенджерів нижче ↓</p>
   </div>
 </section>
 
 <!-- ===== Contacts ===== -->
-<section class="contacts section" id="contacts">
+<section class="contacts section" id="contacts" data-cms-group="Контакти">
   <div class="container contacts-inner">
     <div class="contacts-info reveal">
-      <p class="eyebrow">Контакти</p>
-      <h2>Завітайте до <span class="script">нас</span></h2>
+      <p class="eyebrow" data-cms="contacts.eyebrow">Контакти</p>
+      <h2 data-cms="contacts.h2">Завітайте до <span class="script">нас</span></h2>
       <ul class="contacts-list">
-        <li><svg class="i"><use href="#i-pin"/></svg><span>м. Київ, вул. Драгоманова, 2 (Позняки)</span></li>
-        <li><svg class="i"><use href="#i-clock"/></svg><span>Щодня, за попереднім записом</span></li>
+        <li><svg class="i"><use href="#i-pin"/></svg><span data-cms="contacts.address">м. Київ, вул. Драгоманова, 2 (Позняки)</span></li>
+        <li><svg class="i"><use href="#i-clock"/></svg><span data-cms="contacts.hours">Щодня, за попереднім записом</span></li>
         <li><svg class="i"><use href="#i-phone"/></svg><a href="tel:+380685575727" id="phoneLink">+38 068 557 57 27</a></li>
       </ul>
       <div class="messengers">
@@ -515,6 +515,6 @@
 <script src="data/catalog.js?v=23" defer></script>
 <script src="data/gallery.js?v=15" defer></script>
 <script src="data/videos.js?v=15" defer></script>
-<script src="scripts/main.js?v=28" defer></script>
+<script src="scripts/main.js?v=29" defer></script>
 </body>
 </html>
