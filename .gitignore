@@ -7,3 +7,4 @@ worker/.wrangler/
 Thumbs.db
 desktop.ini
 _crm_mock.html
+.claude/
