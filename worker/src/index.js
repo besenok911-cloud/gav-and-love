@@ -575,7 +575,8 @@ async function authChangePassword(request, env) {
   if (newp.length < 4) return { ok: false, error: "Новий пароль закороткий (мін. 4 символи)" };
   const u = await env.DB.prepare(`SELECT * FROM users WHERE id=?`).bind(s.user_id).first();
   if (!u) { const e = new Error("Акаунт не знайдено"); e.status = 404; throw e; }
-  if (u.pass_hash) { const h = await pbkdf2(oldp, u.pass_salt || ""); if (h !== u.pass_hash) return { ok: false, error: "Невірний поточний пароль" }; }
+  // On a forced first change (must_change) the old password isn't asked for; verify it only for a voluntary change.
+  if (u.pass_hash && !u.must_change) { const h = await pbkdf2(oldp, u.pass_salt || ""); if (h !== u.pass_hash) return { ok: false, error: "Невірний поточний пароль" }; }
   const salt = randHex(16), hash = await pbkdf2(newp, salt);
   await env.DB.prepare(`UPDATE users SET pass_hash=?, pass_salt=?, must_change=0 WHERE id=?`).bind(hash, salt, u.id).run();
   return { ok: true };
