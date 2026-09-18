@@ -626,11 +626,42 @@ async function adminList(request, env) {
 
 const EDITABLE = ["pet", "pet_name", "service", "breed", "name", "phone", "date", "time", "note", "status", "source", "price", "staff", "weight", "client_id", "pet_id", "pay_method"];
 
+// Can this master actually take the booking? null = fine, otherwise a human-readable reason.
+async function staffScheduleProblem(env, b) {
+  const staff = String(b.staff || "").trim(), iso = String(b.date || "");
+  if (!staff || !/^\d{4}-\d{2}-\d{2}$/.test(iso) || b.service === "Блокування") return null;
+  const mst = (await loadMasters(env)).find(m => m.name === staff);
+  if (!mst) return `майстра «${staff}» немає в списку майстрів`;
+  const [y, m, d] = iso.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const dd = `${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}`;
+  if (!mst.active) return `${staff} — неактивний майстер`;
+  for (const v of mst.vacations) if (v && v.from && v.to && iso >= v.from && iso <= v.to) return `${staff} ${dd} — відпустка`;
+  if (mst.daysOff.includes(dow)) return `${staff} ${dd} — вихідний`;
+  const t = hmToMin(b.time);
+  if (t != null) {
+    const dur = await serviceDuration(env, b.service);
+    const hm = x => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
+    if (t < mst.startMin || t + dur > mst.endMin) return `${staff} працює ${hm(mst.startMin)}–${hm(mst.endMin)}, запис о ${b.time} (${dur} хв) не вкладається`;
+    if (inBreak(mst, t, t + dur)) return `${staff}: ${b.time} припадає на обідню перерву (${hm(mst.breakStart)}–${hm(mst.breakEnd)})`;
+  }
+  return null;
+}
+
 async function adminUpdate(request, env) {
   await requireAdmin(request, env);
   const body = await request.json();
   const id = body && body.id;
   if (!id) return { ok: false, error: "id required" };
+  // Schedule guard — only when the assignment itself (master / date / time) is being changed.
+  if (body.staff != null || body.date != null || body.time != null) {
+    const cur = (await env.DB.prepare(`SELECT staff,date,time,service,status FROM bookings WHERE id=?`).bind(id).first()) || {};
+    const pick = f => (body[f] != null ? body[f] : cur[f]);
+    if (pick("status") !== "cancelled") {
+      const why = await staffScheduleProblem(env, { staff: pick("staff"), date: pick("date"), time: pick("time"), service: pick("service") });
+      if (why) return { ok: false, error: "Не можна призначити: " + why };
+    }
+  }
   const sets = [], vals = [];
   for (const f of EDITABLE) {
     if (body[f] != null) { sets.push(`${f}=?`); vals.push(body[f]); }
@@ -649,6 +680,7 @@ async function adminCreate(request, env) {
   await requireAdmin(request, env);
   const b = await request.json();
   if (!b || !b.name || !b.phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
+  if ((b.status || "new") !== "cancelled") { const why = await staffScheduleProblem(env, b); if (why) return { ok: false, error: "Не можна призначити: " + why }; }
   await applyPricing(env, b);
   const hasTime = !!(b.date && b.time);
   let eventId = null, eventLink = null;
