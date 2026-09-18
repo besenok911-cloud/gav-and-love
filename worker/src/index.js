@@ -774,14 +774,20 @@ async function adminCreate(request, env) {
 }
 
 /* ----------------------------- Clients & Pets ----------------------------- */
-function normPhone(p) { return (p || "").replace(/\D/g, "").slice(-9); }
+function normPhone(p) {   // one canonical key for the same number written in any local style
+  let d = (p || "").replace(/\D/g, "");
+  if (d.length === 9) d = "380" + d;                                  // 671234567
+  else if (d.length === 10 && d[0] === "0") d = "380" + d.slice(1);   // 0671234567
+  else if (d.length === 11 && d.slice(0, 2) === "80") d = "3" + d;    // 80671234567
+  return d;                                                          // +380…, +48…, +7… stay distinct
+}
 
 // Find/create the client (by phone) and pet (by name under client) for a booking.
 async function linkClientPet(env, b) {
   if (!env.DB) return { client_id: null, pet_id: null };
   let clientId = null, petId = null;
   const np = normPhone(b.phone);
-  if (np) {
+  if (np.length >= 9) {
     const cs = await env.DB.prepare(`SELECT id, phone FROM clients`).all();
     const found = (cs.results || []).find(c => normPhone(c.phone) === np);
     if (found) clientId = found.id;
@@ -1635,7 +1641,7 @@ function visitButtons(b) { return { reply_markup: { inline_keyboard: [[{ text: "
 async function clientChatFor(env, b) { // the booking's client's chat id (by client_id, else by phone)
   if (!env.DB) return null;
   if (b.client_id) { const c = await env.DB.prepare(`SELECT tg_chat_id FROM clients WHERE id=?`).bind(b.client_id).first(); if (c && c.tg_chat_id) return c.tg_chat_id; }
-  const np = normPhone(b.phone); if (!np) return null;
+  const np = normPhone(b.phone); if (np.length < 9) return null;   // junk phones must never collide
   const cs = await env.DB.prepare(`SELECT phone, tg_chat_id FROM clients WHERE tg_chat_id IS NOT NULL`).all();
   const f = (cs.results || []).find(c => normPhone(c.phone) === np); return f ? f.tg_chat_id : null;
 }
@@ -1827,6 +1833,13 @@ async function handleTgUpdate(env, u) {
     const after = (st && st.step === "contact" && st.after) || "";
     const cs = await env.DB.prepare(`SELECT id,name,phone FROM clients`).all();
     let c = (cs.results || []).find(x => normPhone(x.phone) === np), created = false;
+    if (!c) {   // this chat may already belong to a profile whose CRM phone is a different number — keep it, never fork
+      const cur = await clientByChat(env, chat);
+      if (cur) {
+        c = cur;
+        try { await sendTelegram(env, `⚠️ <b>Номер у Telegram не збігається з карткою клієнта</b>\n👤 ${tgEsc(cur.name || "")} (#${cur.id}) — у CRM ${tgEsc(cur.phone || "")}, у Telegram ${tgEsc(phone)}`); } catch (e) { }
+      }
+    }
     if (!c) {   // nobody with this number yet → register them right here
       const nm = [msg.from.first_name, msg.from.last_name].filter(Boolean).join(" ") || [msg.contact.first_name, msg.contact.last_name].filter(Boolean).join(" ") || "Клієнт з Telegram";
       const r = await env.DB.prepare(`INSERT INTO clients (created_at,name,phone,source,status) VALUES (?,?,?,'telegram','active')`).bind(new Date().toISOString(), nm, phone).run();
@@ -1864,14 +1877,8 @@ async function handleTgUpdate(env, u) {
   if (/^\/start/.test(text)) {
     const code = text.replace(/^\/start\s*/, "").trim();
     const wantCab = code === "cab";   // deep link from the site cabinet: t.me/<bot>?start=cab
-    if (code && !wantCab) {
-      const b = await env.DB.prepare(`SELECT id,client_id,name FROM bookings WHERE tg_code=? LIMIT 1`).bind(code).first();
-      if (b && b.client_id) {
-        await linkClientChat(env, b.client_id, chat);
-        await tgSendTo(env, chat, `✅ Готово, ${tgEsc(b.name || "")}! Нагадування про візити приходитимуть сюди.${await nextVisitsText(env, b.client_id)}`, BOOK_BTN);
-        return;
-      }
-    }
+    // NB: a booking code is not proof of identity — anyone can book with someone else's phone and get the link.
+    // Whoever arrives, the chat is attached only to the number Telegram itself confirms below.
     const c = await clientByChat(env, chat);
     if (c) {
       if (wantCab) { await sendCabinetLink(env, chat, c.id); return; }
@@ -1999,6 +2006,10 @@ async function bookingStep(env, chat, data) {
   if (k === "x") { const cur = await tgGetState(env, chat); await tgClearState(env, chat); await tgSendTo(env, chat, cur && cur.move_id ? "Добре, залишаємо запис як є 🙂" : "Добре, запис скасовано. Почати знову — /book"); return; }
   if (k === "start") { await bookingStart(env, chat); return; }
   const st = await tgGetState(env, chat);
+  if (st && st.step === "contact") {   // stale button pressed while we are waiting for the phone — re-ask instead of falling into the dialogue
+    await askPhone(env, chat, st.after || "", "Спочатку поділіться номером телефону — кнопка «📱 Поділитися номером» унизу 👇");
+    return;
+  }
   if (!st || !st.step) { await tgSendTo(env, chat, "Ця сесія завершилась — почнімо знову 🙂"); await bookingStart(env, chat); return; }
   if (k === "pet") { const p = await env.DB.prepare(`SELECT id,name,species,breed,weight FROM pets WHERE id=?`).bind(+v).first(); if (!p) return;
     Object.assign(st, { species: p.species === "cat" ? "cat" : "dog", pet_id: p.id, pet_name: p.name || "", breed: p.breed || "", weight: p.weight || "" }); await bookingAskService(env, chat, st); return; }
