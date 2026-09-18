@@ -10,6 +10,7 @@ crons = ["0 16 * * *", "*/30 * * * *"]
 [vars]
 # Origin allowed to call the Worker (the live site). Change if the domain changes.
 ALLOW_ORIGIN = "https://besenok911-cloud.github.io"
+SITE_URL = "https://besenok911-cloud.github.io/gav-and-love"
 
 # CRM database (Cloudflare D1)
 [[d1_databases]]

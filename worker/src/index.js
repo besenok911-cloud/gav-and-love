@@ -95,6 +95,14 @@ export default {
         return json(await publicMasters(env), cors);   // public: for the booking form
       }
       // ---- Master cabinet (per-master access code, no ADMIN_TOKEN) ----
+      if (url.pathname === "/client/otp" && request.method === "POST") return json(await clientOtp(await request.json(), env), cors);
+      if (url.pathname === "/client/verify" && request.method === "POST") return json(await clientVerify(await request.json(), env), cors);
+      if (url.pathname === "/client/me" && request.method === "GET") return json(await clientMe(request, url, env), cors);
+      if (url.pathname === "/client/booking-cancel" && request.method === "POST") return json(await clientCancel(request, env), cors);
+      if (url.pathname === "/client/booking-move" && request.method === "POST") return json(await clientMove(request, env), cors);
+      if (url.pathname === "/client/pet-save" && request.method === "POST") return json(await clientPetSave(request, env), cors);
+      if (url.pathname === "/client/profile" && request.method === "POST") return json(await clientProfile(request, env), cors);
+      if (url.pathname === "/client/logout" && request.method === "POST") return json(await clientLogout(request, env), cors);
       if (url.pathname === "/master/data" && request.method === "GET") {
         return json(await masterData(request, url, env), cors);
       }
@@ -793,6 +801,144 @@ async function adminPets(request, env) {
   try { ((await env.DB.prepare(`SELECT pet_id, COUNT(*) AS n FROM pet_photos GROUP BY pet_id`).all()).results || []).forEach(r => { cnt[r.pet_id] = r.n; }); } catch (e) { }
   return { ok: true, pets: (results || []).map(p => Object.assign(p, { photos: cnt[p.id] || 0 })) };
 }
+/* ----------------------------- Client cabinet: phone + Telegram one-time code, own visits / pets / profile ----------------------------- */
+async function clientSession(env, token) {
+  if (!token || !env.DB) return null;
+  const s = await env.DB.prepare(`SELECT * FROM client_sessions WHERE token=?`).bind(token).first();
+  if (!s) return null;
+  if (s.expires_at && s.expires_at < new Date().toISOString()) { try { await env.DB.prepare(`DELETE FROM client_sessions WHERE token=?`).bind(token).run(); } catch (e) { } return null; }
+  return s;
+}
+async function requireClient(request, env) {
+  const s = await clientSession(env, bearer(request));
+  const c = s ? await env.DB.prepare(`SELECT * FROM clients WHERE id=?`).bind(s.client_id).first() : null;
+  if (!c) { const e = new Error("unauthorized"); e.status = 401; throw e; }
+  return c;
+}
+async function issueClientSession(env, clientId) {
+  const token = randHex(24), now = new Date();
+  await env.DB.prepare(`INSERT INTO client_sessions (token,client_id,created_at,expires_at) VALUES (?,?,?,?)`)
+    .bind(token, clientId, now.toISOString(), new Date(now.getTime() + 90 * 864e5).toISOString()).run();
+  return token;
+}
+async function clientByPhone(env, phone) {   // prefer the row that already has Telegram linked
+  const np = normPhone(phone); if (np.length < 9) return null;
+  const cs = (await env.DB.prepare(`SELECT id,name,phone,tg_chat_id FROM clients`).all()).results || [];
+  return cs.find(c => normPhone(c.phone) === np && c.tg_chat_id) || cs.find(c => normPhone(c.phone) === np) || null;
+}
+function maskPhone(p) { const d = (p || "").replace(/\D/g, ""); return d.length >= 9 ? `+${d.slice(0, d.length - 9)} ** *** ${d.slice(-4, -2)} ${d.slice(-2)}` : p; }
+function siteUrl(env) { return String(env.SITE_URL || env.ALLOW_ORIGIN || "").replace(/\/$/, "") + "/"; }
+async function clientOtp(body, env) {
+  const c = await clientByPhone(env, body && body.phone);
+  const bot = (await loadSettings(env)).tg_bot || "";
+  if (!c) return { ok: false, error: "Не знайшли клієнта з таким номером. Спочатку запишіться на сайті або підключіть Telegram-бот.", need_link: true, bot };
+  if (!c.tg_chat_id) return { ok: false, error: "Щоб увійти, підключіть Telegram-бот: відкрийте бота й натисніть «Поділитися номером».", need_link: true, bot };
+  const recent = await env.DB.prepare(`SELECT COUNT(*) AS n FROM client_otp WHERE client_id=? AND expires_at>?`).bind(c.id, new Date().toISOString()).first();
+  if (recent && recent.n >= 3) return { ok: false, error: "Забагато запитів коду. Зачекайте 10 хвилин і спробуйте знову." };
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  await env.DB.prepare(`INSERT INTO client_otp (client_id,code,expires_at,attempts) VALUES (?,?,?,0)`).bind(c.id, code, new Date(Date.now() + 10 * 60000).toISOString()).run();
+  const r = await tgSendTo(env, c.tg_chat_id, `🔑 Код для входу в кабінет: <b>${code}</b>\nДійсний 10 хвилин. Якщо це не ви — просто проігноруйте це повідомлення.`);
+  if (!r || !r.ok) return { ok: false, error: "Не вдалося надіслати код у Telegram. Спробуйте ще раз." };
+  return { ok: true, masked: maskPhone(c.phone) };
+}
+async function clientVerify(body, env) {
+  const c = await clientByPhone(env, body && body.phone);
+  const code = String((body && body.code) || "").replace(/\D/g, "");
+  if (!c || code.length !== 6) return { ok: false, error: "Невірний код" };
+  const row = await env.DB.prepare(`SELECT id,code,attempts FROM client_otp WHERE client_id=? AND expires_at>? ORDER BY id DESC LIMIT 1`).bind(c.id, new Date().toISOString()).first();
+  if (!row) return { ok: false, error: "Код прострочений — запросіть новий" };
+  if (row.attempts >= 5) return { ok: false, error: "Забагато невірних спроб — запросіть новий код" };
+  if (row.code !== code) { await env.DB.prepare(`UPDATE client_otp SET attempts=attempts+1 WHERE id=?`).bind(row.id).run(); return { ok: false, error: "Невірний код" }; }
+  await env.DB.prepare(`DELETE FROM client_otp WHERE client_id=?`).bind(c.id).run();
+  return { ok: true, token: await issueClientSession(env, c.id), name: c.name || "" };
+}
+async function clientBookings(env, c) {   // own rows by client_id, plus legacy rows matched by phone
+  const np = normPhone(c.phone);
+  const mine = (await env.DB.prepare(`SELECT id,date,time,service,pet_name,pet,breed,staff,status,price,pay_method,note,is_request,created_at FROM bookings WHERE client_id=? AND service<>'Блокування'`).bind(c.id).all()).results || [];
+  let legacy = [];
+  if (np) legacy = ((await env.DB.prepare(`SELECT id,date,time,service,pet_name,pet,breed,staff,status,price,pay_method,note,is_request,created_at,phone FROM bookings WHERE client_id IS NULL AND phone<>'' AND service<>'Блокування'`).all()).results || [])
+    .filter(b => normPhone(b.phone) === np).map(b => { delete b.phone; return b; });
+  return mine.concat(legacy).sort((a, b) => ((b.date || "") + (b.time || "")).localeCompare((a.date || "") + (a.time || "")));
+}
+async function clientMe(request, url, env) {
+  const c = await requireClient(request, env);
+  const st = await loadSettings(env);
+  const pets = (await env.DB.prepare(`SELECT id,name,species,breed,weight,birthdate,sex,color,allergies,behavior,prefs,warnings FROM pets WHERE client_id=? ORDER BY id`).bind(c.id).all()).results || [];
+  let photos = []; try { photos = (await env.DB.prepare(`SELECT id,pet_id,kind,token,created_at FROM pet_photos WHERE client_id=? ORDER BY created_at DESC`).bind(c.id).all()).results || []; } catch (e) { }
+  pets.forEach(p => { p.photos = photos.filter(x => x.pet_id === p.id).map(x => ({ id: x.id, kind: x.kind, created_at: x.created_at, url: photoUrl(url.origin, x) })); });
+  const bookings = await clientBookings(env, c);
+  const visits = bookings.filter(b => b.status === "done" || b.status === "paid").length;
+  const every = Math.max(2, parseInt(st.loyalty_every, 10) || 6), filled = visits % every, bonusNow = filled === every - 1;
+  return { ok: true, client: { id: c.id, name: c.name || "", phone: c.phone || "", email: c.email || "", tg_linked: !!c.tg_chat_id }, pets, bookings,
+    loyalty: { enabled: st.loyalty_enabled === "1", visits, every, reward: st.loyalty_reward || "", filled, remaining: bonusNow ? 0 : every - 1 - filled, bonusNow },
+    bot: st.tg_bot || "", site: siteUrl(env) };
+}
+async function clientOwnBooking(env, c, id) {
+  const b = await env.DB.prepare(`SELECT * FROM bookings WHERE id=?`).bind(+id).first();
+  if (!b) return null;
+  const np = normPhone(c.phone);
+  return (b.client_id === c.id || (np && normPhone(b.phone) === np)) ? b : null;
+}
+async function clientCancel(request, env) {
+  const c = await requireClient(request, env);
+  const { id } = await request.json();
+  const b = await clientOwnBooking(env, c, id);
+  if (!b) return { ok: false, error: "Запис не знайдено" };
+  if (!["new", "confirmed", "waitlist"].includes(b.status)) return { ok: false, error: "Цей запис уже не можна скасувати" };
+  if (b.date && b.date < isoInTz(new Date(), BUSINESS.tz)) return { ok: false, error: "Минулий запис не можна скасувати" };
+  await env.DB.prepare(`UPDATE bookings SET status='cancelled' WHERE id=?`).bind(b.id).run();
+  try { await syncCalendar(env, b.id); } catch (e) { }
+  try { await sendTelegram(env, `❌ <b>Клієнт скасував запис у кабінеті</b>\n${b.date && b.time ? visitText(b) : tgEsc(b.service || "")}\n👤 ${tgEsc(b.name || "")} — ${tgEsc(b.phone || "")}`); } catch (e) { }
+  return { ok: true };
+}
+async function clientMove(request, env) {
+  const c = await requireClient(request, env);
+  const body = await request.json();
+  const b = await clientOwnBooking(env, c, body.id);
+  if (!b) return { ok: false, error: "Запис не знайдено" };
+  if (!["new", "confirmed"].includes(b.status)) return { ok: false, error: "Цей запис уже не можна перенести" };
+  const date = String(body.date || ""), time = String(body.time || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return { ok: false, error: "Оберіть дату й час" };
+  if (date < isoInTz(new Date(), BUSINESS.tz)) return { ok: false, error: "Ця дата вже минула" };
+  let staff = null; try { staff = await freeMasterAt(env, { date, time, service: b.service, prefer: b.staff }); } catch (e) { staff = null; }
+  if (!staff) return { ok: false, error: "На жаль, цей час уже зайнятий. Оберіть інший." };
+  await env.DB.prepare(`UPDATE bookings SET date=?, time=?, staff=?, remind_day_sent=0, remind_hour_sent=0 WHERE id=?`).bind(date, time, staff, b.id).run();
+  try { await syncCalendar(env, b.id); } catch (e) { }
+  const nb = Object.assign({}, b, { date, time, staff });
+  try { await sendTelegram(env, `🔁 <b>Клієнт переніс запис у кабінеті</b>\nБуло: ${fmtDdMm(b.date)} о ${tgEsc(b.time)}${b.staff ? " (" + tgEsc(b.staff) + ")" : ""}\nСтало: ${visitText(nb)}\n👤 ${tgEsc(b.name || "")} — ${tgEsc(b.phone || "")}`); } catch (e) { }
+  try { await tgNotifyClient(env, b.id, "moved"); } catch (e) { }
+  return { ok: true, staff };
+}
+const CLIENT_PET_FIELDS = ["name", "species", "breed", "weight", "birthdate", "sex", "color", "allergies", "behavior", "prefs", "warnings"];
+async function clientPetSave(request, env) {
+  const c = await requireClient(request, env);
+  const b = await request.json();
+  const name = String(b.name || "").trim().slice(0, 60);
+  if (!name) return { ok: false, error: "Вкажіть кличку" };
+  const vals = CLIENT_PET_FIELDS.map(f => f === "name" ? name : f === "species" ? (["dog", "cat", "other"].includes(b.species) ? b.species : "dog") : String(b[f] == null ? "" : b[f]).slice(0, 500));
+  if (b.id) {
+    const p = await env.DB.prepare(`SELECT id FROM pets WHERE id=? AND client_id=?`).bind(+b.id, c.id).first();
+    if (!p) return { ok: false, error: "Улюбленця не знайдено" };
+    await env.DB.prepare(`UPDATE pets SET ${CLIENT_PET_FIELDS.map(f => f + "=?").join(",")} WHERE id=?`).bind(...vals, +b.id).run();
+    return { ok: true, id: +b.id };
+  }
+  const r = await env.DB.prepare(`INSERT INTO pets (client_id,created_at,${CLIENT_PET_FIELDS.join(",")}) VALUES (?,?,${CLIENT_PET_FIELDS.map(() => "?").join(",")})`).bind(c.id, new Date().toISOString(), ...vals).run();
+  return { ok: true, id: r.meta && r.meta.last_row_id };
+}
+async function clientProfile(request, env) {
+  const c = await requireClient(request, env);
+  const b = await request.json();
+  const name = String(b.name || "").trim().slice(0, 80), email = String(b.email || "").trim().slice(0, 120);
+  if (!name) return { ok: false, error: "Вкажіть ім'я" };
+  await env.DB.prepare(`UPDATE clients SET name=?, email=? WHERE id=?`).bind(name, email, c.id).run();
+  return { ok: true };
+}
+async function clientLogout(request, env) { try { await env.DB.prepare(`DELETE FROM client_sessions WHERE token=?`).bind(bearer(request)).run(); } catch (e) { } return { ok: true }; }
+async function cabinetLinkButton(env, clientId) {   // one-tap login link for the bot (fresh 90-day session)
+  const token = await issueClientSession(env, clientId);
+  return kb([[{ text: "🔑 Відкрити кабінет", url: `${siteUrl(env)}cabinet.html#t=${token}` }]]);
+}
+
 /* ----------------------------- Pet photos (before / after) — stored in D1, served by /photo/<id>/<token> ----------------------------- */
 const PHOTO_MAX = 900 * 1024;   // after client-side shrinking a 1280px JPEG is ~100-250 KB
 const photoUrl = (origin, p) => `${origin}/photo/${p.id}/${p.token}`;
@@ -1502,6 +1648,13 @@ async function handleTgUpdate(env, u) {
       await bookingStep(env, chat, cq.data);
       return;
     }
+    if (cq.data === "cab") {   // «🔑 Кабінет» button → personal login link
+      try { await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id }); } catch (e) { }
+      const c = await clientByChat(env, chat);
+      if (!c) { await tgSendTo(env, chat, "Спочатку підключіться: /start"); return; }
+      await tgSendTo(env, chat, "Ваш кабінет: візити, перенесення, улюбленці та бонуси. Посилання відкриває кабінет без коду:", await cabinetLinkButton(env, c.id));
+      return;
+    }
     const m = /^(ok|cancel|mv):(\d+)$/.exec(cq.data);
     if (!m) return;
     const b = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE id=?`).bind(+m[2]).first();
@@ -1536,7 +1689,7 @@ async function handleTgUpdate(env, u) {
   if (!msg || !msg.chat) return;
   const chat = msg.chat.id, text = String(msg.text || "").trim();
   const st = await tgGetState(env, chat);   // booking dialogue in progress (if any)
-  const BOOK_BTN = kb([[{ text: "📅 Записатися", callback_data: "b:start" }]]);
+  const BOOK_BTN = kb([[{ text: "📅 Записатися", callback_data: "b:start" }, { text: "🔑 Кабінет", callback_data: "cab" }]]);
   if (msg.contact && msg.contact.phone_number) {
     const np = normPhone(msg.contact.phone_number);
     const cs = await env.DB.prepare(`SELECT id,name,phone FROM clients`).all();
@@ -1554,6 +1707,12 @@ async function handleTgUpdate(env, u) {
     return;
   }
   if (/^\/book/.test(text)) { await bookingStart(env, chat); return; }
+  if (/^\/cabinet/.test(text)) {
+    const c = await clientByChat(env, chat);
+    if (!c) { await tgSendTo(env, chat, "Спочатку підключіться: /start", BOOK_BTN); return; }
+    await tgSendTo(env, chat, "Ваш кабінет: візити, перенесення, улюбленці та бонуси. Посилання відкриває кабінет без коду:", await cabinetLinkButton(env, c.id));
+    return;
+  }
   if (/^\/(visits|my)/.test(text)) {   // each upcoming visit as its own card with Перенести / Скасувати
     const c = await clientByChat(env, chat);
     if (!c) { await tgSendTo(env, chat, "Спочатку підключіться: /start", BOOK_BTN); return; }
@@ -1760,7 +1919,7 @@ async function tgSetup(request, env) { // owner: remember the bot username and r
   await env.DB.prepare(`INSERT INTO settings (key,value) VALUES ('tg_bot',?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(username, username).run();
   const url = new URL(request.url).origin + "/tg/webhook";
   const wh = await tgApi(env, "setWebhook", { url, secret_token: await tgWebhookSecret(env), allowed_updates: ["message", "callback_query"] });
-  try { await tgApi(env, "setMyCommands", { commands: [{ command: "book", description: "Записатися на грумінг" }, { command: "visits", description: "Мої візити — перенести чи скасувати" }, { command: "start", description: "Підключити нагадування" }] }); } catch (e) { }
+  try { await tgApi(env, "setMyCommands", { commands: [{ command: "book", description: "Записатися на грумінг" }, { command: "visits", description: "Мої візити — перенести чи скасувати" }, { command: "cabinet", description: "Мій кабінет на сайті" }, { command: "start", description: "Підключити нагадування" }] }); } catch (e) { }
   return { ok: !!(wh && wh.ok), bot: username, webhook: url, set: (wh && wh.description) || "", error: wh && !wh.ok ? wh.description : undefined };
 }
 async function tgTest(request, env) { // owner-only QA hook: run a synthetic update through the same handler
