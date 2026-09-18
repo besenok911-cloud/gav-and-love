@@ -415,7 +415,8 @@
     .fbar{padding:10px;gap:8px;margin:12px 0}
     .fbar .search{flex-basis:100%}
     .fbar-lbl{display:none}
-    .seg{flex:1 1 100%}
+    .seg{flex:1 1 100%;overflow:visible}          /* date presets: one row, no scrolling */
+    .seg button{flex:1 1 0;min-width:0;padding:.5em .25em;font-size:clamp(.64rem,2.9vw,.8rem);text-align:center;overflow:hidden;text-overflow:ellipsis}
     .pills{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
     .pills::-webkit-scrollbar{display:none}
     .pill{flex:0 0 auto;white-space:nowrap}
