@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="robots" content="noindex">
+<title>Кабінет клієнта — GAV&LOVE</title>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --violet:#4a25c9; --violet-d:#3a1c9e; --violet-deep:#1c1340; --violet-soft:#efeaff;
+    --paper:#fff; --bg:#f5f2ea; --bg-2:#efeae1; --line:#e4ddcf; --line-soft:#efe9dd;
+    --ink:#24203a; --ink-soft:#7a748f; --gold:#e6a817; --ok:#1a7f37;
+    --new:#4a25c9; --confirmed:#2f8f5b; --arrived:#0ea5b7; --in_progress:#e6912b;
+    --done:#8a83a3; --paid:#1a7f37; --no_show:#8a8a8a; --cancelled:#c0472b; --waitlist:#c9a24a;
+    --shadow-sm:0 1px 4px rgba(28,19,64,.06); --shadow:0 12px 40px rgba(28,19,64,.14);
+    --font-head:"Playfair Display",Georgia,serif; --font-body:"Nunito","Segoe UI",system-ui,sans-serif;
+  }
+  html{-webkit-text-size-adjust:100%}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:radial-gradient(1200px 500px at 50% -10%,#efeaff,var(--bg)) fixed;
+    color:var(--ink);font-family:var(--font-body);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:var(--violet)}
+  [hidden]{display:none !important}
+
+  /* buttons */
+  .btn{font-family:var(--font-body);font-weight:800;border:1.5px solid transparent;border-radius:999px;
+    padding:.6em 1.2em;cursor:pointer;transition:.15s;background:var(--violet);color:#fff;font-size:.92rem;
+    text-decoration:none;display:inline-block;line-height:1.25;text-align:center}
+  .btn:hover{background:var(--violet-d)}
+  .btn:active{transform:scale(.97)}
+  .btn[disabled]{opacity:.6;cursor:default;transform:none}
+  .btn.ghost{background:transparent;border-color:rgba(255,255,255,.4);color:#fff;padding:.4em .9em;font-size:.82rem}
+  .btn.ghost:hover{background:rgba(255,255,255,.12)}
+  .btn.ghost2{background:#fff;border-color:var(--line);color:var(--violet-d)}
+  .btn.ghost2:hover{background:var(--violet-soft)}
+  .btn.sm{padding:.42em .85em;font-size:.8rem}
+  .btn.full{width:100%;padding:.85em 1em;font-size:1rem}
+
+  /* top bar */
+  .top{background:var(--violet-deep);color:#fff;padding:12px 16px;position:sticky;top:0;z-index:10}
+  .top-in{max-width:1060px;margin:0 auto;width:100%;display:flex;align-items:center;gap:10px}
+  .top .logo{height:26px;width:auto;display:block;filter:brightness(0) invert(1)}
+  .top .brand-sub{font-size:.85rem;color:rgba(255,255,255,.65);font-weight:700;border-left:1px solid rgba(255,255,255,.25);padding-left:10px;white-space:nowrap}
+  .top .sp{flex:1}
+  .top .site{color:rgba(255,255,255,.85);font-weight:800;font-size:.82rem;text-decoration:none;white-space:nowrap}
+  .top .site:hover{color:#fff}
+  @media(max-width:560px){.top .brand-sub{display:none}}
+
+  /* login / boot */
+  .center{padding:24px 16px 48px}
+  .login{max-width:420px;margin:5vh auto 0;background:var(--paper);border:1px solid var(--line);border-radius:22px;
+    padding:28px 24px 22px;box-shadow:var(--shadow);text-align:center}
+  .login .logo{height:44px;width:auto;margin:0 auto 8px;display:block}
+  .login h1{font-family:var(--font-head);font-weight:600;margin:0 0 4px;font-size:1.5rem}
+  .login p.sub{color:var(--ink-soft);margin:0 0 18px;font-size:.92rem}
+  .login input{width:100%;padding:.85em 1em;border:1.5px solid var(--line);border-radius:12px;font-size:1.1rem;
+    margin-bottom:12px;font-family:var(--font-body);text-align:center;letter-spacing:.04em;background:#fff;color:var(--ink)}
+  .login input:focus{outline:none;border-color:var(--violet)}
+  .login input.code{font-size:1.6rem;letter-spacing:.35em;font-weight:800}
+  .login .btn{width:100%;padding:.9em;font-size:1rem}
+  .lnk{display:inline-block;margin:14px 6px 0;color:var(--violet);font-weight:800;font-size:.86rem;background:none;
+    border:none;cursor:pointer;font-family:var(--font-body);text-decoration:underline;padding:0}
+  .sent{background:var(--violet-soft);color:var(--violet-d);border-radius:12px;padding:10px 12px;font-size:.9rem;font-weight:700;margin-bottom:14px;line-height:1.35}
+  .needlink{background:#fff7e6;border:1px solid #f3dfae;border-radius:12px;padding:12px 14px;margin-top:14px;font-size:.88rem;text-align:left;line-height:1.4}
+  .needlink .btn{margin:10px 0 8px}
+  .needlink .hint{color:var(--ink-soft);font-size:.82rem}
+  .err{color:var(--cancelled);font-weight:700;font-size:.88rem;min-height:1.1em;margin-top:8px}
+  .foot{text-align:center;color:var(--ink-soft);font-size:.78rem;padding:16px 0 24px}
+  .foot a{color:var(--violet);font-weight:800;text-decoration:none}
+  .boot{text-align:center;color:var(--ink-soft);font-weight:700;padding:18vh 16px}
+  .boot .btn{margin-top:14px;width:auto}
+
+  /* app layout */
+  .wrap{max-width:1060px;margin:0 auto;padding:16px}
+  .hello{background:linear-gradient(135deg,var(--violet),var(--violet-d));color:#fff;border-radius:18px;padding:18px 18px 16px;margin-bottom:16px;box-shadow:var(--shadow-sm)}
+  .hello .ov{font-size:.78rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;opacity:.8}
+  .hello h1{font-family:var(--font-head);font-weight:600;font-size:1.5rem;margin:4px 0 2px}
+  .hello p{margin:0;opacity:.9;font-size:.9rem}
+  .cols{display:grid;grid-template-columns:1fr;gap:0 16px;align-items:start}
+  @media(min-width:900px){.cols{grid-template-columns:3fr 2fr}}
+  @media(min-width:760px){.wrap{padding:26px 24px}.card{padding:20px 22px 18px}}
+
+  /* cards */
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:16px 16px 14px;margin-bottom:16px;box-shadow:var(--shadow-sm)}
+  .card h2{font-family:var(--font-head);font-weight:600;margin:0 0 12px;font-size:1.2rem;display:flex;align-items:center;gap:8px}
+  .card h2 .cnt{font-family:var(--font-body);font-size:.8rem;font-weight:800;background:var(--violet-soft);color:var(--violet-d);border-radius:999px;padding:2px 9px}
+  .chead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+  .chead h2{margin:0}
+  .muted{color:var(--ink-soft)}
+  .nodata{color:var(--ink-soft);font-size:.9rem;padding:6px 2px;margin:0}
+
+  /* visit cards */
+  .visit{border:1px solid var(--line);border-radius:14px;padding:12px 13px;margin-bottom:10px;background:#fff}
+  .vday{font-weight:800;color:var(--violet-d);font-size:.86rem;margin-bottom:4px}
+  .vday::first-letter{text-transform:uppercase}
+  .vhead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .vtime{font-weight:900;font-size:1.1rem;color:var(--violet-deep)}
+  .vname{font-weight:800}
+  .vprice{margin-left:auto;font-weight:800;color:var(--ink-soft);white-space:nowrap}
+  .vsub{color:var(--ink-soft);font-size:.86rem;margin-top:3px;overflow-wrap:anywhere}
+  .vsub b{color:var(--ink);font-weight:800}
+  .badge{display:inline-block;font-size:.72rem;font-weight:800;color:#fff;border-radius:999px;padding:2px 9px;margin-top:8px;white-space:nowrap}
+  .badge.sm{margin-top:0}
+  .qbtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+  .qbtns button{border:1.5px solid var(--line);background:var(--paper);color:var(--ink);border-radius:999px;
+    padding:.42em .85em;font-size:.8rem;font-weight:800;cursor:pointer;font-family:var(--font-body);transition:.12s}
+  .qbtns button:hover{border-color:var(--violet);color:var(--violet)}
+  .qbtns button[disabled]{opacity:.6;cursor:default}
+  .qbtns button.on{background:var(--violet-soft);border-color:var(--violet);color:var(--violet-d)}
+
+  /* reschedule panel */
+  .move{margin-top:10px;background:var(--bg-2);border-radius:12px;padding:12px}
+  .mv-t{font-weight:800;font-size:.86rem;margin-bottom:8px}
+  .move input[type=date]{width:100%;padding:.65em .8em;border:1.5px solid var(--line);border-radius:10px;font-family:var(--font-body);font-size:1rem;background:#fff;color:var(--ink);min-height:44px}
+  .move input:focus{outline:none;border-color:var(--violet)}
+  .mv-slots{margin-top:10px;font-size:.86rem}
+  .mv-slots.chips{display:flex;flex-wrap:wrap;gap:6px}
+  .mv-slots.chips button{border:1.5px solid var(--line);background:#fff;color:var(--ink);border-radius:999px;padding:.45em .8em;font-size:.86rem;font-weight:800;cursor:pointer;font-family:var(--font-body)}
+  .mv-slots.chips button.on{background:var(--violet);border-color:var(--violet);color:#fff}
+  .mv-act{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .mv-act .btn{flex:1}
+  .move .err{margin-top:6px;min-height:0}
+
+  /* history */
+  .hist summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px}
+  .hist summary::-webkit-details-marker{display:none}
+  .hist summary h2{margin:0;flex:1}
+  .hist summary::after{content:"▾";color:var(--ink-soft);font-size:1.2rem;transition:.15s;line-height:1}
+  .hist[open] summary::after{transform:rotate(180deg)}
+  .hist[open] summary{margin-bottom:8px}
+  .hrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line-soft)}
+  .hrow:first-child{border-top:none}
+  .hl{flex:1;min-width:0}
+  .hd{font-weight:800;font-size:.9rem}
+  .hs{color:var(--ink-soft);font-size:.84rem;overflow-wrap:anywhere}
+  .hr{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto}
+  .hp{font-weight:800;font-size:.9rem}
+
+  /* pets */
+  .pet{border:1px solid var(--line);border-radius:14px;padding:12px 13px;margin-bottom:10px}
+  .phead{display:flex;align-items:flex-start;gap:10px}
+  .pemo{font-size:1.7rem;line-height:1.1}
+  .pinfo{flex:1;min-width:0}
+  .pname{font-weight:900;font-size:1.05rem;overflow-wrap:anywhere}
+  .pmeta{color:var(--ink-soft);font-size:.84rem;margin-top:2px;overflow-wrap:anywhere}
+  .phead .btn{flex:0 0 auto;white-space:nowrap}
+  .pnote{font-size:.84rem;margin-top:8px;background:var(--bg-2);border-radius:10px;padding:7px 10px;overflow-wrap:anywhere}
+  .pphotos{display:flex;gap:8px;margin-top:10px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+  .ph{position:relative;flex:0 0 auto;width:76px;height:76px;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--bg-2)}
+  .ph img{width:100%;height:100%;object-fit:cover;display:block}
+  .pk{position:absolute;left:4px;bottom:4px;font-size:.62rem;font-weight:900;background:rgba(28,19,64,.75);color:#fff;border-radius:999px;padding:1px 6px}
+  .pk.after{background:var(--confirmed)}
+  @media(max-width:420px){.phead .btn{font-size:0;padding:.42em .6em}.phead .btn::after{content:"✎";font-size:1rem}}
+
+  /* loyalty */
+  .stamps{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 12px}
+  .stamp{width:38px;height:38px;border-radius:50%;border:2px dashed var(--line);display:flex;align-items:center;justify-content:center;font-size:1.1rem;background:#fff}
+  .stamp.on{border:2px solid var(--violet);background:var(--violet-soft)}
+  .loy-txt{font-weight:800;font-size:.98rem}
+  .loy-txt.bonus{background:linear-gradient(135deg,#fff3cf,#ffe9a8);border-radius:12px;padding:10px 12px}
+  .loy-hint{color:var(--ink-soft);font-size:.84rem;margin-top:6px}
+
+  /* forms */
+  .fld{margin-bottom:12px;min-width:0}
+  .fld label{display:block;font-weight:800;font-size:.82rem;margin-bottom:5px}
+  .fld label .opt{color:var(--ink-soft);font-weight:700;font-size:.76rem}
+  .fld input,.fld select,.fld textarea{width:100%;padding:.75em .9em;border:1.5px solid var(--line);border-radius:12px;font-size:1rem;font-family:var(--font-body);background:#fff;color:var(--ink);min-height:44px}
+  .fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:var(--violet)}
+  .fld input[readonly]{background:var(--bg-2);color:var(--ink-soft)}
+  .fld textarea{min-height:70px;resize:vertical}
+  .grid2{display:grid;grid-template-columns:1fr;gap:0 12px}
+  @media(min-width:520px){.grid2{grid-template-columns:1fr 1fr}.grid2 .wide{grid-column:1/-1}}
+  .tgrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 14px}
+  .tg{font-weight:800;font-size:.88rem;color:var(--ink-soft)}
+  .tg.ok{color:var(--paid)}
+
+  /* modal */
+  .mod-back{position:fixed;inset:0;background:rgba(28,19,64,.45);display:flex;align-items:center;justify-content:center;z-index:200;padding:12px}
+  .mod{background:var(--paper);border-radius:20px;padding:22px 20px;width:100%;max-width:560px;box-shadow:var(--shadow);max-height:calc(100vh - 24px);overflow:auto}
+  .mod h2{font-family:var(--font-head);font-weight:600;margin:0 0 14px;font-size:1.35rem}
+  .mod-act{display:flex;gap:10px;margin-top:6px}
+  .mod-act .btn{flex:1}
+
+  .toast{position:fixed;left:50%;bottom:20px;transform:translate(-50%,20px);z-index:300;background:var(--paid);color:#fff;
+    font-weight:800;padding:.7em 1.3em;border-radius:999px;box-shadow:var(--shadow);opacity:0;transition:.25s;pointer-events:none;max-width:calc(100vw - 32px);text-align:center}
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+  .toast.err{background:var(--cancelled)}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+
+<!-- boot (restoring session) -->
+<div id="bootView" hidden>
+  <div class="boot">
+    <div id="bootMsg">Завантажуємо кабінет…</div>
+    <div id="bootErr" hidden>
+      <div class="err">Не вдалося завантажити дані.</div>
+      <button class="btn" id="bootRetry" type="button">Спробувати ще раз</button>
+      <div><button class="lnk" id="bootLogout" type="button">Вийти</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- login -->
+<div id="loginView" hidden>
+  <div class="center">
+    <div class="login">
+      <img class="logo" src="assets/brand/logo.svg" alt="GAV&amp;LOVE" width="460" height="130">
+      <h1>Кабінет клієнта</h1>
+      <p class="sub">Ваші візити, улюбленці та бонуси.<br>Вхід за номером телефону — код прийде в Telegram.</p>
+
+      <div id="stepPhone">
+        <input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="+380…" aria-label="Номер телефону">
+        <button class="btn" id="otpBtn" type="button">Отримати код у Telegram</button>
+        <div class="needlink" id="needLink" hidden>
+          <div id="needLinkTxt"></div>
+          <a class="btn" id="botLink" href="https://t.me/GAV_and_LOVE_bot" target="_blank" rel="noopener">Відкрити бота</a>
+          <div class="hint">У боті натисніть «Поділитися номером», а потім поверніться сюди й запросіть код ще раз.</div>
+        </div>
+      </div>
+
+      <div id="stepCode" hidden>
+        <div class="sent">Код надіслано в Telegram на <b id="sentTo"></b></div>
+        <input id="code" class="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" placeholder="······" aria-label="Код із Telegram">
+        <button class="btn" id="verifyBtn" type="button">Увійти</button>
+        <div>
+          <button class="lnk" id="resendBtn" type="button">Надіслати код ще раз</button>
+          <button class="lnk" id="changePhone" type="button">Змінити номер</button>
+        </div>
+      </div>
+
+      <div class="err" id="loginErr"></div>
+    </div>
+    <div class="foot"><a href="index.html">← на сайт</a></div>
+  </div>
+</div>
+
+<!-- app -->
+<div id="appView" hidden>
+  <div class="top">
+    <div class="top-in">
+      <img class="logo" src="assets/brand/logo.svg" alt="GAV&amp;LOVE" width="460" height="130">
+      <span class="brand-sub">Кабінет клієнта</span>
+      <span class="sp"></span>
+      <a class="site" href="index.html">← на сайт</a>
+      <button class="btn ghost" id="logoutBtn" type="button">Вийти</button>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="hello">
+      <div class="ov">Кабінет клієнта</div>
+      <h1 id="hello">Вітаємо!</h1>
+      <p>Тут ваші візити, улюбленці та бонуси GAV&amp;LOVE 🐾</p>
+    </div>
+
+    <div class="cols">
+      <div>
+        <div class="card">
+          <h2>Найближчі візити <span class="cnt" id="up-cnt">0</span></h2>
+          <div id="up-list"><p class="nodata">Завантаження…</p></div>
+          <a class="btn full" href="index.html#booking">+ Записатися на візит</a>
+        </div>
+
+        <div class="card">
+          <details class="hist" id="histDet">
+            <summary><h2>Історія візитів <span class="cnt" id="hist-cnt">0</span></h2></summary>
+            <div id="hist-list"></div>
+          </details>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="chead">
+            <h2>Мої улюбленці</h2>
+            <button class="btn sm" id="addPetBtn" type="button">+ Додати улюбленця</button>
+          </div>
+          <div id="pet-list"></div>
+        </div>
+
+        <div class="card" id="loyCard" hidden>
+          <h2>Бонуси</h2>
+          <div class="stamps" id="stamps"></div>
+          <div class="loy-txt" id="loyTxt"></div>
+          <div class="loy-hint" id="loyHint"></div>
+        </div>
+
+        <div class="card">
+          <h2>Профіль</h2>
+          <div class="fld"><label for="pf-name">Ім'я</label><input id="pf-name" autocomplete="name" placeholder="Як до вас звертатися?"></div>
+          <div class="fld"><label for="pf-email">E-mail <span class="opt">(необов'язково)</span></label><input id="pf-email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com"></div>
+          <div class="fld"><label for="pf-phone">Телефон</label><input id="pf-phone" readonly tabindex="-1"></div>
+          <div class="tgrow" id="tgSt"></div>
+          <button class="btn" id="pf-save" type="button">Зберегти</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">GAV&amp;LOVE · <a href="index.html">на сайт салону</a></div>
+  </div>
+</div>
+
+<!-- pet modal -->
+<div class="mod-back" id="petBack" hidden>
+  <div class="mod" role="dialog" aria-modal="true" aria-labelledby="petTitle">
+    <h2 id="petTitle">Улюбленець</h2>
+    <div class="grid2">
+      <div class="fld"><label for="pt-name">Кличка *</label><input id="pt-name" autocomplete="off" maxlength="60"></div>
+      <div class="fld"><label for="pt-species">Вид</label>
+        <select id="pt-species"><option value="dog">Собака</option><option value="cat">Кіт</option><option value="other">Інше</option></select></div>
+      <div class="fld"><label for="pt-breed">Порода</label><input id="pt-breed" list="breeds" autocomplete="off" maxlength="80"><datalist id="breeds"></datalist></div>
+      <div class="fld"><label for="pt-weight">Вага</label><select id="pt-weight"></select></div>
+      <div class="fld"><label for="pt-birthdate">Дата народження</label><input id="pt-birthdate" type="date"></div>
+      <div class="fld"><label for="pt-sex">Стать</label>
+        <select id="pt-sex"><option value="">—</option><option value="m">Хлопчик</option><option value="f">Дівчинка</option></select></div>
+      <div class="fld"><label for="pt-color">Окрас</label><input id="pt-color" autocomplete="off" maxlength="80"></div>
+      <div class="fld"><label for="pt-behavior">Поведінка</label>
+        <select id="pt-behavior"><option value="">—</option><option value="спокійно">Спокійно</option><option value="тривожно">Тривожно</option><option value="агресивно">Агресивно</option></select></div>
+      <div class="fld wide"><label for="pt-allergies">Алергії / чутливість</label><input id="pt-allergies" autocomplete="off" maxlength="200"></div>
+      <div class="fld wide"><label for="pt-prefs">Побажання по стрижці</label><textarea id="pt-prefs" rows="2" maxlength="500"></textarea></div>
+      <div class="fld wide"><label for="pt-warnings">Попередження для майстра</label><textarea id="pt-warnings" rows="2" maxlength="500" placeholder="Наприклад: боїться фена, не любить лапи"></textarea></div>
+    </div>
+    <div class="err" id="petErr"></div>
+    <div class="mod-act">
+      <button class="btn ghost2" id="pt-cancel" type="button">Скасувати</button>
+      <button class="btn" id="pt-save" type="button">Зберегти</button>
+    </div>
+  </div>
+</div>
+
+<script src="data/config.js?v=15"></script>
+<script>
+(function(){
+  var API="https://gavlove-booking.besenok911.workers.dev";
+  var KEY="gavlove_client_token";
+  var $=function(s){return document.querySelector(s);};
+  var CFG=window.GL_CONFIG||{};
+  var token="", data=null, _tt, phone="", editPetId=null, mv=null;
+  try{token=localStorage.getItem(KEY)||"";}catch(e){}
+
+  var STL={new:"Очікує підтвердження",confirmed:"Підтверджено",arrived:"Прибув(ла)",in_progress:"У процесі",done:"Виконано",paid:"Оплачено",no_show:"Не прийшли",waitlist:"Лист очікування",cancelled:"Скасовано"};
+  var STC={new:"var(--new)",confirmed:"var(--confirmed)",arrived:"var(--arrived)",in_progress:"var(--in_progress)",done:"var(--done)",paid:"var(--paid)",no_show:"var(--no_show)",waitlist:"var(--waitlist)",cancelled:"var(--cancelled)"};
+  var CLOSED=["cancelled","no_show","done","paid"];
+  var EMO={dog:"🐶",cat:"🐱",other:"🐾"};
+  var SEX={m:"хлопчик",f:"дівчинка"};
+  var NET_ERR="Помилка з'єднання. Спробуйте ще раз.";
+
+  /* ---------- helpers ---------- */
+  function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c];});}
+  function own(o,k){return Object.prototype.hasOwnProperty.call(o,k);}
+  function stLabel(st){return own(STL,st)?STL[st]:String(st||"");}
+  function stColor(st){return own(STC,st)?STC[st]:"var(--done)";}
+  function safeUrl(u){u=String(u||"");return /^https?:\/\//i.test(u)?u:"";}
+  function botName(b){var n=String(b||"").replace(/[^A-Za-z0-9_]/g,"");return n||"GAV_and_LOVE_bot";}
+  function money(n){n=Math.round(Number(n)||0);return n.toLocaleString("uk-UA")+" ₴";}
+  function pad(n){return (n<10?"0":"")+n;}
+  function isoOf(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());}
+  function todayISO(){return isoOf(new Date());}
+  function plusDays(n){var d=new Date();d.setDate(d.getDate()+n);return isoOf(d);}
+  function fmtD(iso){var p=String(iso||"").split("-");return p.length===3?(p[2]+"."+p[1]+"."+p[0]):String(iso||"");}
+  function dayLabel(iso){
+    if(!iso)return "Дата уточнюється";
+    var d=new Date(iso+"T12:00:00");if(isNaN(d.getTime()))return fmtD(iso);
+    var diff=Math.round((d-new Date(todayISO()+"T12:00:00"))/864e5);
+    var wd=d.toLocaleDateString("uk-UA",{weekday:"long"}), dm=d.toLocaleDateString("uk-UA",{day:"numeric",month:"long"});
+    if(diff===0)return "Сьогодні · "+dm+", "+wd;
+    if(diff===1)return "Завтра · "+dm+", "+wd;
+    return wd+", "+dm;
+  }
+  function plural(n,f){n=Math.abs(n)%100;var n1=n%10;if(n>10&&n<20)return f[2];if(n1>1&&n1<5)return f[1];if(n1===1)return f[0];return f[2];}
+  function ageOf(iso){
+    if(!iso)return "";var b=new Date(iso+"T12:00:00");if(isNaN(b.getTime()))return "";
+    var n=new Date();var m=(n.getFullYear()-b.getFullYear())*12+(n.getMonth()-b.getMonth());if(n.getDate()<b.getDate())m--;
+    if(m<0)return "";var y=Math.floor(m/12),mo=m%12;
+    if(y>=1)return y+" "+plural(y,["рік","роки","років"]);
+    if(mo>=1)return mo+" "+plural(mo,["місяць","місяці","місяців"]);
+    return "менше місяця";
+  }
+  function toast(msg,err){var t=$("#toast");t.textContent=msg;t.classList.toggle("err",!!err);t.classList.add("show");clearTimeout(_tt);_tt=setTimeout(function(){t.classList.remove("show");},2600);}
+  function setBusy(btn,busy,txt){
+    if(!btn)return;
+    if(busy){if(btn.disabled)return;btn.setAttribute("data-txt",btn.textContent);btn.disabled=true;btn.textContent=txt||"Зачекайте…";}
+    else{btn.disabled=false;var t=btn.getAttribute("data-txt");if(t){btn.textContent=t;btn.removeAttribute("data-txt");}}
+  }
+  function netErr(e){if(e&&e.handled)return;toast(NET_ERR,true);}
+  function findBooking(id){return ((data&&data.bookings)||[]).filter(function(x){return String(x.id)===String(id);})[0];}
+  function findPet(id){return ((data&&data.pets)||[]).filter(function(x){return String(x.id)===String(id);})[0];}
+
+  /* ---------- API ---------- */
+  // call(path, body, pub): POST when body given, GET otherwise. pub=true → no Authorization, no 401 handling.
+  // Resolves to the parsed JSON (always an object). 401 on an authorized call → session expired (throws {handled:true}).
+  function call(path,body,pub){
+    var h={};if(body)h["Content-Type"]="application/json";
+    if(!pub&&token)h["Authorization"]="Bearer "+token;
+    return fetch(API+path,{method:body?"POST":"GET",headers:h,body:body?JSON.stringify(body):undefined})
+      .then(function(r){
+        return r.json().catch(function(){return null;}).then(function(j){
+          if(r.status===401&&!pub){sessionExpired();var e=new Error("401");e.handled=true;throw e;}
+          return (j&&typeof j==="object")?j:{ok:false,error:r.ok?"Порожня відповідь сервера.":"Помилка сервера ("+r.status+")."};
+        });
+      });
+  }
+  function load(){return call("/client/me").then(function(d){if(!d.ok)throw new Error(d.error||"load");data=d;return d;});}
+  function reload(){return load().then(function(){render();}).catch(function(e){if(e&&e.handled)return;toast("Не вдалося оновити дані.",true);});}
+
+  /* ---------- views ---------- */
+  function show(v){$("#bootView").hidden=v!=="boot";$("#loginView").hidden=v!=="login";$("#appView").hidden=v!=="app";}
+  function logoutLocal(){token="";data=null;try{localStorage.removeItem(KEY);}catch(e){}closePet();mv=null;}
+  function sessionExpired(){logoutLocal();resetLogin();show("login");$("#loginErr").textContent="Сесія завершилась — увійдіть знову.";}
+  function restore(greet){
+    show("boot");$("#bootErr").hidden=true;$("#bootMsg").hidden=false;
+    load().then(function(){
+      show("app");render();
+      if(greet)toast("Вітаємо"+(data.client&&data.client.name?", "+data.client.name:"")+"! 🐾");
+    }).catch(function(e){if(e&&e.handled)return;$("#bootMsg").hidden=true;$("#bootErr").hidden=false;});
+  }
+  $("#bootRetry").addEventListener("click",function(){restore(false);});
+  $("#bootLogout").addEventListener("click",function(){logoutLocal();resetLogin();show("login");});
+
+  /* ---------- login ---------- */
+  function resetLogin(){
+    phone="";$("#stepPhone").hidden=false;$("#stepCode").hidden=true;$("#needLink").hidden=true;
+    $("#loginErr").textContent="";$("#code").value="";setBusy($("#otpBtn"),false);setBusy($("#verifyBtn"),false);
+  }
+  function cleanPhone(v){return String(v||"").replace(/[\s\-().]/g,"");}
+  function requestOtp(fromResend){
+    var p=fromResend?phone:cleanPhone($("#ph").value);
+    $("#loginErr").textContent="";$("#needLink").hidden=true;
+    if(!/^\+?\d{10,13}$/.test(p)){$("#loginErr").textContent="Введіть номер у форматі +380XXXXXXXXX.";return;}
+    var btn=fromResend?$("#resendBtn"):$("#otpBtn");setBusy(btn,true,"Надсилаємо…");
+    call("/client/otp",{phone:p},true).then(function(d){
+      setBusy(btn,false);
+      if(d.ok){
+        phone=p;$("#stepPhone").hidden=true;$("#stepCode").hidden=false;
+        $("#sentTo").textContent=d.masked||p;$("#code").value="";
+        if(fromResend)toast("Код надіслано ще раз");
+        setTimeout(function(){$("#code").focus();},50);return;
+      }
+      if(d.need_link){
+        $("#stepPhone").hidden=false;$("#stepCode").hidden=true;
+        $("#botLink").href="https://t.me/"+botName(d.bot);
+        $("#needLinkTxt").textContent=d.error||"Ваш Telegram ще не підключено до салону.";
+        $("#needLink").hidden=false;return;
+      }
+      $("#loginErr").textContent=d.error||"Не вдалося надіслати код.";
+    }).catch(function(){setBusy(btn,false);$("#loginErr").textContent=NET_ERR;});
+  }
+  function verify(){
+    var c=$("#code").value.replace(/\D/g,"");$("#loginErr").textContent="";
+    if(c.length!==6){$("#loginErr").textContent="Введіть 6 цифр коду з Telegram.";return;}
+    var btn=$("#verifyBtn");setBusy(btn,true,"Перевіряємо…");
+    call("/client/verify",{phone:phone,code:c},true).then(function(d){
+      setBusy(btn,false);
+      if(!d.ok||!d.token){$("#loginErr").textContent=d.error||"Невірний код. Спробуйте ще.";$("#code").select();return;}
+      token=String(d.token);try{localStorage.setItem(KEY,token);}catch(e){}
+      resetLogin();$("#ph").value="";restore(true);
+    }).catch(function(){setBusy(btn,false);$("#loginErr").textContent=NET_ERR;});
+  }
+  $("#otpBtn").addEventListener("click",function(){requestOtp(false);});
+  $("#resendBtn").addEventListener("click",function(){requestOtp(true);});
+  $("#verifyBtn").addEventListener("click",verify);
+  $("#changePhone").addEventListener("click",function(){resetLogin();setTimeout(function(){$("#ph").focus();},50);});
+  $("#ph").addEventListener("keydown",function(e){if(e.key==="Enter")requestOtp(false);});
+  $("#code").addEventListener("keydown",function(e){if(e.key==="Enter")verify();});
+  $("#code").addEventListener("input",function(){
+    var v=this.value.replace(/\D/g,"").slice(0,6);if(v!==this.value)this.value=v;
+    if(v.length===6&&!$("#verifyBtn").disabled)verify();
+  });
+
+  /* ---------- render ---------- */
+  function render(){
+    var c=(data&&data.client)||{};
+    $("#hello").textContent=c.name?("Вітаємо, "+c.name+"! 👋"):"Вітаємо! 👋";
+    renderVisits();renderPets();renderLoyalty();renderProfile();
+  }
+
+  /* visits */
+  function isUpcoming(b){var st=b.status||"new";if(CLOSED.indexOf(st)>=0)return false;if(!b.date)return true;return b.date>=todayISO();}
+  function canCancel(b){var st=b.status||"new";if(["new","confirmed","waitlist"].indexOf(st)<0)return false;if(!b.date)return st==="waitlist";return b.date>=todayISO();}
+  function canMove(b){var st=b.status||"new";return ["new","confirmed"].indexOf(st)>=0&&!!b.date&&b.date>=todayISO();}
+  function petEmoji(b){var p=String(b.pet||"").toLowerCase();return (p.indexOf("кіт")>=0||p.indexOf("кот")>=0||p==="cat")?"🐱":"🐶";}
+  function visitHtml(b){
+    var st=b.status||"new";
+    var who=[b.pet_name?"<b>"+esc(b.pet_name)+"</b>":"",esc(b.breed||"")].filter(Boolean).join(" · ");
+    var mvOk=canMove(b), cnOk=canCancel(b);
+    return '<div class="visit">'+
+      '<div class="vday">'+esc(dayLabel(b.date))+'</div>'+
+      '<div class="vhead"><span class="vtime">'+esc(b.time||(b.is_request?"заявка":"—"))+'</span><span class="vname">'+esc(b.service||"")+'</span>'+
+        (Number(b.price)>0?'<span class="vprice">'+money(b.price)+'</span>':'')+'</div>'+
+      (who?'<div class="vsub">'+petEmoji(b)+' '+who+'</div>':'')+
+      (b.staff?'<div class="vsub">Майстер: <b>'+esc(b.staff)+'</b></div>':'')+
+      (b.note?'<div class="vsub">Коментар: '+esc(b.note)+'</div>':'')+
+      '<span class="badge" style="background:'+stColor(st)+'">'+esc(stLabel(st))+'</span>'+
+      ((mvOk||cnOk)?'<div class="qbtns">'+
+        (mvOk?'<button type="button" data-act="move" data-id="'+esc(b.id)+'">🔁 Перенести</button>':'')+
+        (cnOk?'<button type="button" data-act="cancel" data-id="'+esc(b.id)+'">❌ Скасувати</button>':'')+'</div>':'')+
+    '</div>';
+  }
+  function histHtml(b){
+    var st=b.status||"new";
+    return '<div class="hrow"><div class="hl">'+
+      '<div class="hd">'+esc(b.date?(fmtD(b.date)+(b.time?" · "+b.time:"")):"Без дати")+'</div>'+
+      '<div class="hs">'+esc(b.service||"")+(b.pet_name?" · "+esc(b.pet_name):"")+'</div></div>'+
+      '<div class="hr">'+(Number(b.price)>0?'<div class="hp">'+money(b.price)+'</div>':'')+
+      '<span class="badge sm" style="background:'+stColor(st)+'">'+esc(stLabel(st))+'</span></div></div>';
+  }
+  function renderVisits(){
+    closeMove();
+    var bs=((data&&data.bookings)||[]).slice();
+    var up=bs.filter(isUpcoming).sort(function(a,b){
+      var ka=a.date?(a.date+" "+(a.time||"")):"~", kb=b.date?(b.date+" "+(b.time||"")):"~";
+      return ka<kb?-1:ka>kb?1:0;});
+    var hist=bs.filter(function(b){return !isUpcoming(b);}).sort(function(a,b){
+      var ka=(a.date||"")+" "+(a.time||"")+" "+(a.created_at||""), kb=(b.date||"")+" "+(b.time||"")+" "+(b.created_at||"");
+      return kb<ka?-1:kb>ka?1:0;});
+    $("#up-cnt").textContent=up.length;
+    $("#up-list").innerHTML=up.length?up.map(visitHtml).join(""):'<p class="nodata">Найближчих візитів поки немає — оберіть зручний час на сайті.</p>';
+    $("#hist-cnt").textContent=hist.length;
+    $("#hist-list").innerHTML=hist.length?hist.map(histHtml).join(""):'<p class="nodata">Історія поки порожня.</p>';
+  }
+  $("#up-list").addEventListener("click",function(e){
+    var btn=e.target.closest("button[data-act]");if(!btn)return;
+    var b=findBooking(btn.getAttribute("data-id"));if(!b)return;
+    if(btn.getAttribute("data-act")==="move"){
+      if(mv&&String(mv.id)===String(b.id)){closeMove();return;}
+      openMove(b,btn.closest(".visit"),btn);
+    }else if(btn.getAttribute("data-act")==="cancel"){cancelBooking(b,btn);}
+  });
+  function cancelBooking(b,btn){
+    var when=b.date?(fmtD(b.date)+(b.time?" о "+b.time:"")):"";
+    if(!confirm("Скасувати запис"+(when?" на "+when:"")+(b.service?" («"+b.service+"»)":"")+"?"))return;
+    setBusy(btn,true,"Скасовуємо…");
+    call("/client/booking-cancel",{id:b.id}).then(function(r){
+      if(!r.ok){setBusy(btn,false);toast(r.error||"Не вдалося скасувати запис.",true);return;}
+      toast("Запис скасовано");reload();
+    }).catch(function(e){setBusy(btn,false);netErr(e);});
+  }
+
+  /* reschedule */
+  function closeMove(){
+    if(mv){if(mv.el&&mv.el.parentNode)mv.el.parentNode.removeChild(mv.el);if(mv.btn)mv.btn.classList.remove("on");}
+    mv=null;
+  }
+  function openMove(b,host,btn){
+    closeMove();if(!host)return;
+    var t=todayISO(), max=plusDays(30);
+    var el=document.createElement("div");el.className="move";
+    el.innerHTML='<div class="mv-t">Оберіть нову дату та час</div>'+
+      '<input type="date" class="mv-date" min="'+t+'" max="'+max+'" aria-label="Нова дата">'+
+      '<div class="mv-slots muted">Спочатку оберіть дату.</div>'+
+      '<div class="err mv-err"></div>'+
+      '<div class="mv-act"><button type="button" class="btn ghost2 sm mv-close">Закрити</button>'+
+      '<button type="button" class="btn sm mv-ok" disabled>Підтвердити перенесення</button></div>';
+    host.appendChild(el);
+    if(btn)btn.classList.add("on");
+    mv={id:b.id,service:b.service||"",date:"",time:"",el:el,btn:btn,req:0};
+    var dateIn=el.querySelector(".mv-date"), slotsEl=el.querySelector(".mv-slots"), errEl=el.querySelector(".mv-err"), okBtn=el.querySelector(".mv-ok");
+    var me=mv;
+    function note(txt){slotsEl.className="mv-slots muted";slotsEl.textContent=txt;}
+    dateIn.addEventListener("change",function(){
+      var d=dateIn.value;me.date=d;me.time="";okBtn.disabled=true;errEl.textContent="";
+      if(!d){note("Спочатку оберіть дату.");return;}
+      if(d<t||d>max){note("Оберіть дату в межах найближчих 30 днів.");return;}
+      var req=++me.req;note("Шукаємо вільний час…");
+      call("/slots?date="+encodeURIComponent(d)+"&service="+encodeURIComponent(me.service),null,true).then(function(r){
+        if(mv!==me||me.req!==req)return;
+        var slots=(r&&r.ok&&r.slots instanceof Array)?r.slots:[];
+        if(!slots.length){note((r&&!r.ok&&r.error)||"На цю дату вільного часу немає — спробуйте іншу.");return;}
+        slotsEl.className="mv-slots chips";
+        slotsEl.innerHTML=slots.map(function(s){return '<button type="button" data-t="'+esc(s)+'">'+esc(s)+'</button>';}).join("");
+      }).catch(function(){if(mv!==me||me.req!==req)return;note("Не вдалося завантажити вільний час. Спробуйте ще.");});
+    });
+    slotsEl.addEventListener("click",function(e){
+      var c=e.target.closest("button[data-t]");if(!c)return;
+      me.time=c.getAttribute("data-t");errEl.textContent="";
+      [].forEach.call(slotsEl.querySelectorAll("button"),function(x){x.classList.toggle("on",x===c);});
+      okBtn.disabled=false;
+    });
+    el.querySelector(".mv-close").addEventListener("click",closeMove);
+    okBtn.addEventListener("click",function(){
+      if(!me.date||!me.time){errEl.textContent="Оберіть дату та час.";return;}
+      setBusy(okBtn,true,"Переносимо…");errEl.textContent="";
+      call("/client/booking-move",{id:me.id,date:me.date,time:me.time}).then(function(r){
+        if(!r.ok){setBusy(okBtn,false);errEl.textContent=r.error||"Не вдалося перенести візит.";return;}
+        toast("Візит перенесено на "+fmtD(me.date)+" о "+me.time+(r.staff?" · майстер "+r.staff:""));
+        closeMove();reload();
+      }).catch(function(e){setBusy(okBtn,false);if(e&&e.handled)return;errEl.textContent=NET_ERR;});
+    });
+    setTimeout(function(){try{dateIn.focus();}catch(e){}},30);
+  }
+
+  /* pets */
+  function petHtml(p){
+    var meta=[p.breed,p.weight,p.birthdate?((ageOf(p.birthdate)?ageOf(p.birthdate)+" · ":"")+fmtD(p.birthdate)):""].filter(Boolean).join(" · ");
+    var extra=[own(SEX,p.sex)?SEX[p.sex]:"",p.color||""].filter(Boolean).join(", ");
+    var photos=(p.photos instanceof Array?p.photos:[]).map(function(ph){
+      var u=safeUrl(ph&&ph.url);if(!u)return "";
+      var after=ph.kind==="after";
+      return '<a class="ph" href="'+esc(u)+'" target="_blank" rel="noopener" title="'+(after?"Після":"До")+'">'+
+        '<img src="'+esc(u)+'" alt="'+esc(p.name||"")+(after?" — після":" — до")+'" loading="lazy">'+
+        '<span class="pk'+(after?" after":"")+'">'+(after?"після":"до")+'</span></a>';
+    }).join("");
+    return '<div class="pet">'+
+      '<div class="phead"><span class="pemo">'+(own(EMO,p.species)?EMO[p.species]:"🐾")+'</span>'+
+        '<div class="pinfo"><div class="pname">'+esc(p.name||"")+'</div>'+
+          (meta?'<div class="pmeta">'+esc(meta)+'</div>':'')+(extra?'<div class="pmeta">'+esc(extra)+'</div>':'')+'</div>'+
+        '<button type="button" class="btn sm ghost2" data-act="edit" data-id="'+esc(p.id)+'" title="Редагувати">✎ Редагувати</button></div>'+
+      (p.allergies?'<div class="pnote">⚠️ Алергії: '+esc(p.allergies)+'</div>':'')+
+      (p.warnings?'<div class="pnote">📌 '+esc(p.warnings)+'</div>':'')+
+      (photos?'<div class="pphotos">'+photos+'</div>':'')+
+    '</div>';
+  }
+  function renderPets(){
+    var ps=(data&&data.pets)||[];
+    $("#pet-list").innerHTML=ps.length?ps.map(petHtml).join(""):'<p class="nodata">Додайте улюбленця — так майстру буде простіше підготуватися до візиту.</p>';
+  }
+  $("#pet-list").addEventListener("click",function(e){
+    var btn=e.target.closest("button[data-act=edit]");if(!btn)return;
+    var p=findPet(btn.getAttribute("data-id"));if(p)openPet(p);
+  });
+  $("#addPetBtn").addEventListener("click",function(){openPet(null);});
+
+  // pet modal
+  (function(){
+    $("#breeds").innerHTML=(CFG.dogBreeds||[]).map(function(b){return '<option value="'+esc(b)+'"></option>';}).join("");
+    $("#pt-weight").innerHTML='<option value="">—</option>'+(CFG.weightOptions||[]).map(function(w){return '<option value="'+esc(w)+'">'+esc(w)+'</option>';}).join("");
+  })();
+  function setSelect(sel,val){
+    val=String(val||"");
+    [].forEach.call(sel.querySelectorAll("option[data-extra]"),function(o){o.parentNode.removeChild(o);});
+    var has=[].some.call(sel.options,function(o){return o.value===val;});
+    if(!has&&val){var o=document.createElement("option");o.value=val;o.textContent=val;o.setAttribute("data-extra","1");sel.appendChild(o);}
+    sel.value=val;
+  }
+  function speciesUI(){
+    var dog=$("#pt-species").value==="dog", br=$("#pt-breed");
+    if(dog)br.setAttribute("list","breeds");else br.removeAttribute("list");
+    br.placeholder=dog?"Оберіть або введіть породу":"Необов'язково";
+  }
+  function openPet(p){
+    editPetId=p?p.id:null;
+    $("#petTitle").textContent=p?"Картка улюбленця":"Новий улюбленець";
+    $("#pt-name").value=p?(p.name||""):"";
+    $("#pt-species").value=(p&&own(EMO,p.species))?p.species:"dog";
+    $("#pt-breed").value=p?(p.breed||""):"";
+    setSelect($("#pt-weight"),p?p.weight:"");
+    $("#pt-birthdate").value=p?(p.birthdate||""):"";
+    $("#pt-birthdate").max=todayISO();
+    setSelect($("#pt-sex"),p?p.sex:"");
+    $("#pt-color").value=p?(p.color||""):"";
+    $("#pt-allergies").value=p?(p.allergies||""):"";
+    setSelect($("#pt-behavior"),p?p.behavior:"");
+    $("#pt-prefs").value=p?(p.prefs||""):"";
+    $("#pt-warnings").value=p?(p.warnings||""):"";
+    $("#petErr").textContent="";speciesUI();setBusy($("#pt-save"),false);
+    $("#petBack").hidden=false;
+    setTimeout(function(){$("#pt-name").focus();},50);
+  }
+  function closePet(){$("#petBack").hidden=true;editPetId=null;}
+  function savePet(){
+    var name=$("#pt-name").value.trim();
+    if(!name){$("#petErr").textContent="Вкажіть кличку улюбленця.";$("#pt-name").focus();return;}
+    var bd=$("#pt-birthdate").value;
+    if(bd&&bd>todayISO()){$("#petErr").textContent="Дата народження не може бути в майбутньому.";return;}
+    var body={name:name,species:$("#pt-species").value,breed:$("#pt-breed").value.trim(),weight:$("#pt-weight").value,
+      birthdate:bd,sex:$("#pt-sex").value,color:$("#pt-color").value.trim(),allergies:$("#pt-allergies").value.trim(),
+      behavior:$("#pt-behavior").value,prefs:$("#pt-prefs").value.trim(),warnings:$("#pt-warnings").value.trim()};
+    var isEdit=editPetId!=null;if(isEdit)body.id=editPetId;
+    var btn=$("#pt-save");setBusy(btn,true,"Зберігаємо…");$("#petErr").textContent="";
+    call("/client/pet-save",body).then(function(r){
+      setBusy(btn,false);
+      if(!r.ok){$("#petErr").textContent=r.error||"Не вдалося зберегти.";return;}
+      closePet();toast(isEdit?"Дані улюбленця оновлено":"Улюбленця додано");reload();
+    }).catch(function(e){setBusy(btn,false);if(e&&e.handled)return;$("#petErr").textContent=NET_ERR;});
+  }
+  $("#pt-species").addEventListener("change",speciesUI);
+  $("#pt-save").addEventListener("click",savePet);
+  $("#pt-cancel").addEventListener("click",closePet);
+  $("#petBack").addEventListener("click",function(e){if(e.target===$("#petBack"))closePet();});
+  document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!$("#petBack").hidden)closePet();});
+
+  /* loyalty */
+  function renderLoyalty(){
+    var L=(data&&data.loyalty)||{}, card=$("#loyCard");
+    if(!L.enabled){card.hidden=true;return;}
+    card.hidden=false;
+    var every=Math.max(1,Math.min(30,parseInt(L.every,10)||1)), filled=Math.max(0,Math.min(every,parseInt(L.filled,10)||0));
+    var st="";for(var i=0;i<every;i++)st+='<span class="stamp'+(i<filled?" on":"")+'">'+(i<filled?"🐾":"")+'</span>';
+    $("#stamps").innerHTML=st;
+    var txt=$("#loyTxt");txt.classList.toggle("bonus",!!L.bonusNow);
+    if(L.bonusNow){txt.innerHTML='<b>🎁 Наступний візит — бонусний:</b> '+esc(L.reward||"подарунок від салону");}
+    else{txt.textContent="Візитів: "+(parseInt(L.visits,10)||0)+" · до бонусу залишилось "+(parseInt(L.remaining,10)||0);}
+    $("#loyHint").textContent="Кожен "+every+"-й візит — "+(L.reward||"подарунок від салону")+".";
+  }
+
+  /* profile */
+  function renderProfile(){
+    var c=(data&&data.client)||{};
+    $("#pf-name").value=c.name||"";$("#pf-email").value=c.email||"";$("#pf-phone").value=c.phone||"";
+    var bot=botName(data&&data.bot);
+    $("#tgSt").innerHTML=c.tg_linked
+      ?'<span class="tg ok">✓ Telegram підключено</span>'
+      :'<span class="tg">Telegram не підключено</span> <a class="btn sm ghost2" href="https://t.me/'+esc(bot)+'" target="_blank" rel="noopener">Відкрити бота</a>';
+  }
+  function saveProfile(){
+    var name=$("#pf-name").value.trim(), email=$("#pf-email").value.trim();
+    if(!name){toast("Вкажіть ім'я.",true);$("#pf-name").focus();return;}
+    if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){toast("Перевірте e-mail.",true);$("#pf-email").focus();return;}
+    var btn=$("#pf-save");setBusy(btn,true,"Зберігаємо…");
+    call("/client/profile",{name:name,email:email}).then(function(r){
+      setBusy(btn,false);
+      if(!r.ok){toast(r.error||"Не вдалося зберегти.",true);return;}
+      if(data&&data.client){data.client.name=name;data.client.email=email;}
+      $("#hello").textContent="Вітаємо, "+name+"! 👋";toast("Профіль збережено");
+    }).catch(function(e){setBusy(btn,false);netErr(e);});
+  }
+  $("#pf-save").addEventListener("click",saveProfile);
+
+  /* logout */
+  $("#logoutBtn").addEventListener("click",function(){
+    var t=token;logoutLocal();resetLogin();show("login");
+    if(t){try{fetch(API+"/client/logout",{method:"POST",headers:{"Authorization":"Bearer "+t}}).catch(function(){});}catch(e){}}
+  });
+
+  /* ---------- init ---------- */
+  (function(){
+    var m=/[#&]t=([^&]+)/.exec(location.hash||"");
+    if(m){
+      try{token=decodeURIComponent(m[1]);}catch(e){token=m[1];}
+      try{localStorage.setItem(KEY,token);}catch(e){}
+      try{history.replaceState(null,"",location.pathname+location.search);}catch(e){}
+    }
+  })();
+  if(token)restore(false);else show("login");
+})();
+</script>
+</body>
+</html>
