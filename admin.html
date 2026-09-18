@@ -226,6 +226,10 @@
   .fbar-act{display:flex;gap:8px;margin-left:auto;flex:0 0 auto}
   .btn.outline{background:transparent;border-color:var(--line);color:var(--ink)}
   .btn.outline:hover{border-color:var(--violet);color:var(--violet)}
+  .ntf-tpl{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+  .ntf-tpl .pill{font-size:.78rem;padding:.35em .8em}
+  #ntf-text{width:100%;min-height:120px;resize:vertical}
+  .ntf-to{font-size:.86rem;color:var(--ink-soft);margin:0 0 12px}
   .tl-day{font-weight:800;font-size:.8rem;color:var(--violet);text-transform:capitalize;padding:12px 8px 4px;border-top:1px solid var(--line-soft)}
   .tl-day:first-child{border-top:0;padding-top:4px}
 
@@ -489,6 +493,8 @@
     </div>
     <p class="modal-err" id="modalErr"></p>
     <div class="sheet-act">
+      <button class="btn outline sm" id="notifyBtn" hidden title="Написати клієнту в Telegram">✈️ Повідомити</button>
+      <span style="flex:1"></span>
       <button class="btn ghost sm" id="cancelBtn" style="border-color:var(--line);color:var(--ink-soft)">Скасувати</button>
       <button class="btn" id="saveBtn">Зберегти</button>
     </div>
@@ -636,6 +642,17 @@
 </div>
 
 <!-- Set / reset a user's password (owner) -->
+<div class="modal" id="ntfModal">
+  <div class="sheet" style="width:min(520px,100%)">
+    <h2 id="ntf-title">✈️ Повідомлення клієнту</h2>
+    <p class="ntf-to" id="ntf-to"></p>
+    <div class="ntf-tpl" id="ntf-tpl"></div>
+    <div class="fld"><label>Текст</label><textarea id="ntf-text" rows="5" placeholder="Напишіть повідомлення…"></textarea>
+      <p class="muted" style="font-size:.78rem;margin:6px 0 0">Надійде клієнту в Telegram від бота салону. <span id="ntf-cnt"></span></p></div>
+    <p class="modal-err" id="ntfErr"></p>
+    <div class="sheet-act"><span style="flex:1"></span><button class="btn ghost sm" id="ntf-cancel" style="border-color:var(--line);color:var(--ink-soft)">Скасувати</button><button class="btn" id="ntf-send">Надіслати</button></div>
+  </div>
+</div>
 <div class="modal" id="pwSetModal">
   <div class="sheet" style="width:min(460px,100%)">
     <h2 id="pwset-title">🔑 Новий пароль</h2>
@@ -1473,6 +1490,7 @@
     $("#f-price").value=(b&&b.price!=null)?b.price:"";$("#f-paymethod").value=b?(b.pay_method||""):"";
     $("#f-status").value=b?(b.status||"new"):"new";$("#f-note").value=b?b.note||"":"";
     applyPetModal();
+    $("#notifyBtn").hidden=!b;
     $("#modalErr").textContent="";$("#modal").classList.add("open");$("#f-name").focus();}
   function closeModal(){$("#modal").classList.remove("open");}
   $("#newBtn").addEventListener("click",function(){openModal(null);});
@@ -1514,11 +1532,12 @@
 
   function renderClients(){
     var v=$("#clientsView");
-    v.innerHTML='<div class="fbar"><input class="search" id="clSearch" placeholder="Пошук клієнта: імʼя, телефон, кличка…"><div class="fbar-act"><button class="btn outline sm" id="clExport">⬇ CSV</button><button class="btn" id="clNew">+ Новий клієнт</button></div></div>'+
+    v.innerHTML='<div class="fbar"><input class="search" id="clSearch" placeholder="Пошук клієнта: імʼя, телефон, кличка…"><div class="fbar-act"><button class="btn outline sm" id="clBroadcast" title="Повідомлення всім клієнтам з Telegram">📣 Розсилка</button><button class="btn outline sm" id="clExport">⬇ CSV</button><button class="btn" id="clNew">+ Новий клієнт</button></div></div>'+
       '<p class="meta" id="clMeta"></p><div class="clist" id="clist"></div>';
     $("#clSearch").value=clientQ;
     $("#clSearch").addEventListener("input",function(e){clientQ=e.target.value;renderClientList();});
     $("#clNew").addEventListener("click",function(){openClientModal(null);});
+    $("#clBroadcast").addEventListener("click",function(){openNotify({broadcast:true});});
     $("#clExport").addEventListener("click",exportClients);
     renderClientList();
   }
@@ -1548,8 +1567,9 @@
     $("#cl-consent").checked=c?!!c.consent:false;$("#cl-note").value=c?c.note||"":"";
     $("#cl-del").hidden=!c;$("#cl-pets-wrap").hidden=!c;$("#cl-hist-wrap").hidden=!c;$("#cl-loyalty").hidden=!c;
     var tg=$("#cl-tg");if(tg){tg.hidden=!c;if(c)tg.innerHTML=c.tg_chat_id
-      ?'📲 Telegram: <b style="color:var(--confirmed)">підключено</b> — підтвердження й нагадування надходять клієнту'
-      :'📲 Telegram: <span class="muted">не підключено</span>'+(settingsState.tg_bot?' · клієнт може написати боту <code>@'+esc(settingsState.tg_bot)+'</code> і натиснути «Поділитися номером»':'');}
+      ?'📲 Telegram: <b style="color:var(--confirmed)">підключено</b> — підтвердження й нагадування надходять клієнту <button class="btn outline sm" id="cl-notify" style="margin-left:8px">✈️ Написати</button>'
+      :'📲 Telegram: <span class="muted">не підключено</span>'+(settingsState.tg_bot?' · клієнт може написати боту <code>@'+esc(settingsState.tg_bot)+'</code> і натиснути «Поділитися номером»':'');
+      var nb=tg.querySelector("#cl-notify");if(nb)nb.addEventListener("click",function(){openNotify({client_id:c.id,name:c.name});});}
     if(c){renderClientPets(c);renderLoyalty(c);renderClientHistory(c);}
     $("#clModalErr").textContent="";$("#clientModal").classList.add("open");
   }
@@ -1886,6 +1906,38 @@
       setTimeout(function(){$("#pwset-val").focus();$("#pwset-val").select();},60);
     });
   }
+  /* ---------- message to a client / broadcast via the Telegram bot ---------- */
+  var ntfCtx=null;
+  var NTF_TPL=[
+    ["Нагадування",function(b){return "Нагадуємо про візит "+(b&&b.date?fmtD(b.date):"")+(b&&b.time?" о "+b.time:"")+(b&&b.service?" — "+b.service:"")+(b&&b.pet_name?" для "+b.pet_name:"")+". Чекаємо вас у GAV&LOVE 🐾";}],
+    ["Підтвердження",function(b){return "Ваш запис "+(b&&b.date?fmtD(b.date):"")+(b&&b.time?" о "+b.time:"")+" підтверджено ✅ До зустрічі!";}],
+    ["Затримка",function(){return "Майстер трохи затримується — просимо підійти на 15 хвилин пізніше. Дякуємо за розуміння 🙏";}],
+    ["Готово, можна забирати",function(b){return (b&&b.pet_name?b.pet_name+" готовий(а)":"Улюбленець готовий")+" — можна забирати 🐾";}],
+    ["Вільний текст",function(){return "";}]
+  ];
+  function openNotify(ctx){ntfCtx=ctx||{};
+    var b=ctx.booking_id?all.filter(function(x){return String(x.id)===String(ctx.booking_id);})[0]:null;
+    var linked=clients.filter(function(c){return c.tg_chat_id;}).length;
+    $("#ntf-title").textContent=ctx.broadcast?"📣 Розсилка клієнтам":"✈️ Повідомлення клієнту";
+    $("#ntf-to").textContent=ctx.broadcast?("Отримають усі клієнти з підключеним Telegram: "+linked):("Кому: "+(ctx.name||(b&&b.name)||"")+(b?" · "+fmtD(b.date||"")+(b.time?" "+b.time:"")+" · "+(b.service||""):""));
+    var tpl=$("#ntf-tpl");tpl.innerHTML="";
+    (ctx.broadcast?[["Акція",function(){return "🎁 Цього тижня у GAV&LOVE знижка 10% на повний комплекс. Записуйтесь: /book";}],["Вільний текст",function(){return "";}]]:NTF_TPL).forEach(function(t){
+      var p=document.createElement("button");p.className="pill";p.textContent=t[0];p.addEventListener("click",function(){$("#ntf-text").value=t[1](b);$("#ntf-text").focus();ntfCount();});tpl.appendChild(p);});
+    $("#ntf-text").value=ctx.broadcast?"":(NTF_TPL[0][1](b));ntfCount();
+    $("#ntfErr").textContent="";$("#ntf-send").disabled=false;$("#ntf-send").textContent="Надіслати";
+    $("#ntfModal").classList.add("open");setTimeout(function(){$("#ntf-text").focus();},60);}
+  function ntfCount(){var n=$("#ntf-text").value.length;$("#ntf-cnt").textContent=n?n+" симв.":"";}
+  $("#ntf-text").addEventListener("input",ntfCount);
+  $("#ntf-cancel").addEventListener("click",function(){$("#ntfModal").classList.remove("open");});
+  $("#ntf-send").addEventListener("click",async function(){var text=$("#ntf-text").value.trim();if(!text){$("#ntfErr").textContent="Напишіть текст повідомлення.";return;}
+    if(ntfCtx.broadcast&&!confirm("Надіслати це повідомлення всім клієнтам з Telegram?"))return;
+    var btn=$("#ntf-send");btn.disabled=true;btn.textContent="Надсилаємо…";$("#ntfErr").textContent="";
+    try{var body=ntfCtx.broadcast?{text:text}:{text:text,booking_id:ntfCtx.booking_id,client_id:ntfCtx.client_id};
+      var r=await api(ntfCtx.broadcast?"/admin/notify-broadcast":"/admin/notify-client",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      if(!r||!r.ok){$("#ntfErr").textContent=(r&&r.error)||"Не вдалося надіслати.";btn.disabled=false;btn.textContent="Надіслати";return;}
+      $("#ntfModal").classList.remove("open");toast(ntfCtx.broadcast?("Розсилку надіслано: "+r.sent+(r.failed?" · помилок "+r.failed:"")):"Повідомлення надіслано");
+    }catch(e){$("#ntfErr").textContent="Помилка з'єднання.";btn.disabled=false;btn.textContent="Надіслати";}});
+  $("#notifyBtn").addEventListener("click",function(){if(!editId)return;var b=all.filter(function(x){return String(x.id)===String(editId);})[0];openNotify({booking_id:editId,name:b?b.name:""});});
   function closePwSet(v){$("#pwSetModal").classList.remove("open");var r=_pwsetResolve;_pwsetResolve=null;if(r)r(v);}
   $("#pwset-gen").addEventListener("click",function(){$("#pwset-val").value=genPassword();$("#pwset-val").focus();$("#pwset-val").select();});
   $("#pwset-copy").addEventListener("click",function(){var v=$("#pwset-val").value;if(!v)return;try{navigator.clipboard.writeText(v);toast("Пароль скопійовано");}catch(e){toast(v);}});

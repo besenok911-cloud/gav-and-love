@@ -149,6 +149,8 @@ export default {
       if (url.pathname === "/admin/tg-test" && request.method === "POST") {
         return json(await tgTest(request, env), cors);           // owner: feed a synthetic update (QA)
       }
+      if (url.pathname === "/admin/notify-client" && request.method === "POST") return json(await notifyClientManual(request, env), cors);
+      if (url.pathname === "/admin/notify-broadcast" && request.method === "POST") return json(await notifyBroadcast(request, env), cors);
       if (url.pathname === "/admin/send-client-reminders" && request.method === "POST") {
         await requireAdmin(request, env);
         const b = await request.json().catch(() => ({}));
@@ -691,9 +693,9 @@ async function adminUpdate(request, env) {
   for (const f of EDITABLE) {
     if (body[f] != null) { sets.push(`${f}=?`); vals.push(body[f]); }
   }
-  if (body.date != null || body.time != null) sets.push("remind_day_sent=0", "remind_hour_sent=0"); // rescheduled → remind the client again
-  let prevStatus = null;
-  if (body.status != null) { const c = await env.DB.prepare(`SELECT status FROM bookings WHERE id=?`).bind(id).first(); prevStatus = c ? c.status : null; }
+  const prev = (await env.DB.prepare(`SELECT status,date,time FROM bookings WHERE id=?`).bind(id).first()) || {};
+  const moved = (body.date != null && body.date !== prev.date) || (body.time != null && body.time !== prev.time);
+  if (moved) sets.push("remind_day_sent=0", "remind_hour_sent=0"); // rescheduled → remind the client again
   if (sets.length) {
     vals.push(id);
     await env.DB.prepare(`UPDATE bookings SET ${sets.join(",")} WHERE id=?`).bind(...vals).run();
@@ -701,7 +703,11 @@ async function adminUpdate(request, env) {
   let calendar = "unchanged";
   try { calendar = await syncCalendar(env, id); }
   catch (e) { calendar = "error: " + String(e && e.message || e); }
-  if (body.status === "confirmed" && prevStatus !== "confirmed") await tgNotifyClient(env, id, "confirmed"); // tell a linked client
+  // tell a linked client what changed: confirmed / cancelled / moved to another date-time
+  const newStatus = body.status != null ? body.status : prev.status;
+  if (body.status === "confirmed" && prev.status !== "confirmed") await tgNotifyClient(env, id, "confirmed");
+  else if (body.status === "cancelled" && prev.status !== "cancelled") await tgNotifyClient(env, id, "cancelled");
+  else if (moved && newStatus !== "cancelled" && newStatus !== "no_show") await tgNotifyClient(env, id, "moved");
   return { ok: true, calendar };
 }
 
@@ -1278,6 +1284,10 @@ async function adminDelete(request, env) {
   await requireAdmin(request, env);
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
+  try {   // an upcoming active booking removed from the CRM is a cancellation from the client's point of view
+    const cur = await env.DB.prepare(`SELECT status,date FROM bookings WHERE id=?`).bind(id).first();
+    if (cur && ["new", "confirmed"].includes(cur.status) && cur.date && cur.date >= isoInTz(new Date(), BUSINESS.tz)) await tgNotifyClient(env, id, "cancelled");
+  } catch (e) { }
   // remove the linked Google Calendar event first
   try {
     const row = await env.DB.prepare(`SELECT event_id FROM bookings WHERE id=?`).bind(id).first();
@@ -1333,7 +1343,7 @@ function kyivNow() { // { iso, min } in Europe/Kyiv
 }
 const CLIENT_COLS = `id,date,time,name,phone,pet_name,service,staff,status,client_id,remind_day_sent,remind_hour_sent`;
 function visitText(b) { return `${fmtDdMm(b.date)} о <b>${tgEsc(b.time)}</b> — ${tgEsc(b.service || "грумінг")}${b.pet_name ? " для " + tgEsc(b.pet_name) : ""}${b.staff ? "\n👩‍🔧 Майстер: " + tgEsc(b.staff) : ""}`; }
-function visitButtons(b) { return { reply_markup: { inline_keyboard: [[{ text: "✅ Буду", callback_data: `ok:${b.id}` }, { text: "❌ Скасувати", callback_data: `cancel:${b.id}` }]] } }; }
+function visitButtons(b) { return { reply_markup: { inline_keyboard: [[{ text: "✅ Буду", callback_data: `ok:${b.id}` }], [{ text: "🔁 Перенести", callback_data: `mv:${b.id}` }, { text: "❌ Скасувати", callback_data: `cancel:${b.id}` }]] } }; }
 async function clientChatFor(env, b) { // the booking's client's chat id (by client_id, else by phone)
   if (!env.DB) return null;
   if (b.client_id) { const c = await env.DB.prepare(`SELECT tg_chat_id FROM clients WHERE id=?`).bind(b.client_id).first(); if (c && c.tg_chat_id) return c.tg_chat_id; }
@@ -1341,14 +1351,67 @@ async function clientChatFor(env, b) { // the booking's client's chat id (by cli
   const cs = await env.DB.prepare(`SELECT phone, tg_chat_id FROM clients WHERE tg_chat_id IS NOT NULL`).all();
   const f = (cs.results || []).find(c => normPhone(c.phone) === np); return f ? f.tg_chat_id : null;
 }
-// "created" / "confirmed" message to a linked client. Never throws, never blocks the caller.
+// "created" / "confirmed" / "moved" / "cancelled" message to a linked client. Never throws, never blocks the caller.
+const NOTIFY_HEAD = { created: "🗓 <b>Запис створено</b>", confirmed: "✅ <b>Ваш запис підтверджено</b>", moved: "🔁 <b>Ваш запис перенесено</b>", cancelled: "❌ <b>Ваш запис скасовано</b>" };
 async function tgNotifyClient(env, bookingId, kind) {
   try {
     const b = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE id=?`).bind(bookingId).first(); if (!b || !b.date || !b.time) return;
     const chat = await clientChatFor(env, b); if (!chat) return;
-    const head = kind === "confirmed" ? "✅ <b>Ваш запис підтверджено</b>" : "🗓 <b>Запис створено</b>";
-    await tgSendTo(env, chat, `${head}\n${visitText(b)}\n\nНагадаємо напередодні. Якщо плани зміняться — натисніть «Скасувати».`, visitButtons(b));
+    const head = NOTIFY_HEAD[kind] || NOTIFY_HEAD.created;
+    if (kind === "cancelled") { await tgSendTo(env, chat, `${head}\n${visitText(b)}\n\nЯкщо це помилка або хочете інший час — напишіть нам чи натисніть /book, щоб записатися знову.`); return; }
+    await tgSendTo(env, chat, `${head}\n${visitText(b)}\n\nНагадаємо напередодні. Якщо плани зміняться — натисніть «Перенести» або «Скасувати».`, visitButtons(b));
   } catch (e) { }
+}
+// CRM → one client: free-text message to the client's linked chat (by booking or by client id).
+async function notifyClientManual(request, env) {
+  const who = await requireAdmin(request, env);
+  const body = await request.json();
+  const text = String(body.text || "").trim().slice(0, 1500);
+  if (!text) return { ok: false, error: "Порожнє повідомлення" };
+  let chat = null, name = "";
+  if (body.booking_id) { const b = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE id=?`).bind(+body.booking_id).first(); if (b) { chat = await clientChatFor(env, b); name = b.name || ""; } }
+  else if (body.client_id) { const c = await env.DB.prepare(`SELECT name,tg_chat_id FROM clients WHERE id=?`).bind(+body.client_id).first(); if (c) { chat = c.tg_chat_id || null; name = c.name || ""; } }
+  if (!chat) return { ok: false, error: "Клієнт ще не підключив Telegram-бот — повідомлення нікуди надіслати" };
+  const r = await tgSendTo(env, chat, `💬 <b>GAV&amp;LOVE</b>\n${tgEsc(text)}`);
+  if (!r || !r.ok) return { ok: false, error: "Telegram не прийняв повідомлення: " + ((r && r.description) || "помилка") };
+  try { await sendTelegram(env, `✉️ <b>${tgEsc(who.name || "CRM")}</b> написав(ла) клієнту ${tgEsc(name)}:\n<i>${tgEsc(text)}</i>`); } catch (e) { }
+  return { ok: true };
+}
+// CRM → every linked client (promo / news). Sequential, gentle on the Bot API rate limit.
+async function notifyBroadcast(request, env) {
+  const who = await requireAdmin(request, env);
+  const body = await request.json();
+  const text = String(body.text || "").trim().slice(0, 2000);
+  if (!text) return { ok: false, error: "Порожнє повідомлення" };
+  const rows = (await env.DB.prepare(`SELECT id,tg_chat_id FROM clients WHERE tg_chat_id IS NOT NULL AND tg_chat_id<>'' AND COALESCE(status,'active')='active'`).all()).results || [];
+  const seen = new Set(); let sent = 0, failed = 0;
+  for (const c of rows) {
+    if (seen.has(String(c.tg_chat_id))) continue; seen.add(String(c.tg_chat_id));
+    const r = await tgSendTo(env, c.tg_chat_id, `📣 <b>GAV&amp;LOVE</b>\n${tgEsc(text)}`);
+    if (r && r.ok) sent++; else failed++;
+    if ((sent + failed) % 20 === 0) await new Promise(res => setTimeout(res, 1100));
+  }
+  try { await sendTelegram(env, `📣 <b>Розсилка від ${tgEsc(who.name || "CRM")}</b> — надіслано ${sent}, помилок ${failed}\n<i>${tgEsc(text.slice(0, 300))}</i>`); } catch (e) { }
+  return { ok: true, sent, failed, total: seen.size };
+}
+// Free master for a date-time (same rule as book()): prefer `prefer`, else the first free one; null = nobody.
+async function freeMasterAt(env, { date, time, service, prefer }) {
+  const { y, m, d } = parseDate(date);
+  const tm = /^(\d{2}):(\d{2})$/.exec(time || ""); if (!tm) return null;
+  const startMin = (+tm[1]) * 60 + (+tm[2]);
+  const duration = await serviceDuration(env, service);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const masters = await loadMasters(env);
+  const token = await getAccessToken(env);
+  const start = wallToUTC(y, m, d, startMin, BUSINESS.tz), end = new Date(start.getTime() + duration * 60000);
+  const events = await listEvents(env, token, new Date(start.getTime() - BUSINESS.bufferMin * 60000), new Date(end.getTime() + BUSINESS.bufferMin * 60000));
+  const isFree = mst => startMin >= mst.startMin && startMin + duration <= mst.endMin &&
+    !inBreak(mst, startMin, startMin + duration) && masterWorks(mst, date, dow) &&
+    !overlappingAt(events, start.getTime(), end.getTime()).some(ev => ev.staff === mst.name);
+  const p = prefer ? masters.find(x => x.name === prefer) : null;
+  if (p && isFree(p)) return p.name;
+  const f = masters.find(isFree);
+  return f ? f.name : null;
 }
 // Cron: "day" = tomorrow's visits (evening run), "soon" = visits starting within N hours (every 30 min). Idempotent via remind_*_sent flags.
 async function runClientReminders(env, kind, force) {
@@ -1394,12 +1457,20 @@ async function handleTgUpdate(env, u) {
       await bookingStep(env, chat, cq.data);
       return;
     }
-    const m = /^(ok|cancel):(\d+)$/.exec(cq.data);
+    const m = /^(ok|cancel|mv):(\d+)$/.exec(cq.data);
     if (!m) return;
     const b = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE id=?`).bind(+m[2]).first();
     const owner = b ? await clientChatFor(env, b) : null;
     if (!b || String(owner) !== String(chat)) { await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id, text: "Запис не знайдено" }); return; }
     const clearButtons = () => tgApi(env, "editMessageReplyMarkup", { chat_id: chat, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] } });
+    if (m[1] === "mv") {   // reschedule: reuse the booking dialogue's date/time pickers with move_id in the state
+      if (!["new", "confirmed"].includes(b.status)) { await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id, text: "Цей запис уже не можна перенести" }); return; }
+      await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id });
+      const st = { step: "date", move_id: b.id, service: b.service, staff: b.staff || "", pet_name: b.pet_name || "", old_date: b.date, old_time: b.time };
+      await tgSendTo(env, chat, `🔁 Переносимо запис: ${visitText(b)}`);
+      await bookingAskDate(env, chat, st, 0);
+      return;
+    }
     if (m[1] === "ok") {
       if (b.status === "new") { await env.DB.prepare(`UPDATE bookings SET status='confirmed' WHERE id=?`).bind(b.id).run(); try { await syncCalendar(env, b.id); } catch (e) { } }
       await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id, text: "Дякуємо! Чекаємо на вас 🐾" });
@@ -1438,9 +1509,17 @@ async function handleTgUpdate(env, u) {
     return;
   }
   if (/^\/book/.test(text)) { await bookingStart(env, chat); return; }
-  if (/^\/visits/.test(text)) {
+  if (/^\/(visits|my)/.test(text)) {   // each upcoming visit as its own card with Перенести / Скасувати
     const c = await clientByChat(env, chat);
-    await tgSendTo(env, chat, c ? ("👤 " + tgEsc(c.name || "") + ((await nextVisitsText(env, c.id)) || "\n\nНайближчих візитів немає.")) : "Спочатку підключіться: /start", BOOK_BTN);
+    if (!c) { await tgSendTo(env, chat, "Спочатку підключіться: /start", BOOK_BTN); return; }
+    const rows = (await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE client_id=? AND date>=? AND time<>'' AND status IN ('new','confirmed','arrived') AND service<>'Блокування' ORDER BY date, time LIMIT 6`).bind(c.id, isoInTz(new Date(), BUSINESS.tz)).all()).results || [];
+    if (!rows.length) { await tgSendTo(env, chat, "👤 " + tgEsc(c.name || "") + "\n\nНайближчих візитів немає. Записатися можна прямо тут 👇", BOOK_BTN); return; }
+    await tgSendTo(env, chat, `👤 ${tgEsc(c.name || "")} — ваші найближчі візити (${rows.length}):`);
+    for (const b of rows) {
+      const canChange = b.status !== "arrived";
+      await tgSendTo(env, chat, `${b.status === "confirmed" ? "✅" : b.status === "arrived" ? "🏠" : "🕐"} ${visitText(b)}`,
+        canChange ? kb([[{ text: "🔁 Перенести", callback_data: `mv:${b.id}` }, { text: "❌ Скасувати", callback_data: `cancel:${b.id}` }]]) : undefined);
+    }
     return;
   }
   if (st && st.step === "breed_text" && text && !text.startsWith("/")) {   // the client typed the breed
@@ -1582,7 +1661,7 @@ async function bookingCreate(env, chat, st) {
 }
 async function bookingStep(env, chat, data) {
   const a = data.split(":"), k = a[1], v = a.slice(2).join(":");
-  if (k === "x") { await tgClearState(env, chat); await tgSendTo(env, chat, "Добре, запис скасовано. Почати знову — /book"); return; }
+  if (k === "x") { const cur = await tgGetState(env, chat); await tgClearState(env, chat); await tgSendTo(env, chat, cur && cur.move_id ? "Добре, залишаємо запис як є 🙂" : "Добре, запис скасовано. Почати знову — /book"); return; }
   if (k === "start") { await bookingStart(env, chat); return; }
   const st = await tgGetState(env, chat);
   if (!st || !st.step) { await tgSendTo(env, chat, "Ця сесія завершилась — почнімо знову 🙂"); await bookingStart(env, chat); return; }
@@ -1596,9 +1675,29 @@ async function bookingStep(env, chat, data) {
   if (k === "w") { const w = (st.weights || [])[+v]; if (w == null) return; st.weight = w; await bookingAskDate(env, chat, st, 0); return; }
   if (k === "dp") { await bookingAskDate(env, chat, st, +v || 0); return; }
   if (k === "d") { st.date = v; await bookingAskTime(env, chat, st); return; }
-  if (k === "t") { st.time = v; await bookingConfirm(env, chat, st); return; }
+  if (k === "t") { st.time = v; if (st.move_id) await moveConfirm(env, chat, st); else await bookingConfirm(env, chat, st); return; }
   if (k === "back" && v === "time") { await bookingAskTime(env, chat, st); return; }
-  if (k === "ok") { if (st.step !== "confirm") return; await bookingCreate(env, chat, st); return; }
+  if (k === "ok") { if (st.step !== "confirm") return; if (st.move_id) await moveApply(env, chat, st); else await bookingCreate(env, chat, st); return; }
+}
+/* ---- Reschedule through the bot: same date/time pickers, then move the existing booking ---- */
+async function moveConfirm(env, chat, st) {
+  st.step = "confirm"; await tgSetState(env, chat, st);
+  await tgSendTo(env, chat, `🔁 Перенести запис?\n✂️ ${tgEsc(st.service || "")}${st.pet_name ? " для " + tgEsc(st.pet_name) : ""}\nБуло: ${fmtDdMm(st.old_date)} о ${tgEsc(st.old_time || "")}\nСтане: ${fmtDdMm(st.date)} о <b>${tgEsc(st.time)}</b>`,
+    kb([[{ text: "✅ Так, перенести", callback_data: "b:ok" }], [{ text: "🕐 Інший час", callback_data: "b:back:time" }, { text: "📅 Інша дата", callback_data: `b:dp:${st.page || 0}` }], [{ text: "✖ Залишити як є", callback_data: "b:x" }]]));
+}
+async function moveApply(env, chat, st) {
+  const b = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE id=?`).bind(+st.move_id).first();
+  const owner = b ? await clientChatFor(env, b) : null;
+  if (!b || String(owner) !== String(chat) || !["new", "confirmed"].includes(b.status)) { await tgClearState(env, chat); await tgSendTo(env, chat, "Цей запис уже не можна перенести — напишіть нам, будь ласка."); return; }
+  let staff = null;
+  try { staff = await freeMasterAt(env, { date: st.date, time: st.time, service: b.service, prefer: b.staff }); } catch (e) { staff = null; }
+  if (!staff) { await tgSendTo(env, chat, "На жаль, цей час щойно зайняли. Оберіть інший, будь ласка.", kb([[{ text: "🕐 Інший час", callback_data: "b:back:time" }], [{ text: "✖ Залишити як є", callback_data: "b:x" }]])); return; }
+  await env.DB.prepare(`UPDATE bookings SET date=?, time=?, staff=?, remind_day_sent=0, remind_hour_sent=0 WHERE id=?`).bind(st.date, st.time, staff, b.id).run();
+  try { await syncCalendar(env, b.id); } catch (e) { }
+  await tgClearState(env, chat);
+  const nb = Object.assign({}, b, { date: st.date, time: st.time, staff });
+  try { await sendTelegram(env, `🔁 <b>Клієнт переніс запис через бота</b>\nБуло: ${fmtDdMm(b.date)} о ${tgEsc(b.time)}${b.staff ? " (" + tgEsc(b.staff) + ")" : ""}\nСтало: ${visitText(nb)}\n👤 ${tgEsc(b.name || "")} — ${tgEsc(b.phone || "")}`); } catch (e) { }
+  await tgSendTo(env, chat, `🔁 Перенесено: ${visitText(nb)}${staff !== b.staff && b.staff ? "\n(інший майстер — попередній на цей час зайнятий)" : ""}\n\nНагадаємо напередодні 🐾`, visitButtons(nb));
 }
 
 async function tgWebhook(request, env) {
@@ -1616,7 +1715,7 @@ async function tgSetup(request, env) { // owner: remember the bot username and r
   await env.DB.prepare(`INSERT INTO settings (key,value) VALUES ('tg_bot',?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(username, username).run();
   const url = new URL(request.url).origin + "/tg/webhook";
   const wh = await tgApi(env, "setWebhook", { url, secret_token: await tgWebhookSecret(env), allowed_updates: ["message", "callback_query"] });
-  try { await tgApi(env, "setMyCommands", { commands: [{ command: "book", description: "Записатися на грумінг" }, { command: "visits", description: "Мої найближчі візити" }, { command: "start", description: "Підключити нагадування" }] }); } catch (e) { }
+  try { await tgApi(env, "setMyCommands", { commands: [{ command: "book", description: "Записатися на грумінг" }, { command: "visits", description: "Мої візити — перенести чи скасувати" }, { command: "start", description: "Підключити нагадування" }] }); } catch (e) { }
   return { ok: !!(wh && wh.ok), bot: username, webhook: url, set: (wh && wh.description) || "", error: wh && !wh.ok ? wh.description : undefined };
 }
 async function tgTest(request, env) { // owner-only QA hook: run a synthetic update through the same handler
