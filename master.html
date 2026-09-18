@@ -335,9 +335,12 @@
 
   /* change password */
   function openPw(force){
+    if(!token){showLogin();return;}
+    var who=(data&&data.master&&data.master.name)?data.master.name:"";
     $("#pwErr").textContent="";$("#pw-old").value="";$("#pw-new").value="";$("#pw-new2").value="";
     $("#pw-old").style.display=force?"none":"";
-    $("#pwHint").textContent=force?"Перший вхід — задайте власний пароль замість тимчасового.":"Введіть поточний і новий пароль.";
+    $("#pwTitle").textContent=who?("Пароль — "+who):"Зміна пароля";
+    $("#pwHint").textContent=(who?("Ви змінюєте пароль для акаунта «"+who+"». "):"")+(force?"Перший вхід — задайте власний пароль замість тимчасового.":"Введіть поточний і новий пароль.");
     $("#pwBack").hidden=false;
   }
   $("#pwBtn").addEventListener("click",function(){openPw(false);});
@@ -349,8 +352,11 @@
     if(np!==np2){$("#pwErr").textContent="Паролі не збігаються.";return;}
     $("#pwErr").textContent="";
     fetch(API+"/auth/change-password",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},body:JSON.stringify({old_password:$("#pw-old").value,new_password:np})})
-      .then(function(r){return r.json();})
-      .then(function(res){if(!res||!res.ok){$("#pwErr").textContent=(res&&res.error)||"Не вдалося.";return;}mustChange=0;$("#pwBack").hidden=true;toast("Пароль змінено");})
+      .then(function(r){return r.json().then(function(res){return {status:r.status,res:res};});})
+      .then(function(x){var res=x.res;
+        if(x.status===401||x.status===403){$("#pwBack").hidden=true;logoutLocal();showLogin();$("#loginErr").textContent="Сесія завершилась — увійдіть знову.";return;}
+        if(!res||!res.ok){$("#pwErr").textContent=(res&&res.error)||"Не вдалося.";return;}
+        mustChange=0;$("#pwBack").hidden=true;toast("Пароль змінено");})
       .catch(function(){$("#pwErr").textContent="Помилка з'єднання.";});
   });
 
