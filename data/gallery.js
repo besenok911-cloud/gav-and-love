@@ -433,15 +433,6 @@ window.LP_GALLERY = {
       "h": 1440
     },
     {
-      "id": "g049",
-      "src": "assets/gallery/g049.webp",
-      "species": "dog",
-      "kind": "portrait",
-      "breed": "",
-      "w": 1152,
-      "h": 1440
-    },
-    {
       "id": "g050",
       "src": "assets/gallery/g050.webp",
       "species": "dog",
