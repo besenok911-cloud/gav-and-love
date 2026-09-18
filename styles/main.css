@@ -9,6 +9,7 @@
   --ink-soft:#6d6484;
   --violet:#4a25c9;        /* accent */
   --violet-d:#3a1c9e;
+  --violet-tint:#ece7fb;   /* pale violet chips / photo placeholders */
   --violet-deep:#1c1340;   /* dark sections */
   --gold:#c9a24a;          /* warm metallic accent (wood/brass) */
   --line:#e7e0d3;          /* warm hairline */
@@ -66,6 +67,8 @@ h1,h2,h3{font-family:var(--font-head);font-weight:600;line-height:1.12;margin:0;
 .brand:hover .brand-logo{transform:scale(1.03)}
 .main-nav{display:flex;gap:30px}
 .main-nav a{font-weight:600;color:var(--ink-soft);position:relative;padding:4px 0;font-size:.92rem;letter-spacing:.02em}
+.main-nav a{white-space:nowrap}
+@media (max-width:1180px){.main-nav{gap:18px}.main-nav a{font-size:.86rem;letter-spacing:0}}
 .main-nav a::after{content:"";position:absolute;left:0;right:100%;bottom:-1px;height:1.5px;background:var(--violet);transition:right .28s ease}
 .main-nav a:hover{color:var(--ink)}
 .main-nav a:hover::after{right:0}
@@ -249,7 +252,7 @@ h1,h2,h3{font-family:var(--font-head);font-weight:600;line-height:1.12;margin:0;
 .booking .eyebrow{color:var(--gold)}
 .booking .section-head h2{color:#fff}
 .booking .section-sub{color:#cfc7ee}
-.booking-form{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px;max-width:780px;margin:0 auto;
+.booking-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 20px;max-width:780px;margin:0 auto;min-width:0;
   background:var(--paper);padding:clamp(24px,3vw,38px);border-radius:var(--radius-lg);box-shadow:var(--shadow);color:var(--ink)}
 .field{display:flex;flex-direction:column;gap:6px}
 .field[hidden]{display:none} /* the hidden attribute must beat display:flex (breed / weight / slots fields) */
@@ -270,7 +273,9 @@ h1,h2,h3{font-family:var(--font-head);font-weight:600;line-height:1.12;margin:0;
 .slot:hover{border-color:var(--violet)}
 .slot.is-sel{background:var(--violet);color:#fff;border-color:var(--violet)}
 .booking-submit{align-items:center;text-align:center;gap:12px;margin-top:4px}
-.form-status{margin:0;font-weight:700;min-height:1.2em}
+.form-status{margin:0;font-weight:700;min-height:1.2em;min-width:0;overflow-wrap:anywhere}
+/* the «нагадування в Telegram» button injected after a booking must wrap on phones, never widen the form */
+.form-status .btn{white-space:normal;max-width:100%;box-sizing:border-box;line-height:1.3}
 .form-status.ok{color:#2f8f5b}.form-status.err{color:#c0472b}
 .booking-hint{text-align:center;color:#cfc7ee;margin-top:24px;font-weight:600}
 
@@ -387,6 +392,38 @@ h1,h2,h3{font-family:var(--font-head);font-weight:600;line-height:1.12;margin:0;
 .section-head.in h2 .script::after{transform:scaleX(1)}
 
 /* ===== Responsive ===== */
+/* ===== Team ===== */
+.team{background:var(--bg-2)}
+.team-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:6px}
+.team-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);transition:transform .3s ease,box-shadow .3s ease}
+.team-card:hover{transform:translateY(-4px);box-shadow:var(--shadow)}
+.team-photo{aspect-ratio:1/1;overflow:hidden;background:var(--violet-tint)}
+.team-photo img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .5s ease}
+.team-card:hover .team-photo img{transform:scale(1.04)}
+.team-body{padding:20px 22px 24px}
+.team-body h3{font-size:1.25rem;margin:0 0 4px;font-weight:600}
+.team-role{display:inline-block;margin:0 0 10px;font-size:.78rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--violet);background:var(--violet-tint);padding:.25em .8em;border-radius:999px}
+.team-body p:last-child{margin:0;color:var(--ink-soft);font-size:.95rem;line-height:1.55}
+@media (max-width:980px){.team-grid{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.team-grid{grid-template-columns:1fr;max-width:420px;margin-left:auto;margin-right:auto}}
+/* ===== Vacancies ===== */
+.jobs-grid{display:grid;grid-template-columns:1.6fr 1fr;gap:24px;align-items:start;margin-top:6px}
+.job-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-lg);padding:clamp(22px,3vw,34px);box-shadow:var(--shadow-sm)}
+.job-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.job-head h3{font-size:1.6rem;margin:0;font-weight:600}
+.job-tag{font-size:.74rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#1f7a45;background:#e3f5ea;padding:.3em .9em;border-radius:999px;white-space:nowrap}
+.job-meta{margin:6px 0 18px;color:var(--ink-soft);font-weight:600}
+.job-cols{display:grid;grid-template-columns:1fr 1fr;gap:18px 28px}
+.job-cols h4{margin:0 0 8px;font-size:.82rem;letter-spacing:.06em;text-transform:uppercase;color:var(--violet);font-family:var(--font-body);font-weight:800}
+.job-cols ul{margin:0;padding-left:1.1em;color:var(--ink-soft);line-height:1.55}
+.job-cols li{margin-bottom:6px}
+.job-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
+.job-note{background:var(--violet-deep);color:#e9e3ff;border-radius:var(--radius-lg);padding:clamp(22px,3vw,30px)}
+.job-note h3{color:#fff;margin:0 0 8px;font-size:1.25rem;font-weight:600}
+.job-note p{margin:0;color:#d5cdf0;line-height:1.55}
+@media (max-width:980px){.jobs-grid{grid-template-columns:1fr}}
+@media (max-width:640px){.job-cols{grid-template-columns:1fr}.job-actions .btn{flex:1 1 100%;text-align:center}}
+
 @media (max-width:980px){
   .hero-inner,.about-grid,.hotel-inner,.contacts-inner{grid-template-columns:1fr}
   .hero-photo{max-width:480px;margin-inline:auto}
@@ -416,7 +453,7 @@ h1,h2,h3{font-family:var(--font-head);font-weight:600;line-height:1.12;margin:0;
   .section{padding:52px 0}
   .trust-inner{grid-template-columns:1fr 1fr}
   .interior-grid{grid-auto-rows:150px}
-  .booking-form{grid-template-columns:1fr}
+  .booking-form{grid-template-columns:minmax(0,1fr)}
   .hero-actions .btn,.hero-actions{width:100%}
   .price-table{min-width:0}
   .price-table th,.price-table td{padding:.7em .6em;font-size:.92rem}

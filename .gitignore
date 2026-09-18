@@ -6,3 +6,4 @@ worker/.wrangler/
 .DS_Store
 Thumbs.db
 desktop.ini
+_crm_mock.html
