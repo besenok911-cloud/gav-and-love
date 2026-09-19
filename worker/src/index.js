@@ -1050,7 +1050,12 @@ async function photoServe(url, env, cors) {   // public but unguessable (16-hex 
   if (!m) return new Response("not found", { status: 404, headers: cors });
   const p = await env.DB.prepare(`SELECT mime,data,token FROM pet_photos WHERE id=?`).bind(+m[1]).first();
   if (!p || p.token !== m[2]) return new Response("not found", { status: 404, headers: cors });
-  return new Response(p.data, { headers: Object.assign({ "Content-Type": p.mime || "image/jpeg", "Cache-Control": "public, max-age=31536000, immutable" }, cors) });
+  // D1 hands a BLOB back as a plain array of byte values — passing that to Response() would send the numbers as text
+  const raw = p.data;
+  const body = Array.isArray(raw) ? new Uint8Array(raw)
+    : (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) ? raw
+    : typeof raw === "string" ? Uint8Array.from(raw, c => c.charCodeAt(0)) : raw;
+  return new Response(body, { headers: Object.assign({ "Content-Type": p.mime || "image/jpeg", "Cache-Control": "public, max-age=31536000, immutable" }, cors) });
 }
 const CLIENT_FIELDS = ["name", "phone", "email", "messenger", "source", "note", "consent", "status"];
 async function clientSave(request, env) {
