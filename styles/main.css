@@ -320,6 +320,15 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 .bstep-edit{flex:none;font-weight:800;font-size:.82rem;color:var(--violet);opacity:0}
 .bstep.is-done .bstep-edit{opacity:1}
 .bstep.is-locked .bstep-edit{opacity:0}   /* filled, but an earlier step must be finished first */
+.bf-done{margin-top:16px;padding:18px 18px 16px;border-radius:16px;background:var(--violet-tint);border:1.5px solid rgba(74,37,201,.18);text-align:left}
+.bf-done h3{font-family:var(--font-head);font-weight:600;font-size:1.15rem;margin:0 0 6px;color:var(--violet-deep)}
+.bf-done p{margin:0 0 10px;color:var(--ink);font-weight:600}
+.bf-done ul{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:8px}
+.bf-done li{display:flex;gap:9px;align-items:flex-start;font-size:.94rem;color:var(--ink);line-height:1.45}
+.bf-done li span:first-child{flex:none;font-size:1.05rem;line-height:1.3}
+.bf-done .bf-done-act{display:flex;flex-wrap:wrap;gap:10px}
+.bf-done .btn{flex:1 1 auto;text-align:center;white-space:normal}
+.bf-done .bf-done-note{margin:12px 0 0;font-size:.84rem;font-weight:600;color:var(--ink-soft)}
 .bf-remember-row{margin-top:4px}
 .bf-remember{display:flex;align-items:center;gap:8px;font-weight:600;font-size:.88rem;color:var(--ink-soft);cursor:pointer}
 .bf-remember input{width:auto;flex:none}

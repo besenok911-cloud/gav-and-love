@@ -721,6 +721,38 @@
     fetch(`${CONFIG.bookingEndpoint}/reviews`).then(r => r.json()).then(renderReviews).catch(() => { });
   }
 
+  // What happens after the booking goes through: a first-timer is invited to connect Telegram —
+  // that is what turns on reminders, the bonus card and the ability to move a visit in two taps.
+  function showAfterBooking(d, isRequest, msg) {
+    const box = $("#bfDone"); if (!box || !d) return;
+    const tg = d.tg_link || "", bot = d.bot ? "https://t.me/" + String(d.bot).replace(/[^A-Za-z0-9_]/g, "") : "";
+    const link = tg || bot;
+    if (d.linked) {   // already with us in Telegram — nothing to set up
+      box.innerHTML = `<h3>Все готово 🐾</h3><p>${esc(msg || "")}</p>
+        <ul><li><span>🔔</span><span>Нагадування про візит надішлемо в Telegram.</span></li></ul>
+        <div class="bf-done-act"><a class="btn btn-ghost" href="cabinet.html">Мій кабінет</a></div>`;
+      box.hidden = false; return;
+    }
+    const L = d.loyalty;
+    const items = [
+      ["🔔", "<b>Нагадаємо про візит</b> — за день і за годину, щоб не загубилось."],
+      ["🔁", "<b>Перенести або скасувати</b> — двома кнопками, без дзвінків."],
+      ["🔑", "<b>Кабінет</b>: усі візити, картки улюбленців і фото після грумінгу."],
+    ];
+    if (L && L.reward) items.unshift(["🎁", `<b>Бонусна картка</b>: кожен ${L.every}-й візит — ${esc(L.reward)}. Відмітки нараховуються самі.`]);
+    box.innerHTML =
+      `<h3>${d.first ? "Вітаємо в GAV&LOVE 🐾" : "Готово 🐾"}</h3>` +
+      `<p>${esc(msg || (isRequest ? "Заявку прийнято — ми зв'яжемось, щоб підтвердити час." : "Запис створено."))}</p>` +
+      "<ul>" + items.map(it => `<li><span>${it[0]}</span><span>${it[1]}</span></li>`).join("") + "</ul>" +
+      `<div class="bf-done-act">` +
+        (link ? `<a class="btn btn-primary" href="${esc(link)}" target="_blank" rel="noopener">Підключити Telegram</a>` : "") +
+        `<a class="btn btn-ghost" href="cabinet.html">Кабінет клієнта</a>` +
+      `</div>` +
+      `<p class="bf-done-note">У боті натисніть «📱 Поділитися номером» — за ним ми впізнаємо ваші візити. Номер бачить лише салон.</p>`;
+    box.hidden = false;
+    if (!reduced) box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
   /* ---- Guided steps: 1 улюбленець → 2 послуга → 3 дата й час → 4 контакти ---- */
   const form = $("#bookingForm"), status = $("#bfStatus");
   const nameInput = $("#bf-name"), phoneInput = $("#bf-phone"), petNameInput = $("#bf-petname");
@@ -999,8 +1031,9 @@
     data.addons = [].map.call(form.querySelectorAll('input[name="addon"]:checked'), c => c.value);
     const btn = form.querySelector('button[type="submit"]');
     btn.disabled = true; status.textContent = "Надсилаємо…";
+    const done = $("#bfDone"); if (done) { done.hidden = true; done.innerHTML = ""; }
     try {
-      let request = false, demo = false, assignedStaff = "";
+      let request = false, demo = false, assignedStaff = "", booked = null;
       if (CONFIG.bookingEndpoint) {
         const res = await fetch(`${CONFIG.bookingEndpoint}/book`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
@@ -1008,6 +1041,7 @@
         const d = await res.json();
         if (!d.ok) throw new Error(d.error || "bad");
         request = d.request; assignedStaff = d.staff || ""; window._lastWait = d.waitlist; window._lastTg = d.tg_link || "";
+        booked = d;
       } else {
         await new Promise(r => setTimeout(r, 500)); // online-booking not activated yet
         demo = true;
@@ -1021,13 +1055,7 @@
             ? "Дякуємо! Заявку надіслано — ми зв'яжемось для підтвердження."
             : "Готово! Запис створено" + (assignedStaff ? " до майстра " + assignedStaff : "") + " — до зустрічі 🐾";
       if (demo) { const c = document.getElementById("contacts"); if (c) c.scrollIntoView({ behavior: "smooth" }); }
-      if (!demo && window._lastTg) {   // one tap links the client's Telegram → confirmation + reminders arrive there
-        const a = document.createElement("a");
-        a.className = "btn btn-primary"; a.href = window._lastTg; a.target = "_blank"; a.rel = "noopener";
-        a.style.cssText = "display:inline-block;margin-top:12px";
-        a.textContent = "🔔 Отримувати нагадування в Telegram";
-        status.appendChild(document.createElement("br")); status.appendChild(a);
-      }
+      if (!demo) { showAfterBooking(booked, request, status.textContent); status.textContent = ""; status.className = "form-status"; }
       const rememberMe = $("#bf-remember"), rememberOn = !rememberMe || rememberMe.checked;
       if (rememberOn) lsSet(PF_KEY, JSON.stringify({ t: Date.now(), name: data.name || "", phone: data.phone || "", pet: data.pet || "", pet_name: data.pet_name || "", breed: data.breed || "", weight: data.weight || "" }));
       else lsDel(PF_KEY);

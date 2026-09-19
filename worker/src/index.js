@@ -499,7 +499,19 @@ async function book(body, env, source) {
     tgLink = await tgDeepLink(env, saved.tg_code);                       // "" until the bot is connected in the CRM
     if (saved.id && !isRequest) await tgNotifyClient(env, saved.id, "created"); // only if this client already linked Telegram
   } catch (e) { }
-  return { ok: true, request: isRequest, staff, waitlist, id: saved.id || null, tg_link: tgLink };
+  let first = false, linked = false, loyalty = null, bot = "";
+  try {
+    const st = await loadSettings(env);
+    bot = st.tg_bot || "";
+    if (st.loyalty_enabled === "1") loyalty = { every: Math.max(2, parseInt(st.loyalty_every, 10) || 6), reward: st.loyalty_reward || "" };
+    if (saved.client_id) {   // first visit = this booking is the only one on the card
+      const n = await env.DB.prepare(`SELECT COUNT(*) AS n FROM bookings WHERE client_id=? AND service<>'Блокування'`).bind(saved.client_id).first();
+      const c = await env.DB.prepare(`SELECT tg_chat_id FROM clients WHERE id=?`).bind(saved.client_id).first();
+      first = !!(n && n.n <= 1);
+      linked = !!(c && c.tg_chat_id);   // already in Telegram → reminders and bonuses are already on
+    }
+  } catch (e) { }
+  return { ok: true, request: isRequest, staff, waitlist, id: saved.id || null, tg_link: tgLink, first, linked, loyalty, bot };
 }
 
 /* ----------------------------- Calendar events ----------------------------- */
@@ -561,7 +573,7 @@ async function saveBooking(env, b) {
       (b.price != null && b.price !== "") ? b.price : null, b.staff || "", b.weight || "",
       link.client_id, link.pet_id, b.pet_name || "", tgCode
     ).run();
-    return { id: r.meta && r.meta.last_row_id, tg_code: tgCode };
+    return { id: r.meta && r.meta.last_row_id, tg_code: tgCode, client_id: link.client_id || null };
   } catch (e) { /* CRM logging must never break a booking */ }
 }
 
@@ -1874,6 +1886,24 @@ async function sendVisits(env, chat, c) {
       canChange ? kb([[{ text: "🔁 Перенести", callback_data: `mv:${b.id}` }, { text: "❌ Скасувати", callback_data: `cancel:${b.id}` }]]) : undefined);
   }
 }
+// Shown once, right after a chat is linked: what this bot is for.
+async function botIntroText(env) {
+  let st = {};
+  try { st = await loadSettings(env); } catch (e) { }
+  const lines = [
+    "Ось що я вмію 👇",
+    "📅 <b>Записати на грумінг</b> — кнопка нижче або /book",
+    "🔔 <b>Нагадаю про візит</b> — за день і за годину до нього",
+    "🔁 <b>Перенести</b> або ❌ <b>скасувати</b> — /visits, двома кнопками",
+    "🔑 <b>Кабінет</b> — /cabinet: візити, улюбленці, бонуси",
+  ];
+  if (st.loyalty_enabled === "1") {
+    const every = Math.max(2, parseInt(st.loyalty_every, 10) || 6);
+    const reward = st.loyalty_reward || "приємний бонус";
+    lines.push(`🎁 <b>Бонусна картка</b> — кожен ${every}-й візит: ${tgEsc(reward)}. Відмітки нараховуються автоматично.`);
+  }
+  return lines.join("\n");
+}
 async function nextVisitsText(env, clientId) {
   const today = isoInTz(new Date(), BUSINESS.tz);
   const r = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE client_id=? AND date>=? AND time<>'' AND status IN ('new','confirmed','arrived') AND service<>'Блокування' ORDER BY date,time LIMIT 3`).bind(clientId, today).all();
@@ -1963,6 +1993,7 @@ async function handleTgUpdate(env, u) {
     }
     await linkClientChat(env, c.id, chat);
     await tgSendTo(env, chat, `✅ Готово, ${tgEsc(c.name || "")}! Нагадування про візити приходитимуть сюди.${created ? "" : await nextVisitsText(env, c.id)}`, { reply_markup: { remove_keyboard: true } });
+    try { await tgSendTo(env, chat, await botIntroText(env)); } catch (e) { }
     if (after === "book") { await bookingAskPet(env, chat, c); return; }
     await tgClearState(env, chat);
     if (after === "cab") { await sendCabinetLink(env, chat, c.id); return; }
