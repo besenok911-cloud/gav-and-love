@@ -142,7 +142,20 @@
   /* pets */
   .pet{border:1px solid var(--line);border-radius:14px;padding:12px 13px;margin-bottom:10px}
   .phead{display:flex;align-items:flex-start;gap:10px}
-  .pemo{font-size:1.7rem;line-height:1.1}
+  .pemo{font-size:1.7rem;line-height:1.1;width:56px;height:56px;display:flex;align-items:center;justify-content:center;
+    border-radius:14px;background:var(--bg-2);flex:0 0 auto}
+  .pava{width:56px;height:56px;border-radius:14px;overflow:hidden;flex:0 0 auto;border:1.5px solid var(--line);background:var(--bg-2)}
+  .pava img{width:100%;height:100%;object-fit:cover;display:block}
+  .ptfoto{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .ptfoto .pava,.ptfoto .pemo{width:84px;height:84px;border-radius:16px;font-size:2.4rem}
+  .ptfoto-act{display:flex;flex-direction:column;gap:6px;min-width:0}
+  .ptfoto-hint{font-size:.78rem;color:var(--ink-soft);overflow-wrap:anywhere}
+  .ptadd{display:inline-flex;align-items:center;gap:.4em;font-weight:800;font-size:.86rem;color:var(--violet);
+    border:1.5px solid var(--line);border-radius:999px;padding:.45em 1em;cursor:pointer;background:#fff;align-self:flex-start}
+  .ptgal{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .ptgal .ph{width:64px;height:64px}
+  .ptgal .phx{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;border:0;
+    background:rgba(28,19,64,.85);color:#fff;cursor:pointer;font-size:.72rem;line-height:1;padding:0}
   .pinfo{flex:1;min-width:0}
   .pname{font-weight:900;font-size:1.05rem;overflow-wrap:anywhere}
   .pmeta{color:var(--ink-soft);font-size:.84rem;margin-top:2px;overflow-wrap:anywhere}
@@ -167,7 +180,9 @@
   .fld{margin-bottom:12px;min-width:0}
   .fld label{display:block;font-weight:800;font-size:.82rem;margin-bottom:5px}
   .fld label .opt{color:var(--ink-soft);font-weight:700;font-size:.76rem}
-  .fld input,.fld select,.fld textarea{width:100%;padding:.75em .9em;border:1.5px solid var(--line);border-radius:12px;font-size:1rem;font-family:var(--font-body);background:#fff;color:var(--ink);min-height:44px}
+  .fld input,.fld select,.fld textarea{width:100%;min-width:0;max-width:100%;padding:.75em .9em;border:1.5px solid var(--line);border-radius:12px;font-size:1rem;font-family:var(--font-body);background:#fff;color:var(--ink);min-height:44px}
+  /* iOS gives date inputs an intrinsic width that spills out of the card and makes the whole sheet pan sideways */
+  .fld input[type=date]{-webkit-appearance:none;appearance:none;display:block}
   .fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:var(--violet)}
   .fld input[readonly]{background:var(--bg-2);color:var(--ink-soft)}
   .fld textarea{min-height:70px;resize:vertical}
@@ -179,7 +194,9 @@
 
   /* modal */
   .mod-back{position:fixed;inset:0;background:rgba(28,19,64,.45);display:flex;align-items:center;justify-content:center;z-index:200;padding:12px}
-  .mod{background:var(--paper);border-radius:20px;padding:22px 20px;width:100%;max-width:560px;box-shadow:var(--shadow);max-height:calc(100vh - 24px);overflow:auto}
+  .mod{background:var(--paper);border-radius:20px;padding:22px 20px;width:100%;max-width:560px;box-shadow:var(--shadow);
+    max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  body.modal-open{overflow:hidden}
   .mod h2{font-family:var(--font-head);font-weight:600;margin:0 0 14px;font-size:1.35rem}
   .mod-act{display:flex;gap:10px;margin-top:6px}
   .mod-act .btn{flex:1}
@@ -309,6 +326,16 @@
 <div class="mod-back" id="petBack" hidden>
   <div class="mod" role="dialog" aria-modal="true" aria-labelledby="petTitle">
     <h2 id="petTitle">Улюбленець</h2>
+    <div id="pt-photos-wrap" hidden>
+        <div class="ptfoto">
+          <span id="pt-ava"></span>
+          <div class="ptfoto-act">
+            <label class="ptadd">📷 Додати фото<input id="pt-photo-file" type="file" accept="image/*" hidden></label>
+            <span class="ptfoto-hint" id="pt-photo-hint">Фото з картки бачите ви і майстер. У галерею сайту воно потрапляє, лише якщо салон його опублікує.</span>
+          </div>
+        </div>
+        <div class="ptgal" id="pt-gal"></div>
+      </div>
     <div class="grid2">
       <div class="fld"><label for="pt-name">Кличка *</label><input id="pt-name" autocomplete="off" maxlength="60"></div>
       <div class="fld"><label for="pt-species">Вид</label>
@@ -595,6 +622,18 @@
   }
 
   /* pets */
+  // the newest photo becomes the card's portrait; without one we keep the species emoji
+  function mainPhoto(p){
+    var ps=(p&&p.photos instanceof Array?p.photos:[]).filter(function(x){return x&&safeUrl(x.url);});
+    if(!ps.length)return null;
+    var sorted=ps.slice().sort(function(a,b){return String(b.created_at||"").localeCompare(String(a.created_at||""))||(b.id-a.id);});
+    return sorted.filter(function(x){return x.kind==="after";})[0]||sorted[0];
+  }
+  function avatarHtml(p){
+    var m=mainPhoto(p);
+    return m?'<span class="pava"><img src="'+esc(safeUrl(m.url))+'" alt="'+esc(p.name||"")+'" loading="lazy"></span>'
+           :'<span class="pemo">'+(own(EMO,p.species)?EMO[p.species]:"🐾")+'</span>';
+  }
   function petHtml(p){
     var meta=[p.breed,p.weight,p.birthdate?((ageOf(p.birthdate)?ageOf(p.birthdate)+" · ":"")+fmtD(p.birthdate)):""].filter(Boolean).join(" · ");
     var extra=[own(SEX,p.sex)?SEX[p.sex]:"",p.color||""].filter(Boolean).join(", ");
@@ -606,7 +645,7 @@
         '<span class="pk'+(after?" after":"")+'">'+(after?"після":"до")+'</span></a>';
     }).join("");
     return '<div class="pet">'+
-      '<div class="phead"><span class="pemo">'+(own(EMO,p.species)?EMO[p.species]:"🐾")+'</span>'+
+      '<div class="phead">'+avatarHtml(p)+
         '<div class="pinfo"><div class="pname">'+esc(p.name||"")+'</div>'+
           (meta?'<div class="pmeta">'+esc(meta)+'</div>':'')+(extra?'<div class="pmeta">'+esc(extra)+'</div>':'')+'</div>'+
         '<button type="button" class="btn sm ghost2" data-act="edit" data-id="'+esc(p.id)+'" title="Редагувати">✎ Редагувати</button></div>'+
@@ -658,10 +697,51 @@
     $("#pt-prefs").value=p?(p.prefs||""):"";
     $("#pt-warnings").value=p?(p.client_notes||""):"";
     $("#petErr").textContent="";speciesUI();setBusy($("#pt-save"),false);
-    $("#petBack").hidden=false;
-    setTimeout(function(){$("#pt-name").focus();},50);
+    $("#petBack").hidden=false;document.body.classList.add("modal-open");
+    $("#pt-photos-wrap").hidden=!p;renderPetPhotos(p);
+    $("#petBack").scrollTop=0;var _m=$("#petBack").querySelector(".mod");if(_m)_m.scrollTop=0;
+    // on a phone this used to pop the keyboard the moment the card opened and jump the sheet
+    if(!matchMedia("(pointer:coarse)").matches)setTimeout(function(){$("#pt-name").focus();},50);
   }
-  function closePet(){$("#petBack").hidden=true;editPetId=null;}
+  function renderPetPhotos(p){
+    var ava=$("#pt-ava"),gal=$("#pt-gal");
+    if(!ava||!gal)return;
+    ava.outerHTML='<span id="pt-ava">'+(p?avatarHtml(p):"")+'</span>';
+    var ps=(p&&p.photos instanceof Array?p.photos:[]).filter(function(x){return x&&safeUrl(x.url);});
+    gal.innerHTML=ps.map(function(ph){
+      var u=safeUrl(ph.url),after=ph.kind==="after";
+      return '<span class="ph" data-id="'+esc(ph.id)+'"><img src="'+esc(u)+'" alt="" loading="lazy">'+
+        '<span class="pk'+(after?" after":"")+'">'+(after?"після":"до")+'</span>'+
+        '<button type="button" class="phx" title="Видалити фото">✕</button></span>';
+    }).join("");
+  }
+  function shrinkImage(file,max){return new Promise(function(res,rej){var url=URL.createObjectURL(file),img=new Image();
+    img.onload=function(){var w=img.naturalWidth,h=img.naturalHeight,sc=Math.min(1,max/Math.max(w,h));var c=document.createElement("canvas");
+      c.width=Math.round(w*sc);c.height=Math.round(h*sc);c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      URL.revokeObjectURL(url);res(c.toDataURL("image/jpeg",0.82));};
+    img.onerror=function(){URL.revokeObjectURL(url);rej(new Error("не вдалося прочитати зображення"));};img.src=url;});}
+  $("#pt-photo-file").addEventListener("change",function(){
+    var f=this.files&&this.files[0];this.value="";
+    if(!f||!editPetId)return;
+    var hint=$("#pt-photo-hint");hint.textContent="Стискаємо та надсилаємо…";
+    shrinkImage(f,1280).then(function(dataUrl){
+      return call("/client/photo",{pet_id:editPetId,kind:"after",data:dataUrl});
+    }).then(function(r){
+      if(!r||!r.ok)throw new Error((r&&r.error)||"помилка");
+      hint.textContent="Фото додано ✓";toast("Фото додано");
+      return load().then(function(){renderPets();renderPetPhotos(findPet(editPetId));});
+    }).catch(function(e){hint.textContent="Не вдалося: "+((e&&e.message)||"помилка");toast("Не вдалося додати фото",true);});
+  });
+  $("#pt-gal").addEventListener("click",function(e){
+    var x=e.target.closest(".phx");if(!x)return;
+    var id=x.closest(".ph").getAttribute("data-id");
+    if(!confirm("Видалити це фото?"))return;
+    call("/client/photo-delete",{id:+id}).then(function(r){
+      if(!r||!r.ok)throw new Error((r&&r.error)||"помилка");
+      toast("Фото видалено");return load().then(function(){renderPets();renderPetPhotos(findPet(editPetId));});
+    }).catch(function(e){toast((e&&e.message)||"Не вдалося видалити",true);});
+  });
+  function closePet(){$("#petBack").hidden=true;editPetId=null;document.body.classList.remove("modal-open");}
   function savePet(){
     var name=$("#pt-name").value.trim();
     if(!name){$("#petErr").textContent="Вкажіть кличку улюбленця.";$("#pt-name").focus();return;}

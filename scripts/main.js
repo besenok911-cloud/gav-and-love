@@ -813,6 +813,25 @@
   // the same breed is spelled differently across the price lists («йоркширский» / «йоркширський»),
   // so compare on a loose key rather than character by character
   const bKey = v => String(v == null ? "" : v).toLowerCase().replace(/[ьъʼ’']/g, "").replace(/и/g, "і").replace(/[^a-zа-яіїєґ0-9]+/g, "");
+  const kgNums = v => (String(v == null ? "" : v).match(/\d+(?:[.,]\d+)?/g) || []).map(x => parseFloat(x.replace(",", ".")));
+  const petKg = w => { const n = kgNums(w); if (!n.length) return null; return /понад|більше|від/i.test(String(w)) ? n[0] + 0.01 : n[n.length - 1]; };
+  function bandFits(opt, kg) {   // «до 20 кг», «від 4 кг», «3–5 кг»
+    const n = kgNums(opt); if (!n.length || kg == null) return false;
+    if (/^\s*до\s*\d/i.test(opt)) return kg <= n[0];              // \b is useless next to Cyrillic
+    if (/^\s*(від|понад|більше)\s*\d/i.test(opt)) return kg >= n[0];
+    if (n.length >= 2) return kg > n[0] - 0.001 && kg <= n[1];
+    return Math.abs(kg - n[0]) < 0.001;
+  }
+  function setWeightOpt(sel, cardWeight) {   // the card says «10–15 кг», the price list says «до 20 кг»
+    if (!sel || !cardWeight) return false;
+    if (setOpt(sel, cardWeight)) return true;
+    const kg = petKg(cardWeight); if (kg == null) return false;
+    const top = o => { const n = kgNums(o); return /^\s*(від|понад|більше)\s*\d/i.test(o) ? Infinity : (n.length ? n[n.length - 1] : Infinity); };
+    const hit = [].slice.call(sel.options).filter(o => o.value && bandFits(o.value, kg))
+      .sort((x, y) => top(x.value) - top(y.value))[0];   // the tightest band that still fits, never the priciest
+    if (!hit) return false;
+    sel.value = hit.value; return true;
+  }
   function setOpt(sel, v) {   // select an option only if the current list really has that value
     if (!sel || !v) return false;
     const want = bKey(v), opts = [].slice.call(sel.options).filter(o => o.value);
@@ -840,9 +859,30 @@
     if (pendingPet.breed && shown(breedField) && !val(breedSel) && setOpt(breedSel, pendingPet.breed)) {
       if (typeof syncWeightForBreed === "function") syncWeightForBreed();
     }
-    if (pendingPet.weight && shown(weightField) && !val(weightSel)) setOpt(weightSel, pendingPet.weight);
+    if (pendingPet.weight && shown(weightField) && !val(weightSel)) setWeightOpt(weightSel, pendingPet.weight);
     breedNoteForPending();
     if (typeof updatePriceHint === "function") updatePriceHint();
+  }
+  let autoPicked = "";
+  function svcHint(text) {
+    const el = $("#bf-svc-hint"); if (!el) return;
+    el.textContent = text || ""; el.hidden = !text;
+  }
+  // Breed and weight decide which service applies, so offer it instead of making the visitor guess.
+  function autoPickService() {
+    if (!serviceSel || !SERVICES.length || !pendingPet || val(serviceSel)) return;   // never override a choice
+    const want = pendingPet.breed; if (!want) return;
+    const sp = petSpecies();
+    const rowsFor = s => (s.rows || []).filter(r => r && r[0] && bKey(r[0]) === bKey(want));
+    const fits = SERVICES.filter(s => s.bookable !== 0 && !s.is_request && s.price_type === "breed"
+      && (!sp || !s.species || s.species === "both" || s.species === sp) && rowsFor(s).length);
+    if (!fits.length) return;
+    const kg = petKg(pendingPet.weight);
+    const byWeight = kg == null ? [] : fits.filter(s => rowsFor(s).some(r => bandFits(String(r[1] || ""), kg)));
+    const pick = byWeight[0] || fits[0];
+    serviceSel.value = pick.name; autoPicked = pick.name;
+    serviceSel.dispatchEvent(new Event("change", { bubbles: true }));   // rebuilds breed/weight, price and steps
+    svcHint("Послугу обрано за карткою улюбленця (" + [want, pendingPet.weight].filter(Boolean).join(", ") + "). Можна змінити.");
   }
   function usePet(p, fromChip) {
     if (!p) return;
@@ -853,6 +893,7 @@
     pendingPet = { breed: p.breed || "", weight: p.weight || "" };
     applyPendingPet();
     if (fromChip) $$(".bf-pet", form).forEach(x => x.classList.toggle("is-sel", x === fromChip));
+    autoPickService();
     renderSteps();
   }
   function hello(name) {
@@ -881,7 +922,7 @@
     if (!d || !d.phone) return;
     const rm = $("#bf-remember"); if (rm) rm.checked = true;
     prefillContacts(d);
-    if (d.pet) { pendingPet = { breed: d.breed || "", weight: d.weight || "" }; setPet(d.pet); applyPendingPet(); }
+    if (d.pet) { pendingPet = { breed: d.breed || "", weight: d.weight || "" }; setPet(d.pet); applyPendingPet(); autoPickService(); }
     if (petNameInput && d.pet_name) petNameInput.value = d.pet_name;
     hello(d.name || "");
   })();
@@ -902,7 +943,7 @@
         renderSteps();
       }).catch(() => { });
   }
-  serviceSel && serviceSel.addEventListener("change", () => { applyPendingPet(); renderSteps(); });
+  serviceSel && serviceSel.addEventListener("change", () => { if (val(serviceSel) !== autoPicked) svcHint(""); applyPendingPet(); renderSteps(); });
   breedSel && breedSel.addEventListener("change", () => {
     if (pendingPet) pendingPet.breed = val(breedSel);
     if (breedNote && val(breedSel)) breedNote.hidden = true;

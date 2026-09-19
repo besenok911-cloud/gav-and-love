@@ -101,6 +101,8 @@ export default {
       if (url.pathname === "/client/booking-cancel" && request.method === "POST") return json(await clientCancel(request, env), cors);
       if (url.pathname === "/client/booking-move" && request.method === "POST") return json(await clientMove(request, env), cors);
       if (url.pathname === "/client/pet-save" && request.method === "POST") return json(await clientPetSave(request, env), cors);
+      if (url.pathname === "/client/photo" && request.method === "POST") return json(await clientPhotoUpload(request, env), cors);
+      if (url.pathname === "/client/photo-delete" && request.method === "POST") return json(await clientPhotoDelete(request, env), cors);
       if (url.pathname === "/client/profile" && request.method === "POST") return json(await clientProfile(request, env), cors);
       if (url.pathname === "/client/logout" && request.method === "POST") return json(await clientLogout(request, env), cors);
       if (url.pathname === "/master/data" && request.method === "GET") {
@@ -946,6 +948,32 @@ async function clientMove(request, env) {
   return { ok: true, staff };
 }
 const CLIENT_PET_FIELDS = ["name", "species", "breed", "weight", "birthdate", "sex", "color", "allergies", "behavior", "prefs", "client_notes"];   // vet_notes / warnings / reactions / special are staff-only
+// A photo of one's own pet, added from the client cabinet.
+async function clientOwnPet(env, c, petId) {
+  const id = Number(petId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return await env.DB.prepare(`SELECT id,client_id FROM pets WHERE id=? AND client_id=?`).bind(id, c.id).first();
+}
+async function clientPhotoUpload(request, env) {
+  const c = await requireClient(request, env);
+  const b = await request.json();
+  const pet = await clientOwnPet(env, c, b && b.pet_id);
+  if (!pet) return { ok: false, error: "Улюбленця не знайдено" };
+  const n = await env.DB.prepare(`SELECT COUNT(*) AS n FROM pet_photos WHERE pet_id=?`).bind(pet.id).first();
+  if (n && n.n >= 30) return { ok: false, error: "У картці вже 30 фото — видаліть зайві" };
+  return await savePetPhoto(env, new URL(request.url).origin, { pet_id: pet.id, kind: b.kind, data: b.data });
+}
+async function clientPhotoDelete(request, env) {
+  const c = await requireClient(request, env);
+  const b = await request.json();
+  const id = Number(b && b.id);
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "id required" };
+  const p = await env.DB.prepare(`SELECT id,pet_id,published FROM pet_photos WHERE id=?`).bind(id).first();
+  if (!p || !(await clientOwnPet(env, c, p.pet_id))) { const e = new Error("Немає доступу до цього фото"); e.status = 403; throw e; }
+  if (p.published) return { ok: false, error: "Це фото салон показує в галереї сайту — попросіть прибрати його звідти" };
+  await env.DB.prepare(`DELETE FROM pet_photos WHERE id=?`).bind(id).run();
+  return { ok: true };
+}
 async function clientPetSave(request, env) {
   const c = await requireClient(request, env);
   const b = await request.json();
