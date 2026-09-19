@@ -278,7 +278,7 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 .g-badge-play{display:inline-flex;align-items:center;gap:.35em;background:rgba(74,37,201,.92)}
 .g-badge-play .i{width:.85em;height:.85em}
 .g-badge-ba{z-index:4;background:rgba(74,37,201,.92);max-width:calc(100% - 20px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lb-vid{position:relative;display:inline-block;max-width:92vw;max-height:88vh}
+.lb-vid{position:relative;display:inline-block;max-width:92vw;max-height:84vh}
 .lb-cap{position:absolute;top:12px;left:12px;font-size:.7rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:.4em .85em;border-radius:999px;background:rgba(74,37,201,.92);color:#fff;pointer-events:none;max-width:calc(100% - 24px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .g-badge{position:absolute;top:10px;left:10px;background:rgba(28,19,64,.82);color:#fff;font-family:var(--font-body);
   font-weight:700;font-size:.7rem;letter-spacing:.03em;padding:.35em .7em;border-radius:999px}
@@ -397,12 +397,12 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 /* ===== Lightbox ===== */
 .lightbox{position:fixed;inset:0;z-index:100;background:rgba(18,12,38,.95);display:none;align-items:center;justify-content:center}
 .lightbox.open{display:flex}
-.lb-stage{max-width:92vw;max-height:88vh}
-.lb-stage img,.lb-stage video{max-width:92vw;max-height:88vh;border-radius:10px;box-shadow:0 30px 60px -20px #000}
-.lb-close,.lb-prev,.lb-next{position:absolute;background:rgba(255,255,255,.12);color:#fff;border:0;cursor:pointer;
+.lb-stage{max-width:92vw;max-height:84vh;margin-top:4vh}
+.lb-stage img,.lb-stage video{max-width:92vw;max-height:84vh;border-radius:10px;box-shadow:0 30px 60px -20px #000}
+.lb-close,.lb-prev,.lb-next{position:absolute;z-index:3;background:rgba(255,255,255,.12);color:#fff;border:0;cursor:pointer;
   width:52px;height:52px;border-radius:50%;font-size:2rem;line-height:1;display:flex;align-items:center;justify-content:center;transition:.2s}
 .lb-close:hover,.lb-prev:hover,.lb-next:hover{background:var(--violet)}
-.lb-close{top:18px;right:18px;font-size:1.8rem}
+.lb-close{top:18px;right:18px;font-size:1.8rem;background:rgba(28,19,64,.88);border:1.5px solid rgba(255,255,255,.35)}
 .lb-prev{left:14px;top:50%;translate:0 -50%}
 .lb-next{right:14px;top:50%;translate:0 -50%}
 
@@ -594,3 +594,16 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 .rev-item .who{margin-top:auto;font-weight:700;color:var(--ink)}
 .rev-item .who span{color:var(--ink-soft);font-weight:600;font-size:.9rem}
 .reviews-cta{text-align:center;margin-top:30px}
+
+/* ===== Lightbox on phones (last, so it beats the desktop rules above) ===== */
+@media (max-width:640px){
+  /* iOS paints the player controls over the video, so keep our buttons off it */
+  .lb-stage{max-height:70vh;max-height:70dvh;margin-top:9vh}
+  .lb-stage img,.lb-stage video,.lb-vid{max-height:70vh;max-height:70dvh}
+  .lb-close{top:calc(10px + env(safe-area-inset-top));right:10px;width:auto;min-width:46px;height:46px;padding:0 1em;gap:.4em;
+    font-size:1.5rem;border-radius:999px;background:rgba(28,19,64,.95)}
+  .lb-close::after{content:"Закрити";font-family:var(--font-body);font-size:.82rem;font-weight:800;letter-spacing:.02em}
+  .lb-prev,.lb-next{width:44px;height:44px;background:rgba(28,19,64,.85);border:1.5px solid rgba(255,255,255,.25)}
+  .lb-ba{max-height:70vh;max-height:70dvh}
+  .lb-cap{top:auto;bottom:calc(100% + 8px);left:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+}
