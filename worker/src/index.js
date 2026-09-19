@@ -109,6 +109,9 @@ export default {
       if (url.pathname === "/master/status" && request.method === "POST") {
         return json(await masterStatus(request, await request.json(), env), cors);
       }
+      if (url.pathname === "/master/photo" && request.method === "POST") return json(await masterPhotoUpload(request, env), cors);
+      if (url.pathname === "/master/photos" && request.method === "GET") return json(await masterPhotos(request, url, env), cors);
+      if (url.pathname === "/master/photo-delete" && request.method === "POST") return json(await masterPhotoDelete(request, env), cors);
       // ---- Reviews ----
       if (url.pathname === "/review" && request.method === "POST") {
         return json(await reviewCreate(await request.json(), env), cors);   // public: client submits
@@ -979,9 +982,7 @@ async function cabinetLinkButton(env, clientId) {   // one-tap login link for th
 /* ----------------------------- Pet photos (before / after) — stored in D1, served by /photo/<id>/<token> ----------------------------- */
 const PHOTO_MAX = 900 * 1024;   // after client-side shrinking a 1280px JPEG is ~100-250 KB
 const photoUrl = (origin, p) => `${origin}/photo/${p.id}/${p.token}`;
-async function photoUpload(request, env) {
-  await requireAdmin(request, env);
-  const b = await request.json();
+async function savePetPhoto(env, origin, b) {   // shared by the admin pet card and the master's visit card
   const petId = Number(b.pet_id); if (!Number.isInteger(petId) || petId <= 0) return { ok: false, error: "pet_id required" };
   const kind = b.kind === "after" ? "after" : "before";
   const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.data || ""));
@@ -994,7 +995,12 @@ async function photoUpload(request, env) {
   const r = await env.DB.prepare(`INSERT INTO pet_photos (pet_id,client_id,booking_id,kind,mime,data,token,created_at,note) VALUES (?,?,?,?,?,?,?,?,?)`)
     .bind(petId, pet.client_id || null, b.booking_id ? +b.booking_id : null, kind, m[1], bin.buffer, token, new Date().toISOString(), String(b.note || "").slice(0, 200)).run();
   const id = r.meta && r.meta.last_row_id;
-  return { ok: true, id, url: photoUrl(new URL(request.url).origin, { id, token }) };
+  return { ok: true, id, kind, url: photoUrl(origin, { id, token }) };
+}
+async function photoUpload(request, env) {
+  await requireAdmin(request, env);
+  const b = await request.json();
+  return await savePetPhoto(env, new URL(request.url).origin, b);
 }
 async function adminPhotos(request, url, env) {
   await requireAdmin(request, env);
@@ -1157,7 +1163,8 @@ async function masterData(request, url, env) {
   if (!m) { const e = new Error("Невірний код доступу"); e.status = 401; throw e; }
   const since = new Date(Date.now() - 120 * 864e5).toISOString().slice(0, 10);
   const { results } = await env.DB.prepare(
-    `SELECT id,date,time,name,phone,pet,pet_name,breed,weight,service,price,status,note,source,pay_method
+    `SELECT id,date,time,name,phone,pet,pet_name,breed,weight,service,price,status,note,source,pay_method,pet_id,
+            (SELECT COUNT(*) FROM pet_photos ph WHERE ph.pet_id=bookings.pet_id) AS photos
        FROM bookings WHERE staff=? AND (date>=? OR date='' OR date IS NULL) ORDER BY date, time`
   ).bind(m.name, since).all();
   return {
@@ -1169,6 +1176,47 @@ async function masterData(request, url, env) {
     },
     bookings: results || [],
   };
+}
+// A photo endpoint a master may use only for a visit that is theirs.
+async function masterBooking(env, m, bookingId) {
+  const id = Number(bookingId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const b = await env.DB.prepare(`SELECT id,staff,pet_id,client_id,date FROM bookings WHERE id=?`).bind(id).first();
+  return (b && b.staff === m.name) ? b : null;
+}
+async function masterOr401(request, env, code) {
+  const m = await masterFromReq(request, env, code);
+  if (!m) { const e = new Error("Невірний код доступу"); e.status = 401; throw e; }
+  return m;
+}
+function forbid() { const e = new Error("Немає доступу до цього запису"); e.status = 403; throw e; }
+async function masterPhotoUpload(request, env) {
+  const body = await request.json();
+  const m = await masterOr401(request, env, body && body.code);
+  const b = await masterBooking(env, m, body && body.booking_id);
+  if (!b) forbid();
+  if (!b.pet_id) return { ok: false, error: "У цьому записі ще немає картки улюбленця — попросіть адміністратора її створити" };
+  return await savePetPhoto(env, new URL(request.url).origin, { pet_id: b.pet_id, booking_id: b.id, kind: body.kind, data: body.data, note: body.note });
+}
+async function masterPhotos(request, url, env) {
+  const m = await masterOr401(request, env, url.searchParams.get("code"));
+  const b = await masterBooking(env, m, url.searchParams.get("booking_id"));
+  if (!b) forbid();
+  if (!b.pet_id) return { ok: true, photos: [] };
+  const rows = (await env.DB.prepare(`SELECT id,kind,token,created_at,booking_id FROM pet_photos WHERE pet_id=? ORDER BY created_at DESC, id DESC LIMIT 30`).bind(b.pet_id).all()).results || [];
+  const origin = new URL(request.url).origin;
+  return { ok: true, photos: rows.map(r => ({ id: r.id, kind: r.kind, created_at: r.created_at, url: photoUrl(origin, r), mine: r.booking_id === b.id })) };
+}
+async function masterPhotoDelete(request, env) {
+  const body = await request.json();
+  const m = await masterOr401(request, env, body && body.code);
+  const id = Number(body && body.id);
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "id required" };
+  const p = await env.DB.prepare(`SELECT id,booking_id FROM pet_photos WHERE id=?`).bind(id).first();
+  if (!p || !p.booking_id) forbid();                       // only a photo taken on one of this master's visits
+  if (!(await masterBooking(env, m, p.booking_id))) forbid();
+  await env.DB.prepare(`DELETE FROM pet_photos WHERE id=?`).bind(id).run();
+  return { ok: true };
 }
 // POST /master/status {code,id,status} -> update status of one of the master's own bookings
 async function masterStatus(request, body, env) {

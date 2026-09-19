@@ -44,8 +44,26 @@
   .range input{border:1.5px solid var(--line);border-radius:999px;padding:.32em .6em;font-family:var(--font-body);font-size:.78rem;font-weight:700;color:var(--ink-soft);background:#fff;min-width:0;width:132px}
   .range input:focus{outline:none;border-color:var(--violet)}
   .range .dash{color:var(--ink-soft);font-weight:800}
+  .range .rlbl{font-size:.72rem;font-weight:800;color:var(--ink-soft);letter-spacing:.02em;white-space:nowrap}
+  .vph{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+  .phb{display:inline-flex;align-items:center;gap:.35em;font-weight:800;font-size:.82rem;color:var(--violet);
+    border:1.5px solid var(--line);border-radius:999px;padding:.4em .9em;cursor:pointer;background:#fff}
+  .phb:active{background:var(--violet-soft)}
+  .phs{font:inherit;font-weight:800;font-size:.82rem;color:var(--ink-soft);background:none;border:0;text-decoration:underline dotted;cursor:pointer;padding:.4em 0}
+  .phh{font-size:.78rem;font-weight:700;color:var(--ink-soft);flex-basis:100%}
+  .phl{display:flex;flex-wrap:wrap;gap:8px;flex-basis:100%;margin-top:4px}
+  .phl figure{position:relative;margin:0;width:78px}
+  .phl img{width:78px;height:78px;object-fit:cover;border-radius:10px;display:block}
+  .phl figcaption{font-size:.7rem;font-weight:800;color:var(--ink-soft);text-align:center;margin-top:2px}
+  .phl .phx{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;border:0;background:rgba(28,19,64,.85);color:#fff;cursor:pointer;font-size:.75rem;line-height:1}
+  .dt{position:relative;display:inline-flex}
+  .dt-ph{position:absolute;left:2px;top:2px;bottom:2px;right:26px;display:flex;align-items:center;padding-left:.7em;
+    font-style:normal;font-size:.78rem;font-weight:700;color:var(--ink-soft);opacity:.5;background:#fff;border-radius:999px;pointer-events:none}
+  .dt.filled .dt-ph,.dt input:focus + .dt-ph{display:none}
+  .range.on .dt-ph{background:var(--violet-soft)}
   .range.on input{border-color:var(--violet);color:var(--violet);background:var(--violet-soft)}
-  @media(max-width:560px){.range{flex-basis:100%;margin-left:0}.range input{flex:1;width:auto}}
+  @media(max-width:560px){.range{flex-basis:100%;margin-left:0;flex-wrap:wrap}.range .rlbl{flex-basis:100%}
+    .dt{flex:1}.range input{flex:1;width:auto}}
   .report-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
   .report-grid .kpi{padding:16px 14px}
   .report-grid .kpi .v{font-size:1.5rem}
@@ -154,7 +172,12 @@
           <button type="button" data-p="week">7 днів</button>
           <button type="button" data-p="month" class="on">Місяць</button>
           <button type="button" data-p="all">Весь час</button>
-          <span class="range" id="p-range" title="Довільний період"><input type="date" id="p-from" aria-label="Від"><span class="dash">—</span><input type="date" id="p-to" aria-label="До"></span>
+          <span class="range" id="p-range" title="Довільний період">
+            <span class="rlbl">або свій період:</span>
+            <span class="dt"><input type="date" id="p-from" aria-label="Від"><em class="dt-ph" id="ph-from">напр. 01.09.2026</em></span>
+            <span class="dash">—</span>
+            <span class="dt"><input type="date" id="p-to" aria-label="До"><em class="dt-ph" id="ph-to">напр. 30.09.2026</em></span>
+          </span>
         </div>
       </div>
       <div class="report-grid">
@@ -289,6 +312,7 @@
       '<div class="vsub"><b>'+esc(b.service||"")+'</b></div>'+
       '<span class="badge" style="background:'+STC[st]+'">'+esc(STL[st]||st)+'</span>'+
       '<div class="qbtns">'+qs+'</div>'+
+      photoHtml(b)+
     '</div>';
   }
 
@@ -335,6 +359,71 @@
   function wireQbtns(){
     [].forEach.call(document.querySelectorAll(".qbtns button"),function(btn){
       btn.addEventListener("click",function(){setStatus(+btn.dataset.id,btn.dataset.st);});
+    });
+    wirePhotos();
+  }
+
+  /* ---- «До / Після» photos, straight from the phone, into the pet's card ---- */
+  function photoHtml(b){
+    if(!b.pet_id)return "";
+    var n=Number(b.photos)||0;
+    return '<div class="vph" data-bid="'+b.id+'">'+
+      '<label class="phb">📷 До<input type="file" accept="image/*" data-kind="before" hidden></label>'+
+      '<label class="phb">📷 Після<input type="file" accept="image/*" data-kind="after" hidden></label>'+
+      (n?'<button type="button" class="phs">Фото ('+n+')</button>':'')+
+      '<span class="phh"></span><div class="phl" hidden></div></div>';
+  }
+  function shrinkImage(file,max){return new Promise(function(res,rej){var url=URL.createObjectURL(file),img=new Image();
+    img.onload=function(){var w=img.naturalWidth,h=img.naturalHeight,sc=Math.min(1,max/Math.max(w,h));var c=document.createElement("canvas");
+      c.width=Math.round(w*sc);c.height=Math.round(h*sc);c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      URL.revokeObjectURL(url);res(c.toDataURL("image/jpeg",0.82));};
+    img.onerror=function(){URL.revokeObjectURL(url);rej(new Error("не вдалося прочитати зображення"));};img.src=url;});}
+  function mapi(path,opts){return fetch(API+path,Object.assign({headers:Object.assign({"Authorization":"Bearer "+token},(opts&&opts.headers)||{})},opts||{})).then(function(r){return r.json();});}
+  function loadPhotos(box){
+    var bid=box.dataset.bid,list=box.querySelector(".phl");
+    return mapi("/master/photos?booking_id="+encodeURIComponent(bid)).then(function(r){
+      var ps=(r&&r.photos)||[];
+      list.innerHTML=ps.length?ps.map(function(p){
+        return '<figure'+(p.mine?' class="mine"':'')+'><img src="'+esc(p.url)+'" alt="" loading="lazy"><figcaption>'+(p.kind==="after"?"Після":"До")+'</figcaption>'+
+          (p.mine?'<button type="button" class="phx" data-id="'+p.id+'" title="Видалити">✕</button>':'')+'</figure>';
+      }).join(""):'<p class="nodata" style="margin:6px 0">Фото ще немає.</p>';
+      list.hidden=false;
+      var b=(data.bookings||[]).filter(function(x){return String(x.id)===String(bid);})[0];
+      if(b)b.photos=ps.length;
+      var toggle=box.querySelector(".phs");
+      if(toggle)toggle.textContent="Фото ("+ps.length+")";
+      [].forEach.call(list.querySelectorAll(".phx"),function(x){
+        x.addEventListener("click",function(){
+          if(!confirm("Видалити це фото?"))return;
+          mapi("/master/photo-delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:+x.dataset.id})})
+            .then(function(r){if(!r||!r.ok)throw 0;toast("Фото видалено");loadPhotos(box);})
+            .catch(function(){toast("Не вдалося видалити",true);});
+        });
+      });
+    }).catch(function(){list.innerHTML='<p class="nodata">Не вдалося завантажити фото.</p>';list.hidden=false;});
+  }
+  function wirePhotos(){
+    [].forEach.call(document.querySelectorAll(".vph"),function(box){
+      if(box.dataset.wired)return;box.dataset.wired="1";
+      var hint=box.querySelector(".phh"),toggle=box.querySelector(".phs"),list=box.querySelector(".phl");
+      if(toggle)toggle.addEventListener("click",function(){
+        if(!list.hidden){list.hidden=true;return;}
+        hint.textContent="";loadPhotos(box);
+      });
+      [].forEach.call(box.querySelectorAll('input[type=file]'),function(inp){
+        inp.addEventListener("change",function(){
+          var file=inp.files&&inp.files[0];inp.value="";
+          if(!file)return;
+          hint.textContent="Стискаємо та надсилаємо…";
+          shrinkImage(file,1280).then(function(dataUrl){
+            return mapi("/master/photo",{method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({booking_id:+box.dataset.bid,kind:inp.dataset.kind,data:dataUrl})});
+          }).then(function(r){
+            if(!r||!r.ok)throw new Error((r&&r.error)||"помилка");
+            hint.textContent="Фото збережено ✓";toast("Фото додано");loadPhotos(box);
+          }).catch(function(e){hint.textContent="Не вдалося: "+((e&&e.message)||"помилка");});
+        });
+      });
     });
   }
   function setStatus(id,status){
@@ -387,14 +476,30 @@
     $("#p-range").classList.add("on");
     if(data)report();
   }
-  $("#p-from").addEventListener("change",setCustomRange);
-  $("#p-to").addEventListener("change",setCustomRange);
+  $("#p-from").addEventListener("change",function(){syncPh();setCustomRange();});
+  $("#p-to").addEventListener("change",function(){syncPh();setCustomRange();});
+  // the faded example disappears as soon as a box has a date
+  function syncPh(){[["p-from"],["p-to"]].forEach(function(p){var i=$("#"+p[0]);if(i)i.parentNode.classList.toggle("filled",!!i.value);});}
+  function rangeOf(p){var t=todayISO(),d;
+    if(p==="today")return[t,t];
+    if(p==="week"){d=new Date();d.setDate(d.getDate()-6);return[isoOf(d),t];}
+    if(p==="month"){var n=new Date();return[isoOf(new Date(n.getFullYear(),n.getMonth(),1)),isoOf(new Date(n.getFullYear(),n.getMonth()+1,0))];}
+    return["",""];}
+  function fillRange(p){var r=rangeOf(p);$("#p-from").value=r[0];$("#p-to").value=r[1];syncPh();}
   [].forEach.call(document.querySelectorAll("#periods button"),function(b){
     b.addEventListener("click",function(){period=b.dataset.p;
       [].forEach.call(document.querySelectorAll("#periods button"),function(x){x.classList.toggle("on",x===b);});
       $("#p-range").classList.remove("on");
+      fillRange(period);                       // show which dates the chosen preset means
       if(data)report();});
   });
+  (function initPeriodHints(){
+    var n=new Date(), first=isoOf(new Date(n.getFullYear(),n.getMonth(),1)), last=isoOf(new Date(n.getFullYear(),n.getMonth()+1,0));
+    var f=$("#ph-from"),t=$("#ph-to");
+    if(f)f.textContent="напр. "+fmtD(first);
+    if(t)t.textContent="напр. "+fmtD(last);
+    fillRange(period);
+  })();
 
   if(token){restore();}else{showLogin();}
 })();
