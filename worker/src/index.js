@@ -714,6 +714,7 @@ async function adminUpdate(request, env) {
   const body = await request.json();
   const id = body && body.id;
   if (!id) return { ok: false, error: "id required" };
+  if (body.phone != null) body.phone = stdPhone(body.phone);
   // Schedule guard — only when the assignment itself (master / date / time) is being changed.
   if (body.staff != null || body.date != null || body.time != null) {
     const cur = (await env.DB.prepare(`SELECT staff,date,time,service,status FROM bookings WHERE id=?`).bind(id).first()) || {};
@@ -747,10 +748,11 @@ async function adminUpdate(request, env) {
   return { ok: true, calendar };
 }
 
-async function adminCreate(request, env) {
+async function adminCreate(request, env) {   // phone is standardised inside, like every other write
   await requireAdmin(request, env);
   const b = await request.json();
   if (!b || !b.name || !b.phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
+  b.phone = stdPhone(b.phone);
   if ((b.status || "new") !== "cancelled") { const why = await staffScheduleProblem(env, b); if (why) return { ok: false, error: "Не можна призначити: " + why }; }
   await applyPricing(env, b);
   const hasTime = !!(b.date && b.time);
@@ -779,6 +781,18 @@ async function adminCreate(request, env) {
 }
 
 /* ----------------------------- Clients & Pets ----------------------------- */
+// The one format we store: +380XXXXXXXXX. A string we cannot read as a phone is kept as typed.
+function stdPhone(p) {
+  const raw = String(p == null ? "" : p).trim();
+  if (!raw) return "";
+  let d = raw.replace(/\D/g, "");
+  if (!d) return raw;
+  if (d.length === 9) d = "380" + d;                                  // 671234567
+  else if (d.length === 10 && d[0] === "0") d = "380" + d.slice(1);   // 0671234567
+  else if (d.length === 11 && d.slice(0, 2) === "80") d = "3" + d;    // 80671234567
+  if (d.length < 10 || d.length > 15) return raw;                     // too short / too long to trust
+  return "+" + d;
+}
 function normPhone(p) {   // one canonical key for the same number written in any local style
   let d = (p || "").replace(/\D/g, "");
   if (d.length === 9) d = "380" + d;                                  // 671234567
@@ -799,7 +813,7 @@ async function linkClientPet(env, b) {
     else {
       const r = await env.DB.prepare(
         `INSERT INTO clients (created_at,name,phone,source,status) VALUES (?,?,?,?, 'active')`
-      ).bind(new Date().toISOString(), b.name || "", b.phone || "", b.source || "site").run();
+      ).bind(new Date().toISOString(), b.name || "", stdPhone(b.phone), b.source || "site").run();
       clientId = r.meta && r.meta.last_row_id;
     }
   }
@@ -1096,6 +1110,7 @@ const CLIENT_FIELDS = ["name", "phone", "email", "messenger", "source", "note", 
 async function clientSave(request, env) {
   await requireAdmin(request, env);
   const b = await request.json();
+  if (b.phone != null) b.phone = stdPhone(b.phone);
   if (b.id) {
     const sets = [], vals = [];
     for (const f of CLIENT_FIELDS) if (b[f] != null) { sets.push(`${f}=?`); vals.push(b[f]); }
@@ -1277,6 +1292,7 @@ async function masterStatus(request, body, env) {
 /* ----------------------------- Reviews & loyalty ----------------------------- */
 // public: a client submits a review (hidden until the salon approves it)
 async function reviewCreate(b, env) {
+  if (b && b.phone != null) b.phone = stdPhone(b.phone);
   const rating = Math.max(1, Math.min(5, parseInt(b && b.rating, 10) || 0));
   const text = String(b && b.text || "").trim().slice(0, 1500);
   const name = String(b && b.name || "").trim().slice(0, 80);
@@ -1288,7 +1304,7 @@ async function reviewCreate(b, env) {
       const f = (cs.results || []).find(c => normPhone(c.phone) === np); if (f) clientId = f.id; } catch (e) { }
   }
   await env.DB.prepare(
-    `INSERT INTO reviews (created_at,name,phone,rating,text,master,client_id,published) VALUES (?,?,?,?,?,?,?,0)`
+    `INSERT INTO reviews (created_at,name,phone,rating,text,master,client_id,published) VALUES (?,?,?,?,?,?,?,0)`   /* phone standardised by the caller */
   ).bind(new Date().toISOString(), name, String(b && b.phone || "").trim(), rating, text, String(b && b.master || "").trim(), clientId).run();
   try { await sendTelegram(env, `🌟 Новий відгук (${rating}/5)${name ? " від " + name : ""}\n${text || "(без тексту)"}\nПідтвердьте показ у CRM → Відгуки.`); } catch (e) { }
   return { ok: true };
@@ -1926,7 +1942,7 @@ async function handleTgUpdate(env, u) {
     // only the sender's OWN contact — a forwarded card must never attach this chat to someone else's profile
     const own = msg.from && msg.contact.user_id && String(msg.contact.user_id) === String(msg.from.id);
     if (!own) { await tgSendTo(env, chat, "Приймаємо лише ваш власний номер 🙏\nНатисніть кнопку «📱 Поділитися номером» унизу екрана.", PHONE_KB); return; }
-    const phone = "+" + String(msg.contact.phone_number).replace(/\D/g, "");
+    const phone = stdPhone(msg.contact.phone_number);
     const np = normPhone(phone);
     const after = (st && st.step === "contact" && st.after) || "";
     const cs = await env.DB.prepare(`SELECT id,name,phone FROM clients`).all();

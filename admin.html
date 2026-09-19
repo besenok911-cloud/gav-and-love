@@ -229,6 +229,13 @@
   .btn.outline:hover{border-color:var(--violet);color:var(--violet)}
   /* pet photos (before / after) */
   .ph-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+  .pt-top{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+  .pt-ava{display:block;flex:0 0 auto;width:84px;height:84px;border-radius:16px;overflow:hidden;border:1.5px solid var(--line);background:var(--bg-2)}
+  .pt-ava img{width:100%;height:100%;object-fit:cover;display:block}
+  .pt-ava .pt-emo{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:2.2rem}
+  .pt-top-act{display:flex;flex-direction:column;gap:8px;min-width:0}
+  .pt-top-act .ph-act{display:flex;gap:8px;flex-wrap:wrap}
+  #pt-ph-hint{font-size:.8rem;margin:0 0 10px;overflow-wrap:anywhere;line-height:1.45}
   .ptph{position:relative;border-radius:10px;overflow:hidden;background:var(--bg-2);aspect-ratio:1}
   .ptph img{width:100%;height:100%;object-fit:cover;display:block}
   .ptph .k{position:absolute;left:6px;top:6px;font-size:.66rem;font-weight:800;padding:.2em .55em;border-radius:999px;color:#fff;background:var(--violet)}
@@ -377,7 +384,8 @@
   .modal.open{display:flex}
   .sheet{background:var(--paper);border-radius:20px;box-shadow:var(--shadow);width:min(640px,100%);padding:26px 28px;margin:auto}
   .sheet h2{font-family:var(--font-head);font-weight:600;margin:0 0 18px}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+  .grid2 .fld{min-width:0}
   .fld{display:flex;flex-direction:column;gap:5px}
   .fld.wide{grid-column:1/-1}
   .fld label{font-weight:700;font-size:.82rem;color:var(--ink)}
@@ -388,7 +396,10 @@
   [hidden]{display:none!important}
   .kpis.rep3{grid-template-columns:repeat(3,1fr)}
   .repnote{color:var(--ink-soft);font-size:.9rem;line-height:1.5}
-  @media(max-width:900px){.kpis{grid-template-columns:1fr 1fr}.kpis.rep3{grid-template-columns:1fr 1fr}.dash-grid{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}}
+  @media(max-width:900px){.kpis{grid-template-columns:1fr 1fr}.kpis.rep3{grid-template-columns:1fr 1fr}.dash-grid{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}
+    /* the pet card holds many short fields — two columns keep it from becoming a scroll marathon */
+    #petModal .grid2{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px 12px}
+    #petModal .grid2 .wide{grid-column:1/-1}}
   @media(max-width:760px){
     .wrap{padding:14px 12px}
     header.top{padding:10px 12px;gap:8px}
@@ -587,6 +598,16 @@
 <div class="modal" id="petModal">
   <div class="sheet" style="width:min(680px,100%)">
     <h2 id="petModalTitle">Картка улюбленця</h2>
+    <div id="pt-photos-wrap" hidden>
+      <div class="pt-top">
+        <span id="pt-ava" class="pt-ava"></span>
+        <div class="pt-top-act">
+          <div class="ph-act"><label class="btn outline sm">📷 До<input type="file" accept="image/*" id="pt-ph-before"></label><label class="btn outline sm">✨ Після<input type="file" accept="image/*" id="pt-ph-after"></label></div>
+        </div>
+      </div>
+      <p class="muted" id="pt-ph-hint"></p>
+      <div class="ph-grid" id="pt-photos"></div>
+    </div>
     <div class="grid2">
       <div class="fld"><label>Кличка *</label><input id="pt-name" /></div>
       <div class="fld"><label>Вид</label><select id="pt-species"><option value="dog">Собака</option><option value="cat">Кіт</option><option value="other">Інше</option></select></div>
@@ -603,14 +624,6 @@
       <div class="fld wide"><label>Ветрекомендації</label><textarea id="pt-vet" rows="2"></textarea></div>
       <div class="fld wide"><label>⚠️ Протипоказання / попередження</label><textarea id="pt-warnings" rows="2"></textarea></div>
       <div class="fld wide" id="pt-cnotes-wrap" hidden><label>💬 Від клієнта (з кабінету)</label><p class="muted" id="pt-cnotes" style="margin:0;font-size:.9rem;line-height:1.45"></p></div>
-    </div>
-    <div id="pt-photos-wrap" hidden style="margin-top:18px">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-        <h3 style="font-family:var(--font-head);font-weight:600;margin:0">📷 Фото до / після</h3>
-        <div class="ph-act"><label class="btn outline sm">📷 До<input type="file" accept="image/*" id="pt-ph-before"></label><label class="btn outline sm">✨ Після<input type="file" accept="image/*" id="pt-ph-after"></label></div>
-      </div>
-      <p class="muted" id="pt-ph-hint" style="font-size:.8rem;margin:0 0 8px"></p>
-      <div class="ph-grid" id="pt-photos"></div>
     </div>
     <p class="modal-err" id="petModalErr"></p>
     <div class="sheet-act">
@@ -962,7 +975,7 @@
     var attHtml=att.slice(0,8).map(function(a){var b=a.b;
       return '<div class="att-row" data-id="'+b.id+'">'+
         '<div><div class="t1" style="font-weight:800">'+esc(b.name||"—")+' <span class="muted" style="font-weight:600">'+esc(b.service||"")+'</span></div>'+
-          '<div class="a2">'+esc(a.when)+(b.phone?' · '+esc(b.phone):'')+'</div></div>'+
+          '<div class="a2">'+esc(a.when)+(b.phone?' · '+esc(fmtPhone(b.phone)):'')+'</div></div>'+
         '<span class="att-need">'+esc(a.need)+'</span></div>';}).join("")||nodataP("Все опрацьовано ✓");
 
     var mastersHtml=(mastersList||[]).map(function(m,i){var c=masterCfg(m.name);var off=c?dayOff(c,today):"Немає графіка";
@@ -1505,7 +1518,7 @@
       var opts=STATUS.map(function(s){return '<option value="'+s.v+'"'+(s.v===st?" selected":"")+'>'+s.label+'</option>';}).join("");
       var noteic=b.note?'<span class="noteic" title="'+esc(b.note)+'">💬</span>':'';
       tr.innerHTML=
-        '<td class="client"><div class="nm nm-link" title="Відкрити картку клієнта">'+esc(b.name)+'</div><div class="ph"><a href="tel:'+esc(b.phone)+'">'+esc(b.phone)+'</a></div></td>'+
+        '<td class="client"><div class="nm nm-link" title="Відкрити картку клієнта">'+esc(b.name)+'</div><div class="ph"><a href="tel:'+esc(stdPhone(b.phone))+'">'+esc(fmtPhone(b.phone))+'</a></div></td>'+
         '<td>'+esc(b.pet)+(b.pet_name?' <b>'+esc(b.pet_name)+'</b>':'')+(function(){var pd=[b.breed,b.weight].filter(Boolean).join(", ");return pd?'<span class="muted"> · '+esc(pd)+'</span>':'';})()+'</td>'+
         '<td>'+esc(b.service)+(String(b.is_request)==="1"?'<span class="req">заявка</span>':'')+noteic+'</td>'+
         '<td class="when">'+created+'</td>'+
@@ -1573,6 +1586,14 @@
   document.addEventListener("keydown",function(e){if(e.key==="Escape")closeModal();});
 
   /* ---------- clients & pets ---------- */
+  // one stored format: +380XXXXXXXXX; anything we cannot read as a phone stays as typed
+  function stdPhone(p){var raw=String(p==null?"":p).trim();if(!raw)return "";var d=raw.replace(/\D/g,"");if(!d)return raw;
+    if(d.length===9)d="380"+d;else if(d.length===10&&d[0]==="0")d="380"+d.slice(1);else if(d.length===11&&d.slice(0,2)==="80")d="3"+d;
+    return (d.length<10||d.length>15)?raw:"+"+d;}
+  function fmtPhone(p){var v=stdPhone(p);var m=/^\+380(\d{2})(\d{3})(\d{2})(\d{2})$/.exec(v);
+    return m?("+380 "+m[1]+" "+m[2]+" "+m[3]+" "+m[4]):v;}
+  function bindPhoneInput(sel){var el=typeof sel==="string"?document.querySelector(sel):sel;if(!el)return;
+    el.addEventListener("blur",function(){var v=stdPhone(el.value);if(v&&v!==el.value)el.value=v;});}
   function normPhone(p){return (p||"").replace(/\D/g,"").slice(-9);}
   function bookingsOf(c){var np=normPhone(c.phone);return all.filter(function(b){return (c.id&&b.client_id===c.id)||(np&&normPhone(b.phone)===np);});}
   function clientOf(b){var np=normPhone(b.phone);return clients.filter(function(c){return (b.client_id&&c.id===b.client_id)||(np&&normPhone(c.phone)===np);})[0];}
@@ -1699,13 +1720,18 @@
     $("#pt-behavior").value=p?p.behavior||"":"";$("#pt-reactions").value=p?p.reactions||"":"";
     $("#pt-prefs").value=p?p.prefs||"":"";$("#pt-vet").value=p?p.vet_notes||"":"";$("#pt-warnings").value=p?p.warnings||"":"";
     var cn=$("#pt-cnotes-wrap");if(cn){cn.hidden=!(p&&p.client_notes);$("#pt-cnotes").textContent=(p&&p.client_notes)||"";}
-    $("#pt-del").hidden=!p;$("#pt-photos-wrap").hidden=!p;$("#pt-ph-hint").textContent=PH_HINT;if(p)loadPetPhotos();
+    $("#pt-del").hidden=!p;$("#pt-photos-wrap").hidden=!p;$("#pt-ph-hint").textContent=PH_HINT;
+    if($("#pt-ava"))$("#pt-ava").innerHTML='<span class="pt-emo">'+(p&&p.species==="cat"?"🐱":p&&p.species==="other"?"🐾":"🐶")+'</span>';
+    if(p)loadPetPhotos();
     $("#petModalErr").textContent="";$("#petModal").classList.add("open");
   }
   /* ---------- pet photos: shrink in the browser, store via the worker ---------- */
-  var PH_HINT="Фото стискаються до 1280 px і зберігаються в картці улюбленця. Знімайте «До» перед процедурою та «Після» в кінці. 🌐 на фото — показати його в галереї сайту; якщо позначені «До» і «Після» одного дня, вони стають парою з повзунком «До / після». Вид тварини береться з картки, тож коти потрапляють у вкладку «Коти».";
+  var PH_HINT="Знімайте «До» перед процедурою та «Після» в кінці — фото стискається до 1280 px. 🌐 показує фото в галереї сайту (пара одного дня стає повзунком «До / після»), вид тварини береться з картки.";
   function loadPetPhotos(){var box=$("#pt-photos");if(!editPetId){box.innerHTML="";return;}box.innerHTML='<p class="muted" style="font-size:.85rem">Завантаження…</p>';
     api("/admin/photos?pet_id="+editPetId).then(function(r){var ps=(r&&r.photos)||[];
+      var ava=$("#pt-ava");
+      if(ava){var main=ps.filter(function(x){return x.kind==="after";})[0]||ps[0];
+        ava.innerHTML=main?'<img src="'+esc(main.url)+'" alt="" loading="lazy">':'<span class="pt-emo">'+($("#pt-species").value==="cat"?"🐱":$("#pt-species").value==="other"?"🐾":"🐶")+'</span>';}
       box.innerHTML=ps.length?ps.map(function(p){return '<div class="ptph" data-id="'+p.id+'"><a href="'+esc(p.url)+'" target="_blank" rel="noopener"><img src="'+esc(p.url)+'" alt="" loading="lazy"></a><span class="k'+(p.kind==="after"?" after":"")+'">'+(p.kind==="after"?"Після":"До")+'</span><span class="d">'+esc(fmtD((p.created_at||"").slice(0,10)))+'</span><button type="button" class="pb'+(p.published?" on":"")+'" title="'+(p.published?"Показується в галереї сайту — натисніть, щоб прибрати":"Показати в галереї сайту")+'">🌐</button><button type="button" class="x" title="Видалити">✕</button></div>';}).join(""):'<p class="muted" style="font-size:.85rem">Фото ще немає.</p>';
       [].forEach.call(box.querySelectorAll(".ptph .pb"),function(b){b.addEventListener("click",async function(){var id=b.closest(".ptph").dataset.id,on=!b.classList.contains("on");
         try{await api("/admin/photo-publish",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:+id,published:on?1:0})});toast(on?"Фото опубліковано — воно з'явиться в галереї сайту (пара «До» + «Після» одного дня стане повзунком)":"Фото прибрано з сайту");loadPetPhotos();}catch(e){toast("Не вдалося змінити",true);}});});
@@ -1724,6 +1750,7 @@
   function refreshPetCounts(){api("/admin/pets").then(function(r){pets=(r&&r.pets)||pets;var c=clients.filter(function(x){return x.id===petClientId;})[0];if(c)renderClientPets(c);}).catch(function(){});}
   $("#pt-ph-before").addEventListener("change",function(e){uploadPetPhoto("before",e.target.files[0]);e.target.value="";});
   $("#pt-ph-after").addEventListener("change",function(e){uploadPetPhoto("after",e.target.files[0]);e.target.value="";});
+  bindPhoneInput("#f-phone");bindPhoneInput("#cl-phone");
   $("#pt-cancel").addEventListener("click",function(){$("#petModal").classList.remove("open");});
   $("#petModal").addEventListener("click",function(e){if(e.target===$("#petModal"))$("#petModal").classList.remove("open");});
   $("#pt-save").addEventListener("click",async function(){

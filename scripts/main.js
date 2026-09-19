@@ -724,6 +724,19 @@
   /* ---- Guided steps: 1 улюбленець → 2 послуга → 3 дата й час → 4 контакти ---- */
   const form = $("#bookingForm"), status = $("#bfStatus");
   const nameInput = $("#bf-name"), phoneInput = $("#bf-phone"), petNameInput = $("#bf-petname");
+  // the salon keeps one phone format, so tidy what was typed as soon as the field is left
+  function stdPhone(p) {
+    const raw = String(p == null ? "" : p).trim(); if (!raw) return "";
+    let d = raw.replace(/\D/g, ""); if (!d) return raw;
+    if (d.length === 9) d = "380" + d;
+    else if (d.length === 10 && d[0] === "0") d = "380" + d.slice(1);
+    else if (d.length === 11 && d.slice(0, 2) === "80") d = "3" + d;
+    return (d.length < 10 || d.length > 15) ? raw : "+" + d;
+  }
+  if (phoneInput) phoneInput.addEventListener("blur", () => {
+    const v = stdPhone(phoneInput.value);
+    if (v && v !== phoneInput.value) { phoneInput.value = v; renderSteps(); }
+  });
   const stepEls = form ? $$(".bstep", form) : [];
   const STEPS = stepEls.length || 4;
   let curStep = 1, stepsReady = false;
