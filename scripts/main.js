@@ -509,6 +509,7 @@
   function setPet(val) {                       // "Собака" | "Кіт" | ""
     if (!petHidden) return;
     petHidden.value = val || "";
+    svcHint("");                               // the note described the previous pet
     if (petSeg) $$(".seg-btn", petSeg).forEach(x => x.classList.toggle("is-active", !!val && x.dataset.val === val));
     applyPet();
     if (typeof updatePriceHint === "function") updatePriceHint();
@@ -690,7 +691,12 @@
   }
   if (window.GL_CATALOG) applyCatalog(window.GL_CATALOG);   // instant, from bundled snapshot
   if (CONFIG.bookingEndpoint) {
-    fetch(`${CONFIG.bookingEndpoint}/catalog`).then(r => r.json()).then(d => { applyCatalog(d); renderSteps(); }).catch(() => { });   // a live rename may invalidate the chosen service
+    fetch(`${CONFIG.bookingEndpoint}/catalog`).then(r => r.json()).then(d => {
+      applyCatalog(d);                       // a live rename may invalidate the chosen service
+      if (typeof autoPicked === "string" && autoPicked && !val(serviceSel)) { autoPicked = ""; svcHint(""); }
+      applyPendingPet(); autoPickService();
+      renderSteps();
+    }).catch(() => { });
   }
 
   // ---- Reviews / testimonials (published from the CRM) ----
@@ -822,14 +828,27 @@
     if (n.length >= 2) return kg > n[0] - 0.001 && kg <= n[1];
     return Math.abs(kg - n[0]) < 0.001;
   }
+  function petRange(w) {   // the card holds a range, not a number
+    const n = kgNums(w); if (!n.length) return null;
+    if (/^\s*до\s*\d/i.test(String(w))) return [0, n[0]];
+    if (/(понад|більше|від)/i.test(String(w))) return [n[0], Infinity];
+    return n.length >= 2 ? [n[0], n[1]] : [n[0], n[0]];
+  }
+  function bandCovers(opt, lo, hi) {   // a band may be preselected only if the whole range fits inside it
+    const n = kgNums(opt); if (!n.length) return false;
+    if (/^\s*до\s*\d/i.test(opt)) return hi <= n[0];
+    if (/^\s*(від|понад|більше)\s*\d/i.test(opt)) return lo >= n[0];
+    if (n.length >= 2) return lo >= n[0] && hi <= n[1];
+    return lo === n[0] && hi === n[0];
+  }
   function setWeightOpt(sel, cardWeight) {   // the card says «10–15 кг», the price list says «до 20 кг»
     if (!sel || !cardWeight) return false;
     if (setOpt(sel, cardWeight)) return true;
-    const kg = petKg(cardWeight); if (kg == null) return false;
+    const r = petRange(cardWeight); if (!r) return false;
     const top = o => { const n = kgNums(o); return /^\s*(від|понад|більше)\s*\d/i.test(o) ? Infinity : (n.length ? n[n.length - 1] : Infinity); };
-    const hit = [].slice.call(sel.options).filter(o => o.value && bandFits(o.value, kg))
+    const hit = [].slice.call(sel.options).filter(o => o.value && bandCovers(o.value, r[0], r[1]))
       .sort((x, y) => top(x.value) - top(y.value))[0];   // the tightest band that still fits, never the priciest
-    if (!hit) return false;
+    if (!hit) return false;                              // a range straddling two bands is left to the visitor
     sel.value = hit.value; return true;
   }
   function setOpt(sel, v) {   // select an option only if the current list really has that value
@@ -878,7 +897,10 @@
       && (!sp || !s.species || s.species === "both" || s.species === sp) && rowsFor(s).length);
     if (!fits.length) return;
     const kg = petKg(pendingPet.weight);
-    const byWeight = kg == null ? [] : fits.filter(s => rowsFor(s).some(r => bandFits(String(r[1] || ""), kg)));
+    const byWeight = kg == null ? [] : fits.filter(s => rowsFor(s).some(r => {
+      const band = String(r[1] || "").trim();
+      return !band || bandFits(band, kg);   // a blank weight cell prices that breed at any weight
+    }));
     const pick = byWeight[0] || fits[0];
     serviceSel.value = pick.name; autoPicked = pick.name;
     serviceSel.dispatchEvent(new Event("change", { bubbles: true }));   // rebuilds breed/weight, price and steps
@@ -886,6 +908,7 @@
   }
   function usePet(p, fromChip) {
     if (!p) return;
+    if (autoPicked && val(serviceSel) === autoPicked) serviceSel.value = "";   // our own pick, not the visitor's
     if (breedSel) breedSel.value = "";   // another pet — clear before the rebuild reads the current value
     if (weightSel) weightSel.value = "";
     setPet(p.species === "cat" || p.pet === "Кіт" ? "Кіт" : "Собака");

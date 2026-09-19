@@ -948,7 +948,9 @@ async function clientMove(request, env) {
   return { ok: true, staff };
 }
 const CLIENT_PET_FIELDS = ["name", "species", "breed", "weight", "birthdate", "sex", "color", "allergies", "behavior", "prefs", "client_notes"];   // vet_notes / warnings / reactions / special are staff-only
-// A photo of one's own pet, added from the client cabinet.
+// A photo of one's own pet, added from the client cabinet. The caps bound what one registered phone
+// number can write into D1 — the per-pet one alone would not, since a client may add pets freely.
+const CLIENT_PHOTOS_PER_PET = 30, CLIENT_PHOTOS_TOTAL = 40, CLIENT_PETS_MAX = 20;
 async function clientOwnPet(env, c, petId) {
   const id = Number(petId);
   if (!Number.isInteger(id) || id <= 0) return null;
@@ -960,7 +962,9 @@ async function clientPhotoUpload(request, env) {
   const pet = await clientOwnPet(env, c, b && b.pet_id);
   if (!pet) return { ok: false, error: "Улюбленця не знайдено" };
   const n = await env.DB.prepare(`SELECT COUNT(*) AS n FROM pet_photos WHERE pet_id=?`).bind(pet.id).first();
-  if (n && n.n >= 30) return { ok: false, error: "У картці вже 30 фото — видаліть зайві" };
+  if (n && n.n >= CLIENT_PHOTOS_PER_PET) return { ok: false, error: "У картці вже 30 фото — видаліть зайві" };
+  const t = await env.DB.prepare(`SELECT COUNT(*) AS n FROM pet_photos WHERE pet_id IN (SELECT id FROM pets WHERE client_id=?)`).bind(c.id).first();
+  if (t && t.n >= CLIENT_PHOTOS_TOTAL) return { ok: false, error: "Досягнуто ліміт фото у кабінеті — видаліть зайві" };
   return await savePetPhoto(env, new URL(request.url).origin, { pet_id: pet.id, kind: b.kind, data: b.data });
 }
 async function clientPhotoDelete(request, env) {
@@ -968,8 +972,9 @@ async function clientPhotoDelete(request, env) {
   const b = await request.json();
   const id = Number(b && b.id);
   if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "id required" };
-  const p = await env.DB.prepare(`SELECT id,pet_id,published FROM pet_photos WHERE id=?`).bind(id).first();
+  const p = await env.DB.prepare(`SELECT id,pet_id,booking_id,published FROM pet_photos WHERE id=?`).bind(id).first();
   if (!p || !(await clientOwnPet(env, c, p.pet_id))) { const e = new Error("Немає доступу до цього фото"); e.status = 403; throw e; }
+  if (p.booking_id) return { ok: false, error: "Це фото з візиту — його зробив салон. Попросіть адміністратора видалити" };
   if (p.published) return { ok: false, error: "Це фото салон показує в галереї сайту — попросіть прибрати його звідти" };
   await env.DB.prepare(`DELETE FROM pet_photos WHERE id=?`).bind(id).run();
   return { ok: true };
@@ -987,6 +992,8 @@ async function clientPetSave(request, env) {
     await env.DB.prepare(`UPDATE pets SET ${CLIENT_PET_FIELDS.map(f => f + "=?").join(",")} WHERE id=?`).bind(...vals, +b.id).run();
     return { ok: true, id: +b.id };
   }
+  const np = await env.DB.prepare(`SELECT COUNT(*) AS n FROM pets WHERE client_id=?`).bind(c.id).first();
+  if (np && np.n >= CLIENT_PETS_MAX) return { ok: false, error: "Забагато карток улюбленців — зверніться до салону" };
   const r = await env.DB.prepare(`INSERT INTO pets (client_id,created_at,${CLIENT_PET_FIELDS.join(",")}) VALUES (?,?,${CLIENT_PET_FIELDS.map(() => "?").join(",")})`).bind(c.id, new Date().toISOString(), ...vals).run();
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }
