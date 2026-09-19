@@ -2,16 +2,8 @@
 <html lang="uk">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>GAV&LOVE · Кабінет майстра</title>
-<link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
-<link rel="manifest" href="master.webmanifest" />
-<meta name="theme-color" content="#1c1340" />
-<meta name="mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Майстер" />
-<link rel="apple-touch-icon" href="assets/app/apple-touch-icon.png" />
 <style>
   :root{
     --violet:#4a25c9; --violet-d:#3a1c9e; --violet-deep:#1c1340; --violet-soft:#efeaff;
@@ -138,7 +130,6 @@
     <input id="mu-pass" type="password" autocomplete="current-password" placeholder="Пароль">
     <button class="btn" id="loginBtn">Увійти</button>
     <div class="err" id="loginErr"></div>
-  <p class="pwa-hint" id="pwaHint" hidden></p>
   </div>
 </div>
 
@@ -408,6 +399,5 @@
   if(token){restore();}else{showLogin();}
 })();
 </script>
-<script src="scripts/pwa.js?v=1"></script>
 </body>
 </html>
