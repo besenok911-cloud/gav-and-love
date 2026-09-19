@@ -449,7 +449,8 @@ async function getSlots(url, env) {
 
 async function book(body, env, source) {
   source = source || "site";   // "site" (booking form) or "telegram" (bot conversation)
-  const { pet, pet_name, service, breed, name, phone, date, time, note, weight } = body || {};
+  const { pet, pet_name, service, breed, name, date, time, note, weight } = body || {};
+  const phone = stdPhone(body && body.phone);   // one stored format, whatever was typed
   let staff = (body && body.staff) || "";
   const waitlist = !!(body && body.waitlist);
   if (!name || !phone) return { ok: false, error: "Вкажіть ім'я і телефон" };
