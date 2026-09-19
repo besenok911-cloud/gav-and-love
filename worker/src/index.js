@@ -1026,15 +1026,15 @@ async function publicBeforeAfter(url, env) {
   } catch (e) { return { ok: true, items: [] }; }
   const groups = {}, order = [];
   rows.forEach(r => { const k = r.pet_id + "|" + String(r.created_at || "").slice(0, 10); if (!groups[k]) { groups[k] = {}; order.push(k); } if (!groups[k][r.kind]) groups[k][r.kind] = r; });
-  const pairs = order.map(k => groups[k]).filter(g => g.before && g.after).slice(0, 40);
-  const items = pairs.map(g => ({
+  const pairs = order.map(k => groups[k]).filter(g => g.before && g.after);
+  const items = pairs.slice(0, 40).map(g => ({
     id: "live" + g.after.id, before: photoUrl(url.origin, g.before), after: photoUrl(url.origin, g.after),
-    name: g.after.pet_name || "", species: g.after.species === "cat" ? "cat" : "dog", breed: g.after.breed || "", date: String(g.after.created_at || "").slice(0, 10), w: 1280, h: 1280,
+    name: g.after.pet_name || "", species: ["cat", "dog"].indexOf(g.after.species) >= 0 ? g.after.species : "other", breed: g.after.breed || "", date: String(g.after.created_at || "").slice(0, 10), w: 1280, h: 1280,
   }));
   const paired = {}; pairs.forEach(g => { paired[g.before.id] = 1; paired[g.after.id] = 1; });
   const photos = rows.filter(r => !paired[r.id]).slice(0, 60).map(r => ({
     id: "ph" + r.id, src: photoUrl(url.origin, r), name: r.pet_name || "",
-    species: r.species === "cat" ? "cat" : "dog", breed: r.breed || "", kind: r.kind === "before" ? "before" : "portrait",
+    species: ["cat", "dog"].indexOf(r.species) >= 0 ? r.species : "other", breed: r.breed || "", kind: r.kind === "before" ? "before" : "portrait",
     date: String(r.created_at || "").slice(0, 10), w: 1280, h: 1280,
   }));
   return { ok: true, items, photos };
@@ -1077,6 +1077,7 @@ async function clientDelete(request, env) {
   await requireAdmin(request, env);
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
+  try { await env.DB.prepare(`DELETE FROM pet_photos WHERE pet_id IN (SELECT id FROM pets WHERE client_id=?)`).bind(id).run(); } catch (e) { }   // photos live in the pet card
   await env.DB.prepare(`DELETE FROM pets WHERE client_id=?`).bind(id).run();
   await env.DB.prepare(`DELETE FROM clients WHERE id=?`).bind(id).run();
   return { ok: true };
@@ -1217,8 +1218,9 @@ async function masterPhotoDelete(request, env) {
   const m = await masterOr401(request, env, body && body.code);
   const id = Number(body && body.id);
   if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "id required" };
-  const p = await env.DB.prepare(`SELECT id,booking_id FROM pet_photos WHERE id=?`).bind(id).first();
+  const p = await env.DB.prepare(`SELECT id,booking_id,published FROM pet_photos WHERE id=?`).bind(id).first();
   if (!p || !p.booking_id) forbid();                       // only a photo taken on one of this master's visits
+  if (p.published) return { ok: false, error: "Фото вже в галереї сайту — попросіть адміністратора спершу прибрати його звідти" };
   if (!(await masterBooking(env, m, p.booking_id))) forbid();
   await env.DB.prepare(`DELETE FROM pet_photos WHERE id=?`).bind(id).run();
   return { ok: true };

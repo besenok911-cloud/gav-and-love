@@ -52,6 +52,7 @@
   .phs{font:inherit;font-weight:800;font-size:.82rem;color:var(--ink-soft);background:none;border:0;text-decoration:underline dotted;cursor:pointer;padding:.4em 0}
   .phh{font-size:.78rem;font-weight:700;color:var(--ink-soft);flex-basis:100%}
   .phl{display:flex;flex-wrap:wrap;gap:8px;flex-basis:100%;margin-top:4px}
+  .phl[hidden]{display:none}
   .phl figure{position:relative;margin:0;width:78px}
   .phl img{width:78px;height:78px;object-fit:cover;border-radius:10px;display:block}
   .phl figcaption{font-size:.7rem;font-weight:800;color:var(--ink-soft);text-align:center;margin-top:2px}
@@ -365,7 +366,7 @@
 
   /* ---- «До / Після» photos, straight from the phone, into the pet's card ---- */
   function photoHtml(b){
-    if(!b.pet_id)return "";
+    if(!b.pet_id)return '<div class="vph"><span class="phh">📷 Фото «До/Після»: у цьому записі ще немає картки улюбленця — попросіть адміністратора її створити.</span></div>';
     var n=Number(b.photos)||0;
     return '<div class="vph" data-bid="'+b.id+'">'+
       '<label class="phb">📷 До<input type="file" accept="image/*" data-kind="before" hidden></label>'+
@@ -421,7 +422,7 @@
           }).then(function(r){
             if(!r||!r.ok)throw new Error((r&&r.error)||"помилка");
             hint.textContent="Фото збережено ✓";toast("Фото додано");loadPhotos(box);
-          }).catch(function(e){hint.textContent="Не вдалося: "+((e&&e.message)||"помилка");});
+          }).catch(function(e){var msg="Не вдалося: "+((e&&e.message)||"помилка");hint.textContent=msg;toast(msg,true);});
         });
       });
     });
@@ -467,17 +468,17 @@
   $("#mu-user").addEventListener("keydown",function(e){if(e.key==="Enter")$("#mu-pass").focus();});
   $("#mu-pass").addEventListener("keydown",function(e){if(e.key==="Enter")submitLogin();});
   $("#logoutBtn").addEventListener("click",function(){var t=token;logoutLocal();showLogin();try{fetch(API+"/auth/logout",{method:"POST",headers:{"Authorization":"Bearer "+t}});}catch(e){}});
-  function setCustomRange(){
-    var f=$("#p-from").value,tt=$("#p-to").value;
+  function setCustomRange(edited){
+    var F=$("#p-from"),T=$("#p-to"),f=F.value,tt=T.value;
     if(!f&&!tt)return;
-    if(f&&tt&&f>tt){var s=f;f=tt;tt=s;$("#p-from").value=f;$("#p-to").value=tt;} // swap if entered backwards
+    if(f&&tt&&f>tt){ if(edited===T){F.value=f=tt;}else{T.value=tt=f;} }   // the box just edited wins
     customFrom=f;customTo=tt;period="custom";
     [].forEach.call(document.querySelectorAll("#periods button"),function(x){x.classList.remove("on");});
     $("#p-range").classList.add("on");
     if(data)report();
   }
-  $("#p-from").addEventListener("change",function(){syncPh();setCustomRange();});
-  $("#p-to").addEventListener("change",function(){syncPh();setCustomRange();});
+  $("#p-from").addEventListener("change",function(){syncPh();setCustomRange($("#p-from"));});
+  $("#p-to").addEventListener("change",function(){syncPh();setCustomRange($("#p-to"));});
   // the faded example disappears as soon as a box has a date
   function syncPh(){[["p-from"],["p-to"]].forEach(function(p){var i=$("#"+p[0]);if(i)i.parentNode.classList.toggle("filled",!!i.value);});}
   function rangeOf(p){var t=todayISO(),d;

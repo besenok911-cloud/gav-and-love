@@ -405,8 +405,8 @@
         const badge = it.kind === "beforeafter" ? "До / Після" : (it.breed || "");
         const alt = `GAV&LOVE — грумінг, ${SPECIES[it.species] || "улюбленець"}${badge ? " — " + badge : ""}`;
         fig.innerHTML =
-          (badge ? `<span class="g-badge">${badge}</span>` : "") + hint +
-          `<img src="${it.src}" alt="${alt}" loading="lazy" width="${it.w}" height="${it.h}">`;
+          (badge ? `<span class="g-badge">${esc(badge)}</span>` : "") + hint +
+          `<img src="${esc(it.src)}" alt="${esc(alt)}" loading="lazy" width="${it.w}" height="${it.h}">`;
         fig.addEventListener("click", () => openLightbox(i));
         grid.appendChild(fig);
         gObserver.observe(fig);
