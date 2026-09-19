@@ -289,19 +289,34 @@
     { id: "video", label: "🎬 Відео", test: it => !!it.video },
   ];
   let galleryItems = [], currentFilter = "all", visibleList = [], lbIndex = 0;
-  const GAL_INITIAL = 16; let galleryExpanded = false;
+  const GAL_INITIAL = 16, GAL_PAGE = 24; let galShown = GAL_INITIAL;
 
   const gObserver = new IntersectionObserver((entries, obs) => {
     entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); obs.unobserve(e.target); } });
   }, { threshold: 0, rootMargin: "0px 0px 120px 0px" });
 
   // Autoplay (muted) feed videos only while in view; pause when out.
+  // A preview clip costs 1-3 MB. Play it only where that is a fair trade: a wide screen, a connection
+  // that is not metered or slow, and motion allowed. On phones the poster stays still until the tile is tapped.
+  const netInfo = navigator.connection || {};
+  const AUTOPLAY_CLIPS = !reduced && matchMedia("(min-width:641px)").matches
+    && !netInfo.saveData && !/(^|-)([23])g$/.test(netInfo.effectiveType || "");
+  const vizRatio = new Map();
+  let vizTimer = 0;
   const videoObserver = new IntersectionObserver((entries) => {
-    entries.forEach(e => {
-      const v = e.target.querySelector("video"); if (!v) return;
-      if (e.isIntersecting) v.play().catch(() => {}); else v.pause();
-    });
-  }, { threshold: 0.4 });
+    entries.forEach(e => vizRatio.set(e.target, e.isIntersecting ? e.intersectionRatio : 0));
+    if (vizTimer) return;
+    vizTimer = setTimeout(() => {   // only the most visible clip plays; decoding several at once is what stutters
+      vizTimer = 0;
+      let best = null, bestR = 0;
+      vizRatio.forEach((r, el) => { if (r > bestR) { bestR = r; best = el; } });
+      vizRatio.forEach((r, el) => {
+        const v = el.querySelector("video"); if (!v) return;
+        if (el === best && bestR >= 0.6) { if (v.paused) v.play().catch(() => { }); }
+        else if (!v.paused) v.pause();
+      });
+    }, 350);   // wait for the scroll to settle, do not start clips the visitor is scrolling past
+  }, { threshold: [0, 0.25, 0.5, 0.75, 1] });
 
   (function initGallery() {
     const data = window.LP_GALLERY;
@@ -334,15 +349,18 @@
       const b = document.createElement("button");
       b.className = "gfilter" + (f.id === "all" ? " is-active" : "");
       b.textContent = f.label;
-      b.addEventListener("click", () => { currentFilter = f.id; galleryExpanded = false;
+      b.addEventListener("click", () => { currentFilter = f.id; galShown = GAL_INITIAL;
         $$(".gfilter", fb).forEach(x => x.classList.toggle("is-active", x === b)); renderGallery(); });
       fb.appendChild(b);
     });
     const moreBtn = $("#galleryMore");
     if (moreBtn) moreBtn.addEventListener("click", () => {
-      galleryExpanded = !galleryExpanded;
-      renderGallery();
-      if (!galleryExpanded) $("#gallery").scrollIntoView({ behavior: "smooth" });
+      if (galShown >= visibleList.length) {   // everything is out — fold it back
+        galShown = GAL_INITIAL; renderGallery();
+        $("#gallery").scrollIntoView({ behavior: reduced ? "auto" : "smooth" });
+        return;
+      }
+      galShown += GAL_PAGE; renderGallery();
     });
     renderGallery();
   })();
@@ -361,13 +379,14 @@
     const f = filters.find(x => x.id === currentFilter);
     const list = galleryItems.filter(f.test);
     visibleList = list;
+    if (galShown > list.length) galShown = Math.max(GAL_INITIAL, Math.min(galShown, list.length));
     grid.innerHTML = "";
     const more = $("#galleryMore");
+    const show = Math.min(galShown, list.length);
     if (more) {
       if (list.length <= GAL_INITIAL) { more.hidden = true; }
-      else { more.hidden = false; more.textContent = galleryExpanded ? "Згорнути" : `Показати всі роботи (${list.length})`; }
+      else { more.hidden = false; more.textContent = show >= list.length ? "Згорнути" : `Показати ще (${list.length - show})`; }
     }
-    const show = galleryExpanded ? list.length : Math.min(GAL_INITIAL, list.length);
     const hint = `<span class="g-hint"><svg class="i"><use href="#i-paw"/></svg> Переглянути</span>`;
     list.slice(0, show).forEach((it, i) => {
       const fig = document.createElement("figure");
@@ -384,15 +403,15 @@
         fig.addEventListener("click", () => openLightbox(i));
         grid.appendChild(fig);
         gObserver.observe(fig);
-        if (!reduced) videoObserver.observe(fig);
+        if (AUTOPLAY_CLIPS) videoObserver.observe(fig);
       } else if (it.ba) {   // before/after slider tile (photo pair from the CRM)
         fig.classList.add("g-ba");
         const who = baWho(it);
         const alt = `GAV&LOVE — ${who || "улюбленець"}: до і після грумінгу`;
         fig.innerHTML =
           `<span class="g-badge g-badge-ba">${baLabel(it)}</span>` +
-          `<img class="ba-after" src="${it.after}" alt="${esc(alt)}" loading="lazy" width="${it.w}" height="${it.h}">` +
-          `<div class="ba-before"><img src="${it.before}" alt="" loading="lazy" width="${it.w}" height="${it.h}"></div>` +
+          `<img class="ba-after" src="${it.after}" alt="${esc(alt)}" loading="lazy" decoding="async" width="${it.w}" height="${it.h}">` +
+          `<div class="ba-before"><img src="${it.before}" alt="" loading="lazy" decoding="async" width="${it.w}" height="${it.h}"></div>` +
           `<span class="ba-lbl ba-l">До</span><span class="ba-lbl ba-r">Після</span><div class="ba-handle"></div>` +
           `<input type="range" class="ba-range" min="0" max="100" value="50" aria-label="Порівняти: до і після">`;
         const before = fig.querySelector(".ba-before"), handle = fig.querySelector(".ba-handle"), range = fig.querySelector(".ba-range");
@@ -406,7 +425,7 @@
         const alt = `GAV&LOVE — грумінг, ${SPECIES[it.species] || "улюбленець"}${badge ? " — " + badge : ""}`;
         fig.innerHTML =
           (badge ? `<span class="g-badge">${esc(badge)}</span>` : "") + hint +
-          `<img src="${esc(it.src)}" alt="${esc(alt)}" loading="lazy" width="${it.w}" height="${it.h}">`;
+          `<img src="${esc(it.t || it.src)}" alt="${esc(alt)}" loading="lazy" decoding="async" width="560" height="560">`;
         fig.addEventListener("click", () => openLightbox(i));
         grid.appendChild(fig);
         gObserver.observe(fig);
@@ -934,9 +953,10 @@
     const imgs = $$("#interiorGrid img, .hotel-photos img");
     // de-duplicate by src so repeated photos share one lightbox slide set
     const seen = new Set(), list = [];
-    imgs.forEach(im => { if (!seen.has(im.src)) { seen.add(im.src); list.push({ src: im.getAttribute("src") }); } });
+    const full = im => im.dataset.full || im.getAttribute("src");
+    imgs.forEach(im => { const s = full(im); if (!seen.has(s)) { seen.add(s); list.push({ src: s }); } });
     imgs.forEach(im => im.addEventListener("click", () => {
-      const i = list.findIndex(x => x.src === im.getAttribute("src"));
+      const i = list.findIndex(x => x.src === full(im));
       visibleList = list; openLightbox(i < 0 ? 0 : i);
     }));
   })();
