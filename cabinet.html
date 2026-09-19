@@ -144,9 +144,10 @@
   .phead{display:flex;align-items:flex-start;gap:10px}
   .pemo{font-size:1.7rem;line-height:1.1;width:56px;height:56px;display:flex;align-items:center;justify-content:center;
     border-radius:14px;background:var(--bg-2);flex:0 0 auto}
-  .pava{width:56px;height:56px;border-radius:14px;overflow:hidden;flex:0 0 auto;border:1.5px solid var(--line);background:var(--bg-2)}
+  .pava{display:block;width:56px;height:56px;border-radius:14px;overflow:hidden;flex:0 0 auto;border:1.5px solid var(--line);background:var(--bg-2)}   /* a span stays inline, and then width/height do nothing */
   .pava img{width:100%;height:100%;object-fit:cover;display:block}
-  .ptfoto{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .ptfoto{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+  .ptfoto>span:first-child{flex:0 0 auto;display:block}
   .ptfoto .pava,.ptfoto .pemo{width:84px;height:84px;border-radius:16px;font-size:2.4rem}
   .ptfoto-act{display:flex;flex-direction:column;gap:6px;min-width:0}
   .ptfoto-hint{font-size:.78rem;color:var(--ink-soft);overflow-wrap:anywhere}
