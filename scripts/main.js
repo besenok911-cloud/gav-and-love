@@ -810,11 +810,30 @@
   const lsGet = k => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { } };
   const lsDel = k => { try { localStorage.removeItem(k); } catch (e) { } };
-  function setOpt(sel, v) {   // select an option only if the current list really has it
+  // the same breed is spelled differently across the price lists («йоркширский» / «йоркширський»),
+  // so compare on a loose key rather than character by character
+  const bKey = v => String(v == null ? "" : v).toLowerCase().replace(/[ьъʼ’']/g, "").replace(/и/g, "і").replace(/[^a-zа-яіїєґ0-9]+/g, "");
+  function setOpt(sel, v) {   // select an option only if the current list really has that value
     if (!sel || !v) return false;
-    const hit = [].filter.call(sel.options, o => o.value === v)[0];
+    const want = bKey(v), opts = [].slice.call(sel.options).filter(o => o.value);
+    const hit = opts.filter(o => o.value === v)[0]
+      || opts.filter(o => bKey(o.value) === want)[0]
+      || (want.length >= 4 ? opts.filter(o => { const k = bKey(o.value); return k.length >= 4 && (k.indexOf(want) >= 0 || want.indexOf(k) >= 0); })[0] : null);
     if (!hit) return false;
-    sel.value = v; return true;
+    sel.value = hit.value; return true;
+  }
+  // The breed drives the price, so we cannot invent one. If the card's breed is not on this service's
+  // list, tell the visitor what their card says and which service does groom that breed.
+  function breedNoteForPending() {
+    if (!breedNote) return;
+    const want = pendingPet && pendingPet.breed;
+    if (!want || !shown(breedField) || val(breedSel)) return;
+    const where = (SERVICES || []).filter(x => x.bookable !== 0 && x.price_type === "breed"
+      && (x.rows || []).some(r => r && r[0] && bKey(r[0]) === bKey(want)) && x.name !== serviceSel.value)[0];
+    breedNote.textContent = where
+      ? `У картці улюбленця вказано «${want}» — цю породу ми стрижемо в послузі «${where.name}».`
+      : `У картці улюбленця вказано «${want}» — для цієї послуги оберіть найближчу породу зі списку.`;
+    breedNote.hidden = false;
   }
   function applyPendingPet() {   // breed/weight lists depend on the chosen service, so retry after each change
     if (!pendingPet) return;
@@ -822,6 +841,7 @@
       if (typeof syncWeightForBreed === "function") syncWeightForBreed();
     }
     if (pendingPet.weight && shown(weightField) && !val(weightSel)) setOpt(weightSel, pendingPet.weight);
+    breedNoteForPending();
     if (typeof updatePriceHint === "function") updatePriceHint();
   }
   function usePet(p, fromChip) {
@@ -883,7 +903,11 @@
       }).catch(() => { });
   }
   serviceSel && serviceSel.addEventListener("change", () => { applyPendingPet(); renderSteps(); });
-  breedSel && breedSel.addEventListener("change", () => { if (pendingPet) pendingPet.breed = val(breedSel); applyPendingPet(); renderSteps(); });   // a manual choice replaces what we remembered
+  breedSel && breedSel.addEventListener("change", () => {
+    if (pendingPet) pendingPet.breed = val(breedSel);
+    if (breedNote && val(breedSel)) breedNote.hidden = true;
+    applyPendingPet(); renderSteps();
+  });   // a manual choice replaces what we remembered
   weightSel && weightSel.addEventListener("change", () => { if (pendingPet) pendingPet.weight = val(weightSel); });
   stepsReady = true; renderSteps();
   form && form.addEventListener("submit", async e => {
