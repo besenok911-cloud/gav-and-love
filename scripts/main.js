@@ -319,9 +319,15 @@
     while (bi < bas.length) galleryItems.push(bas[bi++]);
     while (vi < vids.length) galleryItems.push(vids[vi++]);
     // pairs published from the CRM pet cards come first once they arrive
+    // the salon's own new work, published from the pet card in the CRM: pairs first, then single photos
     if (CONFIG.bookingEndpoint) fetch(`${CONFIG.bookingEndpoint}/before-after`).then(r => r.json()).then(d => {
-      const live = baItems((d && d.items) || []); if (!live.length) return;
-      galleryItems = live.concat(galleryItems); renderGallery();
+      const live = baItems((d && d.items) || []);
+      const singles = ((d && d.photos) || []).filter(p => p && p.src).map(p => ({
+        id: p.id, src: p.src, species: p.species === "cat" ? "cat" : "dog", kind: "portrait",
+        breed: [p.name, p.breed].filter(Boolean).join(" · "), w: p.w || 1280, h: p.h || 1280,
+      }));
+      if (!live.length && !singles.length) return;
+      galleryItems = live.concat(singles, galleryItems); renderGallery();
     }).catch(() => { });
     const fb = $("#galleryFilters");
     filters.forEach(f => {
