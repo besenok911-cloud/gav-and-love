@@ -361,6 +361,12 @@
   .site-toggle input{width:18px;height:18px;margin:0;accent-color:var(--violet);cursor:pointer}
   .site-body{margin-top:14px;padding-top:12px;border-top:1px solid var(--line-soft);display:grid;gap:12px}
   .site-sub{margin:8px 0 -2px;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--violet)}
+  .site-fld.off .site-in{opacity:.45}
+  .site-fld.off>.site-lbl label{text-decoration:line-through;opacity:.6}
+  .site-eye{background:none;border:0;cursor:pointer;font-size:.95rem;line-height:1;padding:0 2px;opacity:.55}
+  .site-eye:hover{opacity:1}
+  .site-fld.off .site-eye{opacity:1}
+  .site-off-tag{font-size:.66rem;font-weight:700;color:var(--cancelled);letter-spacing:.02em}
   .simg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
   .simg{border:1.5px solid var(--line);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--paper);min-width:0}
   .simg.changed{border-color:var(--violet);box-shadow:0 0 0 3px var(--violet-soft)}
@@ -1939,7 +1945,7 @@
   //   [data-cms="key"]           — an editable text; only values that differ from the markup are saved
   // SITE.pending outlives renderSite(): an upload is finished on the server but only becomes visible on the
   // site when «Зберегти» is pressed, and re-entering the tab must not throw those uploads away.
-  var SITE={cfg:{hidden:[],texts:{},images:{}},sections:[],groups:[],defs:{},remove:[],pending:{images:{},remove:[]}};
+  var SITE={cfg:{hidden:[],hiddenText:[],texts:{},images:{}},sections:[],groups:[],defs:{},remove:[],pending:{images:{},remove:[]}};
   var SITE_LBL={eyebrow:"Надзаголовок",kicker:"Надзаголовок",h1:"Заголовок",h2:"Заголовок",h3:"Заголовок",h4:"Заголовок",title:"Заголовок",sub:"Підзаголовок",lead:"Опис",p:"Текст",text:"Текст",
     q:"Питання",a:"Відповідь",name:"Ім'я",role:"Посада",tag:"Мітка",meta:"Деталі",btn:"Кнопка",quote:"Цитата",qa:"Питання-відповідь",member:"Майстер",item:"Пункт",expect:"Очікуємо",offer:"Пропонуємо",
     main:"Головне фото",inset:"Друге фото",photo:"Фото",tile:"Фото",cap:"Підпис фото",point:"Пункт",rules:"Умови заселення",interview:"Інтерв'ю",note:"Примітка",address:"Адреса",hours:"Графік роботи",hint:"Підказка"};
@@ -1989,7 +1995,8 @@
     try{cfg=await fetch(API+"/site",{cache:"no-store"}).then(function(r){return r.json();});}catch(e){cfg=null;}
     siteCollect(new DOMParser().parseFromString(page,"text/html"));
     var saved=(cfg&&cfg.images&&typeof cfg.images==="object")?cfg.images:{};
-    SITE.cfg={hidden:(cfg&&Array.isArray(cfg.hidden))?cfg.hidden.slice():[],texts:(cfg&&cfg.texts&&typeof cfg.texts==="object")?cfg.texts:{},
+    SITE.cfg={hidden:(cfg&&Array.isArray(cfg.hidden))?cfg.hidden.slice():[],
+      hiddenText:(cfg&&Array.isArray(cfg.hiddenText))?cfg.hiddenText.slice():[],texts:(cfg&&cfg.texts&&typeof cfg.texts==="object")?cfg.texts:{},
       images:Object.assign({},saved,SITE.pending.images)};
     SITE.pending.remove.forEach(function(k){delete SITE.cfg.images[k];});
     SITE.remove=SITE.pending.remove.slice();
@@ -2002,8 +2009,11 @@
     var ctl=multi
       ?'<textarea class="site-in" rows="'+Math.min(8,Math.max(2,Math.ceil(val.length/70)+val.split("\n").length-1))+'">'+esc(val)+'</textarea>'
       :'<input class="site-in" type="text" value="'+esc(val)+'">';
-    return '<div class="site-fld'+(changed?" changed":"")+'" data-key="'+esc(f.key)+'"><div class="site-lbl"><label>'+esc(siteLabel(f.key))+'</label>'+
+    var off=SITE.cfg.hiddenText.indexOf(f.key)>=0;
+    return '<div class="site-fld'+(changed?" changed":"")+(off?" off":"")+'" data-key="'+esc(f.key)+'"><div class="site-lbl"><label>'+esc(siteLabel(f.key))+'</label>'+
+      (off?'<span class="site-off-tag">не показується</span>':'')+
       (f.rich?'<span class="site-rich" title="*слово* — рукописний акцент, **слово** — жирний, Enter — новий рядок">✎ форматування</span>':'')+
+      '<button type="button" class="site-eye" title="'+(off?"Показати цей рядок на сайті":"Сховати цей рядок із сайту")+'">'+(off?"🚫":"👁")+'</button>'+
       '<button type="button" class="site-reset" title="Повернути початковий текст">↺</button></div>'+ctl+'</div>';
   }
   function siteShotHtml(im,src,pos,ratio,cap,small){
@@ -2049,7 +2059,7 @@
   }
   function drawSite(){
     var v=$("#siteView");
-    v.innerHTML='<div class="site-intro"><p>Приховуйте розділи головної сторінки, змінюйте їхні тексти та фото. Порожнє поле чи ↺ повертає початкове. Головний екран, послуги, запис і контакти показуються завжди. Нове фото зберігається разом з усіма змінами — кнопкою внизу; на сайті все зʼявиться протягом хвилини. Галерея робіт наповнюється не тут, а з картки улюбленця (кнопка 🌐 на фото).</p>'+
+    v.innerHTML='<div class="site-intro"><p>Приховуйте розділи головної сторінки, змінюйте їхні тексти та фото. 👁 біля рядка прибирає з сайту саме його. Порожнє поле чи ↺ повертає початкове. Головний екран, послуги, запис і контакти показуються завжди. Нове фото зберігається разом з усіма змінами — кнопкою внизу; на сайті все зʼявиться протягом хвилини. Галерея робіт наповнюється не тут, а з картки улюбленця (кнопка 🌐 на фото).</p>'+
       '<a class="btn outline sm" href="index.html" target="_blank" rel="noopener">↗ Відкрити сайт</a></div>'+
       siteGroupsHtml()+SITE.sections.map(function(s){return siteCardHtml(s,true);}).join("")+
       '<div class="site-bar"><span class="muted" id="site-stat"></span><a class="btn outline sm" href="index.html" target="_blank" rel="noopener">↗ Відкрити сайт</a><button type="button" class="btn save-main" id="site-save">Зберегти зміни</button></div>';
@@ -2057,16 +2067,16 @@
     siteUpdateStat();
   }
   function siteFldSync(fld){var t=fld.querySelector(".site-in").value.trim();fld.classList.toggle("changed",!!t&&t!==SITE.defs[fld.dataset.key]);}
-  function siteCardSync(card){var n=card.querySelectorAll(".site-fld.changed,.simg.changed").length,tag=card.querySelector(".site-cnt");if(tag){tag.textContent="змінено: "+n;tag.hidden=!n;}}
+  function siteCardSync(card){var n=card.querySelectorAll(".site-fld.changed,.site-fld.off,.simg.changed").length,tag=card.querySelector(".site-cnt");if(tag){tag.textContent="змінено: "+n;tag.hidden=!n;}}
   function siteState(){
     var hidden=[],texts={},v=$("#siteView");
     [].forEach.call(v.querySelectorAll(".site-show"),function(c){if(!c.checked)hidden.push(c.closest(".site-card").dataset.sec);});
     [].forEach.call(v.querySelectorAll(".site-fld"),function(f){var t=f.querySelector(".site-in").value.trim();if(t&&t!==SITE.defs[f.dataset.key])texts[f.dataset.key]=t;});
-    return {hidden:hidden,texts:texts,images:SITE.cfg.images,remove:SITE.remove};
+    return {hidden:hidden,hiddenText:SITE.cfg.hiddenText.slice(),texts:texts,images:SITE.cfg.images,remove:SITE.remove};
   }
   function siteUpdateStat(){var el=$("#site-stat");if(!el)return;var st=siteState();
-    el.textContent="Приховано розділів: "+st.hidden.length+" · змінено текстів: "+Object.keys(st.texts).length+
-      " · замінено фото: "+Object.keys(st.images).length;}
+    el.textContent="Приховано розділів: "+st.hidden.length+" · сховано рядків: "+st.hiddenText.length+
+      " · змінено текстів: "+Object.keys(st.texts).length+" · замінено фото: "+Object.keys(st.images).length;}
   // One decode, two copies: 1600 px long side for the lightbox and ~1000 px for the page itself.
   // The canvas is filled white first — a transparent PNG would otherwise composite onto black.
   function siteFit(src,w,h,maxLong,maxShort){
@@ -2140,6 +2150,16 @@
       }
     });
     v.addEventListener("click",function(e){
+      var eye=e.target.closest(".site-eye");
+      if(eye){
+        var f=eye.closest(".site-fld"),key=f.dataset.key,i=SITE.cfg.hiddenText.indexOf(key);
+        if(i>=0)SITE.cfg.hiddenText.splice(i,1); else SITE.cfg.hiddenText.push(key);
+        var tmp=document.createElement("div");
+        tmp.innerHTML=siteFieldHtml({key:key,def:SITE.defs[key],rich:!!f.querySelector(".site-rich")});
+        var fresh=tmp.firstChild;fresh.querySelector(".site-in").value=f.querySelector(".site-in").value;
+        f.parentNode.replaceChild(fresh,f);
+        siteFldSync(fresh);siteCardSync(fresh.closest(".site-card"));siteUpdateStat();return;
+      }
       var t=e.target.closest(".site-open,.site-reset,#site-save");if(!t)return;
       if(t.id==="site-save"){saveSite();return;}
       var card=t.closest(".site-card");
@@ -2164,7 +2184,7 @@
     btn.disabled=true;var old=btn.textContent;btn.textContent="Зберігаємо…";
     try{var r=await api("/admin/site-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(st)});
       if(!r||!r.ok)throw new Error((r&&r.error)||"");
-      SITE.cfg={hidden:st.hidden,texts:st.texts,images:SITE.cfg.images};SITE.remove=[];SITE.pending={images:{},remove:[]};
+      SITE.cfg={hidden:st.hidden,hiddenText:st.hiddenText,texts:st.texts,images:SITE.cfg.images};SITE.remove=[];SITE.pending={images:{},remove:[]};
       toast("Збережено — сайт оновиться протягом хвилини");btn.classList.add("saved");setTimeout(function(){btn.classList.remove("saved");},1600);
     }catch(e){if(e&&e.code===401){showLogin("Сесія завершилась — увійдіть знову.");return;}toast("Не вдалося зберегти"+(e&&e.message?": "+e.message:""),true);}
     btn.disabled=false;btn.textContent=old;

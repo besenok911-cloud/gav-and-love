@@ -71,9 +71,11 @@
   /* ============================================================
      SITE CMS — sections hidden / texts overridden from the CRM («Сайт» tab)
      Markup contract: [data-cms-section="Назва"] = hideable section (by id),
-     [data-cms="key"] = editable text, [data-cms-img="key"] = replaceable photo
+     [data-cms="key"] = editable text (the CRM can also switch a single one off),
+     [data-cms-img="key"] = replaceable photo
      (+ data-cms-img-sm = show the page copy, data-cms-img-ratio = the frame the CRM previews).
-     cfg = { hidden: [id…], texts: { key: text }, images: { key: {u,t,w,h,tw,th,pos,alt} } }.
+     cfg = { hidden: [id…], hiddenText: [key…], texts: { key: text },
+             images: { key: {u,t,w,h,tw,th,pos,alt} } }.
      ============================================================ */
   const CMS_HIDDEN = new Set(); window.GL_CMS_HIDDEN = CMS_HIDDEN;
   const CMS_DEFAULTS = new Map();                 // el -> { html, rich } captured before the first override
@@ -145,6 +147,7 @@
   function applySiteCms(cfg) {
     const hidden = (cfg && Array.isArray(cfg.hidden)) ? cfg.hidden.map(String) : [];
     const texts = (cfg && cfg.texts && typeof cfg.texts === "object") ? cfg.texts : {};
+    const offText = new Set((cfg && Array.isArray(cfg.hiddenText)) ? cfg.hiddenText.map(String) : []);
     CMS_HIDDEN.clear(); hidden.forEach(id => CMS_HIDDEN.add(id));
     $$("[data-cms-section]").forEach(sec => {
       const hide = CMS_HIDDEN.has(sec.id);
@@ -156,6 +159,7 @@
       const def = CMS_DEFAULTS.get(el), val = texts[el.dataset.cms];
       if (typeof val === "string" && val.trim()) { if (def.rich) cmsRender(el, val); else el.textContent = val; }
       else if (el.innerHTML !== def.html) el.innerHTML = def.html;                // override removed → back to the markup default
+      el.hidden = offText.has(el.dataset.cms);   // [hidden]{display:none!important} beats any display the class sets
     });
     applySiteImages((cfg && cfg.images && typeof cfg.images === "object") ? cfg.images : {});
   }
@@ -164,7 +168,7 @@
   if (CONFIG.bookingEndpoint) {
     fetch(`${CONFIG.bookingEndpoint}/site`).then(r => r.json()).then(d => {
       if (!d || !d.ok) return;
-      const cfg = { hidden: d.hidden || [], texts: d.texts || {}, images: d.images || {} };
+      const cfg = { hidden: d.hidden || [], hiddenText: d.hiddenText || [], texts: d.texts || {}, images: d.images || {} };
       applySiteCms(cfg);
       try { localStorage.setItem("gl_site_cms", JSON.stringify(cfg)); } catch (e) { }
     }).catch(() => { });

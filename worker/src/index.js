@@ -1785,11 +1785,17 @@ const SITE_CMS_MAX = 64 * 1024;
 // The second argument is the map already stored. The CRM builds its editor from GET /site, which publishes URLs
 // rather than ids, so an entry that comes back carrying only a new crop or a new alt is a CORRECTION
 // to the slot that is already there — not a broken entry to drop.
+const SITE_HIDDEN_TEXTS = 200;
 function normalizeSiteCms(b, cur) {
-  const hidden = [], texts = {}, images = {}, seen = new Set();
+  const hidden = [], hiddenText = [], texts = {}, images = {}, seen = new Set(), seenH = new Set();
   (Array.isArray(b && b.hidden) ? b.hidden : []).forEach(x => {
     const id = String(x == null ? "" : x).trim();
     if (/^[\w-]{1,40}$/.test(id) && !seen.has(id)) { seen.add(id); hidden.push(id); }
+  });
+  // individual lines the owner switched off — same idea as a hidden section, one level down
+  (Array.isArray(b && b.hiddenText) ? b.hiddenText : []).forEach(x => {
+    const k = String(x == null ? "" : x).trim();
+    if (CMS_KEY_RE.test(k) && !seenH.has(k) && hiddenText.length < SITE_HIDDEN_TEXTS) { seenH.add(k); hiddenText.push(k); }
   });
   const t = b && b.texts;
   if (t && typeof t === "object" && !Array.isArray(t)) {
@@ -1821,15 +1827,15 @@ function normalizeSiteCms(b, cur) {
       images[k] = o;
     }
   }
-  return { hidden, texts, images };
+  return { hidden, hiddenText, texts, images };
 }
 async function loadSiteCms(env) {
-  if (!env.DB) return { hidden: [], texts: {}, images: {} };
+  if (!env.DB) return { hidden: [], hiddenText: [], texts: {}, images: {} };
   try {
     const row = await env.DB.prepare(`SELECT value FROM settings WHERE key='site_cms'`).first();
     if (row && row.value) return normalizeSiteCms(JSON.parse(row.value));
   } catch (e) { }
-  return { hidden: [], texts: {}, images: {} };
+  return { hidden: [], hiddenText: [], texts: {}, images: {} };
 }
 async function publicSite(env, origin) {
   const c = await loadSiteCms(env);
@@ -1839,7 +1845,7 @@ async function publicSite(env, origin) {
     images[k] = { u: `${origin}/img/${v.id}/${v.token}`, t: `${origin}/img/${v.id}/${v.token}/t`,
       w: v.w, h: v.h, tw: v.tw, th: v.th, pos: v.pos, alt: v.alt };
   }
-  return { ok: true, hidden: c.hidden, texts: c.texts, images };
+  return { ok: true, hidden: c.hidden, hiddenText: c.hiddenText, texts: c.texts, images };
 }
 async function siteSave(request, env) {
   await requireAdmin(request, env);
