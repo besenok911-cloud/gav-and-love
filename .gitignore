@@ -10,3 +10,5 @@ _crm_mock.html
 .claude/
 .wrangler/
 worker/.dev.vars
+# случайно попавшая сюда папка со сторонними файлами — не часть проекта
+Archive/
