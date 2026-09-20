@@ -596,14 +596,18 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 }
 /* phone: the first screen is the photo, not a wall of text (kicker → title → one line → photo → buttons) */
 @media (max-width:640px){
-  .hero{padding-top:24px;padding-bottom:34px}
-  .hero-inner{gap:16px}
+  .hero{padding-top:18px;padding-bottom:24px}
+  .hero-inner{gap:12px}
+  .scroll-hint{display:none}   /* it landed between the two buttons once the hero got short */
   .hero-copy{display:contents}
-  .hero-kicker{order:1;margin:0;font-size:.72rem}
+  .hero-kicker{order:1;margin:0 0 -6px;font-size:.72rem}   /* reads as one unit with the title */
   .hero-title{order:2;margin:0;font-size:clamp(2.05rem,8.4vw,2.5rem)}
   .hero-lead{order:3;margin:0;font-size:1rem;max-width:none}
   .hero-lead-more{display:none}
-  .hero-photo{order:4;margin:2px auto 0;max-width:none}
+  .hero-photo{order:4;margin:0 auto;max-width:none}
+  /* the photo takes what is left of the screen instead of 4:5 of the width, so the buttons stay in view */
+  .hero-photo-frame{max-height:40dvh}
+  .hero-photo-frame img{object-position:50% 18%}   /* keep the faces when the crop gets shorter */
   .hero-actions{order:5;margin:0;gap:10px;flex-wrap:nowrap;width:100%}
   .hero-actions .btn{flex:1 1 0;width:auto;min-width:0;padding:.8em .5em;font-size:.88rem}
   .hero-badges{display:none}
