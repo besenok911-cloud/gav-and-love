@@ -1738,13 +1738,17 @@
       [].forEach.call(box.querySelectorAll(".ptph .x"),function(b){b.addEventListener("click",async function(){if(!confirm("Видалити це фото?"))return;var id=b.closest(".ptph").dataset.id;
         try{await api("/admin/photo-delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:+id})});loadPetPhotos();refreshPetCounts();}catch(e){toast("Не вдалося видалити фото",true);}});});
     }).catch(function(){box.innerHTML='<p class="muted" style="font-size:.85rem">Не вдалося завантажити фото.</p>';});}
+  function fitCanvas(src,w,h,maxLong,maxShort){   // maxShort matters because tiles crop to a square
+    var s=Math.min(1,maxLong/Math.max(w,h),maxShort?maxShort/Math.min(w,h):1/0);
+    var c=document.createElement("canvas");c.width=Math.max(1,Math.round(w*s));c.height=Math.max(1,Math.round(h*s));
+    var x=c.getContext("2d");x.imageSmoothingEnabled=true;x.imageSmoothingQuality="high";
+    x.drawImage(src,0,0,c.width,c.height);return c;}
   function shrinkPhoto(file){return new Promise(function(res,rej){var url=URL.createObjectURL(file),img=new Image();
-    img.onload=function(){var w=img.naturalWidth,h=img.naturalHeight;
-      function draw(max,q){var s=Math.min(1,max/Math.max(w,h));var c=document.createElement("canvas");
-        c.width=Math.max(1,Math.round(w*s));c.height=Math.max(1,Math.round(h*s));
-        c.getContext("2d").drawImage(img,0,0,c.width,c.height);return c.toDataURL("image/jpeg",q);}
-      var full=draw(1600,0.85),thumb=draw(560,0.72);   // big one for the lightbox, small one for every grid
-      URL.revokeObjectURL(url);res({data:full,thumb:thumb});};
+    img.onload=function(){try{
+      var big=fitCanvas(img,img.naturalWidth,img.naturalHeight,1600,0);            // for looking at
+      var small=fitCanvas(big,big.width,big.height,1120,560);                      // for every grid and avatar
+      URL.revokeObjectURL(url);res({data:big.toDataURL("image/jpeg",0.85),thumb:small.toDataURL("image/jpeg",0.72)});
+    }catch(e){URL.revokeObjectURL(url);rej(e);}};
     img.onerror=function(){URL.revokeObjectURL(url);rej(new Error("не вдалося прочитати зображення"));};img.src=url;});}
   async function uploadPetPhoto(kind,file){if(!file||!editPetId)return;var hint=$("#pt-ph-hint");hint.textContent="Стискаємо та надсилаємо…";
     try{var im=await shrinkPhoto(file);

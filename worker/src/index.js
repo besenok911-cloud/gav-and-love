@@ -1045,7 +1045,7 @@ async function cabinetLinkButton(env, clientId) {   // one-tap login link for th
 
 /* ----------------------------- Pet photos (before / after) — bytes in the R2 bucket, metadata in D1, served by /photo/<id>/<token> ----------------------------- */
 const PHOTO_MAX_D1 = 900 * 1024;        // a D1 row has to stay small (fallback when no bucket is bound)
-const PHOTO_MAX_R2 = 5 * 1024 * 1024;   // the bucket does not mind; the browser still shrinks to ~1280 px
+const PHOTO_MAX_R2 = 5 * 1024 * 1024;   // the bucket does not mind; the browser sends ~1600 px plus a small copy
 const PHOTO_CACHE = "public, max-age=31536000, immutable";
 const PHOTO_EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 const PHOTO_THUMB_MAX = 400 * 1024;     // a 560 px q72 JPEG is ~25-60 KB
@@ -1096,14 +1096,14 @@ async function savePetPhoto(env, origin, b) {   // shared by the admin pet card 
   let tKey = null, tSize = null;
   const tm = bucket ? /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.thumb || "")) : null;
   if (tm) {
-    const tbin = Uint8Array.from(atob(tm[2]), c => c.charCodeAt(0));
-    if (tbin.length && tbin.length <= PHOTO_THUMB_MAX) {
-      const candidate = thumbKey(petId, token, tm[1]);
-      try {
+    try {   // the regex admits base64 that atob rejects — decoding belongs inside the guard
+      const tbin = Uint8Array.from(atob(tm[2]), c => c.charCodeAt(0));
+      if (tbin.length && tbin.length <= PHOTO_THUMB_MAX) {
+        const candidate = thumbKey(petId, token, tm[1]);
         await bucket.put(candidate, tbin, { httpMetadata: { contentType: tm[1], cacheControl: PHOTO_CACHE } });
         tKey = candidate; tSize = tbin.length;
-      } catch (e) { }
-    }
+      }
+    } catch (e) { }
   }
   try {
     const r = await env.DB.prepare(`INSERT INTO pet_photos (pet_id,client_id,booking_id,kind,mime,data,r2_key,size,thumb_key,thumb_size,token,created_at,note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
@@ -1201,10 +1201,11 @@ async function photoServe(url, env, cors) {   // public but unguessable (16-hex 
   const p = await env.DB.prepare(`SELECT mime,data,token,r2_key,thumb_key FROM pet_photos WHERE id=?`).bind(+m[1]).first();
   if (!p || p.token !== m[2]) return new Response("not found", { status: 404, headers: cors });
   const head = Object.assign({ "Content-Type": p.mime || "image/jpeg", "Cache-Control": PHOTO_CACHE }, cors);
-  const wantKey = (m[3] === "t" && p.thumb_key) ? p.thumb_key : p.r2_key;
-  if (wantKey) {
+  const small = m[3] === "t" && p.thumb_key;
+  if (small || p.r2_key) {
     const bucket = photoBucket(env);
-    const obj = bucket ? await bucket.get(wantKey) : null;
+    let obj = bucket ? await bucket.get(small ? p.thumb_key : p.r2_key) : null;
+    if (!obj && small && p.r2_key) obj = await bucket.get(p.r2_key);   // no small copy left — the big one still answers
     if (obj) {
       if (obj.httpEtag) head.ETag = obj.httpEtag;
       return new Response(obj.body, { headers: head });
