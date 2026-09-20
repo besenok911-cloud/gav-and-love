@@ -225,6 +225,21 @@ export default {
       if (url.pathname === "/admin/site-image" && request.method === "POST") {
         return json(await siteImageUpload(request, env), cors);
       }
+      if (url.pathname === "/admin/backup-run" && request.method === "POST") {
+        await requireOwner(request, env);
+        let body = {}; try { body = await request.json(); } catch (e) { }
+        return json(await runBackup(env, !!(body && body.monthly)), cors);
+      }
+      if (url.pathname === "/admin/backup-list" && request.method === "GET") {
+        await requireOwner(request, env);
+        return json(await backupList(env), cors);
+      }
+      if (url.pathname === "/admin/backup-get" && request.method === "GET") {
+        await requireOwner(request, env);
+        const obj = await backupFetch(env, url.searchParams.get("key"));
+        if (!obj) return json({ ok: false, error: "not found" }, cors, 404);
+        return new Response(obj.body, { headers: { ...cors, "Content-Type": "application/sql; charset=utf-8", "Cache-Control": "no-store" } });
+      }
       if (url.pathname === "/admin/send-digest" && request.method === "POST") {
         await requireAdmin(request, env);
         return json(await runDailyDigest(env, true), cors);
@@ -240,7 +255,7 @@ export default {
     const cron = (event && event.cron) || "";
     if (cron.startsWith("*/30")) ctx.waitUntil(runClientReminders(env, "soon").catch(() => {}));
     else ctx.waitUntil(Promise.all([runDailyDigest(env).catch(() => {}), runClientReminders(env, "day").catch(() => {}),
-      siteMediaSweep(env).catch(() => {})]));
+      siteMediaSweep(env).catch(() => {}), runBackup(env).catch(() => {})]));
   },
 };
 
@@ -279,6 +294,15 @@ function wallToRFC(y, m, d, min, tz) {
   return `${y}-${pad(m)}-${pad(d)}T${hhmm(min)}:00${sign}${pad(Math.floor(ao / 60))}:${pad(ao % 60)}`;
 }
 
+/* A deployment without the Google secrets (the dev copy, a first run before the calendar is set up)
+   must still answer. Where the calendar is the source of busy time, "no calendar" means "no events
+   from there" — such an installation is NOT safe for real bookings, because two people could take
+   the same slot; it exists so the rest of the worker can be exercised. */
+const calOn = env => !!(env && env.CALENDAR_ID && env.SA_EMAIL && env.SA_PRIVATE_KEY);
+async function calEvents(env, timeMin, timeMax) {
+  if (!calOn(env)) return [];
+  return await listEvents(env, await getAccessToken(env), timeMin, timeMax);
+}
 /* ----------------------------- Google auth ----------------------------- */
 async function getAccessToken(env) {
   const now = Math.floor(Date.now() / 1000);
@@ -425,10 +449,9 @@ async function getSlots(url, env) {
   if (reqStaff) working = working.filter(mst => mst.name === reqStaff);
   if (!working.length) return { ok: true, slots: [] };      // day off / vacation / inactive
 
-  const token = await getAccessToken(env);
   const dayStart = wallToUTC(y, m, d, 0, BUSINESS.tz);
   const dayEnd = wallToUTC(y, m, d, 24 * 60, BUSINESS.tz);
-  let events = await listEvents(env, token, dayStart, dayEnd);
+  let events = await calEvents(env, dayStart, dayEnd);
   const excl = Number(url.searchParams.get("exclude"));   // booking being rescheduled: its own event must not block the picker
   if (Number.isInteger(excl) && excl > 0 && env.DB) {
     const row = await env.DB.prepare(`SELECT event_id FROM bookings WHERE id=?`).bind(excl).first();
@@ -475,10 +498,9 @@ async function book(body, env, source) {
     const duration = await serviceDuration(env, service);
     const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 
-    const token = await getAccessToken(env);
     const start = wallToUTC(y, m, d, startMin, BUSINESS.tz);
     const end = new Date(start.getTime() + duration * 60000);
-    const events = await listEvents(env, token,
+    const events = await calEvents(env,
       new Date(start.getTime() - BUSINESS.bufferMin * 60000),
       new Date(end.getTime() + BUSINESS.bufferMin * 60000));
     const isFree = mst => startMin >= mst.startMin && startMin + duration <= mst.endMin &&
@@ -778,6 +800,7 @@ async function adminCreate(request, env) {   // phone is standardised inside, li
   let eventId = null, eventLink = null;
   if (hasTime && (b.status || "new") !== "cancelled") {
     try {
+      if (!calOn(env)) throw new Error("no calendar");
       const token = await getAccessToken(env);
       const ev = await calCreate(env, token, b);
       eventId = ev.id; eventLink = ev.htmlLink;
@@ -1869,6 +1892,89 @@ async function siteSave(request, env) {
   await siteMediaMark(env, next.images);
   return { ok: true };
 }
+/* ---------- Nightly backup ----------
+   The whole database written out as SQL into its own bucket, so a restore is one wrangler command
+   and not an archaeology project. Thirty dailies, twelve monthlies (the 1st of each month), the rest
+   swept by the same nightly run. The dump holds client names, phones and password hashes — the bucket
+   is private, there is no public route to it, and it belongs to whoever owns the data. */
+const BACKUP_DAILY_KEEP = 30, BACKUP_MONTHLY_KEEP = 12;
+const backupBucket = env => (env && env.BACKUPS && typeof env.BACKUPS.put === "function") ? env.BACKUPS : null;
+function sqlLit(v) {
+  if (v === null || v === undefined) return "NULL";
+  if (typeof v === "number") return Number.isFinite(v) ? String(v) : "NULL";
+  if (typeof v === "boolean") return v ? "1" : "0";
+  if (typeof v === "object") {          // D1 hands a BLOB back as an array of byte values
+    const b = v instanceof ArrayBuffer ? new Uint8Array(v) : Uint8Array.from(v.length != null ? v : []);
+    let hex = ""; for (let i = 0; i < b.length; i++) hex += b[i].toString(16).padStart(2, "0");
+    return "X'" + hex + "'";
+  }
+  return "'" + String(v).replace(/'/g, "''") + "'";
+}
+async function dumpDatabase(env) {
+  const tables = (((await env.DB.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name`
+  ).all()).results) || []).map(r => r.name);
+  const out = ["-- GAV&LOVE CRM · " + new Date().toISOString(),
+    "-- restore: npx wrangler d1 execute <db> --remote --file <this file>",
+    "PRAGMA defer_foreign_keys = true;"];
+  const counts = {};
+  for (const t of tables) {
+    const rows = (((await env.DB.prepare(`SELECT * FROM "${t}"`).all()).results) || []);
+    counts[t] = rows.length;
+    out.push("", `-- ${t} (${rows.length})`, `DELETE FROM "${t}";`);
+    for (const r of rows) {
+      const cols = Object.keys(r);
+      out.push(`INSERT INTO "${t}" (${cols.map(c => '"' + c + '"').join(",")}) VALUES (${cols.map(c => sqlLit(r[c])).join(",")});`);
+    }
+  }
+  return { sql: out.join("\n") + "\n", counts };
+}
+async function backupSweep(bucket, now) {
+  const cut = { "daily/": new Date(now.getTime() - BACKUP_DAILY_KEEP * 86400000).toISOString().slice(0, 10),
+    "monthly/": new Date(now.getTime() - BACKUP_MONTHLY_KEEP * 31 * 86400000).toISOString().slice(0, 7) };
+  let dropped = 0;
+  for (const prefix of Object.keys(cut)) {
+    const list = await bucket.list({ prefix });
+    for (const o of (list.objects || [])) {
+      const stamp = o.key.slice(prefix.length).replace(/\.sql$/, "");
+      if (stamp && stamp < cut[prefix]) { try { await bucket.delete(o.key); dropped++; } catch (e) { } }
+    }
+  }
+  return dropped;
+}
+async function runBackup(env, alsoMonthly) {
+  const bucket = backupBucket(env);
+  if (!bucket || !env.DB) return { ok: false, error: "Немає бакета для резервних копій (binding BACKUPS)" };
+  const now = new Date(), day = now.toISOString().slice(0, 10);
+  const { sql, counts } = await dumpDatabase(env);
+  const meta = { httpMetadata: { contentType: "application/sql; charset=utf-8" } };
+  await bucket.put(`daily/${day}.sql`, sql, meta);
+  if (alsoMonthly || day.slice(8) === "01") await bucket.put(`monthly/${day.slice(0, 7)}.sql`, sql, meta);
+  const rows = Object.keys(counts).reduce((n, k) => n + counts[k], 0);
+  const summary = { day, bytes: sql.length, tables: Object.keys(counts).length, rows, counts };
+  await bucket.put("latest.json", JSON.stringify(summary, null, 1), { httpMetadata: { contentType: "application/json" } });
+  summary.dropped = await backupSweep(bucket, now);
+  summary.ok = true;
+  return summary;
+}
+async function backupList(env) {
+  const bucket = backupBucket(env);
+  if (!bucket) return { ok: false, error: "Немає бакета для резервних копій" };
+  const all = [];
+  for (const prefix of ["daily/", "monthly/"]) {
+    const list = await bucket.list({ prefix });
+    (list.objects || []).forEach(o => all.push({ key: o.key, size: o.size, uploaded: o.uploaded }));
+  }
+  all.sort((a, b) => a.key < b.key ? 1 : -1);
+  let latest = null;
+  try { const o = await bucket.get("latest.json"); if (o) latest = JSON.parse(await o.text()); } catch (e) { }
+  return { ok: true, files: all, latest };
+}
+async function backupFetch(env, key) {
+  const bucket = backupBucket(env);
+  if (!bucket || !/^(daily|monthly)\/[\w.-]{1,40}\.sql$/.test(String(key || ""))) return null;
+  return await bucket.get(key);
+}
 // YYYY-MM-DD for a Date in a timezone.
 function isoInTz(d, tz) {
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(d).map(x => [x.type, x.value]));
@@ -2086,10 +2192,9 @@ async function freeMasterAt(env, { date, time, service, prefer, excludeEventId }
   const duration = await serviceDuration(env, service);
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   const masters = await loadMasters(env);
-  const token = await getAccessToken(env);
   const start = wallToUTC(y, m, d, startMin, BUSINESS.tz), end = new Date(start.getTime() + duration * 60000);
   if (start.getTime() < Date.now() + BUSINESS.minLeadMin * 60000 || start.getTime() > Date.now() + BUSINESS.maxAheadDays * 86400000) return null; // same bounds as the slot picker
-  const events = (await listEvents(env, token, new Date(start.getTime() - BUSINESS.bufferMin * 60000), new Date(end.getTime() + BUSINESS.bufferMin * 60000)))
+  const events = (await calEvents(env, new Date(start.getTime() - BUSINESS.bufferMin * 60000), new Date(end.getTime() + BUSINESS.bufferMin * 60000)))
     .filter(ev => !excludeEventId || ev.id !== excludeEventId);   // the booking's own event is not a conflict
   const isFree = mst => startMin >= mst.startMin && startMin + duration <= mst.endMin &&
     !inBreak(mst, startMin, startMin + duration) && masterWorks(mst, date, dow) &&

@@ -23,6 +23,38 @@ database_id = "50b72473-38b0-4908-bcf6-3938dffbf3f2"
 binding = "PHOTOS"
 bucket_name = "gavlove-photos"
 
+# Nightly database dumps. Private, no public route: the dump holds client names, phones
+# and password hashes. Thirty dailies and twelve monthlies, swept by the same nightly run.
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "gavlove-backups"
+
+# ---------------------------------------------------------------------------
+# Development copy: its own worker, its own database, its own bucket, NO crons
+# and no Google / Telegram secrets, so nothing it does can reach a real client.
+#   deploy:  npx wrangler deploy --env dev
+#   secrets: npx wrangler secret put ADMIN_TOKEN --env dev
+# Nothing is inherited from the section above — every binding is repeated on purpose.
+# ---------------------------------------------------------------------------
+[env.dev]
+name = "gavlove-booking-dev"
+
+[env.dev.vars]
+ALLOW_ORIGIN = "*"
+SITE_URL = "http://127.0.0.1:8899"
+
+[env.dev.triggers]
+crons = []
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "gavlove-crm-dev"
+database_id = "69e84338-bc68-48a9-b617-e87e02412e55"
+
+[[env.dev.r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "gavlove-photos-dev"
+
 # Secrets are NOT stored here. Set them with:
 #   wrangler secret put SA_EMAIL
 #   wrangler secret put SA_PRIVATE_KEY
