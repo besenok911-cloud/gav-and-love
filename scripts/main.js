@@ -584,6 +584,8 @@
     wrap.className = "picker";
     sel.parentNode.insertBefore(wrap, sel);
     wrap.appendChild(sel);
+    sel.tabIndex = -1;                       // still posted with the form, no longer a stop before the search box
+    sel.setAttribute("aria-hidden", "true"); // the label now belongs to the input, so do not announce this twice
     const input = document.createElement("input");
     input.type = "text"; input.className = "picker-input"; input.autocomplete = "off"; input.autocapitalize = "off";
     input.setAttribute("role", "combobox"); input.setAttribute("aria-autocomplete", "list"); input.setAttribute("aria-expanded", "false");
@@ -594,24 +596,42 @@
     }
     const list = document.createElement("div");
     list.className = "picker-list"; list.hidden = true; list.setAttribute("role", "listbox");
+    list.id = (input.id || "picker") + "-list";
+    input.setAttribute("aria-controls", list.id);
     wrap.appendChild(input); wrap.appendChild(list);
-    let open = false, active = -1, items = [];
+    let open = false, active = -1, items = [], noun = "породу";
     const opts = () => [].slice.call(sel.options).filter(o => o.value);
     const holder = () => (sel.options[0] && !sel.options[0].value ? sel.options[0].textContent : "Почніть вводити…");
     function draw(q) {
       const nq = pkNorm(q);
       items = opts().filter(o => !nq || pkNorm(o.value).indexOf(nq) >= 0);
       list.innerHTML = items.length
-        ? items.map((o, i) => '<div class="picker-item' + (o.value === sel.value ? " on" : "") + '" role="option" data-i="' + i + '">' + esc(o.value) + '</div>').join("")
-        : '<div class="picker-empty">Не знайшли таку породу. Виберіть найближчу або залиште поле порожнім — уточнимо при підтвердженні.</div>';
-      active = items.length ? 0 : -1;
+        ? items.map((o, i) => '<div class="picker-item' + (o.value === sel.value ? " on" : "") + '" role="option" id="' + list.id + '-' + i +
+            '" aria-selected="' + (o.value === sel.value ? "true" : "false") + '" data-i="' + i + '">' + esc(o.value) + '</div>').join("")
+        : '<div class="picker-empty" role="status">Не знайшли таку ' + noun + '. Виберіть найближчу зі списку — на підтвердженні уточнимо.</div>';
+      // typing highlights the best match; merely opening the list highlights what is already chosen,
+      // so Enter can never quietly swap the visitor's breed for the first one in the alphabet
+      const cur = items.map(o => o.value).indexOf(sel.value);
+      active = nq && items.length ? 0 : cur;
       mark();
     }
-    function mark() { [].forEach.call(list.children, (el, i) => el.classList.toggle("active", i === active)); }
-    function show(q) { draw(q == null ? "" : q); list.hidden = false; open = true; input.setAttribute("aria-expanded", "true"); }
+    function mark() {
+      [].forEach.call(list.children, (el, i) => el.classList.toggle("active", i === active));
+      const on = active >= 0 && list.children[active];
+      if (on && on.id) input.setAttribute("aria-activedescendant", on.id); else input.removeAttribute("aria-activedescendant");
+    }
+    function show(q) {
+      draw(q == null ? "" : q); list.hidden = false; open = true; input.setAttribute("aria-expanded", "true");
+      const vv = window.visualViewport, h = vv ? vv.height : innerHeight, top = vv ? vv.offsetTop : 0;
+      const r = input.getBoundingClientRect();
+      wrap.classList.toggle("up", (h + top) - r.bottom < 190 && r.top - top > 220);   // no room under the field
+    }
     function hide() { list.hidden = true; open = false; input.setAttribute("aria-expanded", "false"); }
-    function sync() { input.value = sel.value || ""; input.placeholder = holder(); }
-    function pick(v) { sel.value = v; sync(); hide(); sel.dispatchEvent(new Event("change", { bubbles: true })); }
+    function sync() {
+      if (open) { draw(input.value); return; }   // the catalog can arrive mid-word — keep the text, refresh the rows
+      input.value = sel.value || ""; input.placeholder = holder();
+    }
+    function pick(v) { sel.value = v; hide(); sync(); sel.dispatchEvent(new Event("change", { bubbles: true })); }
     function openAll() { show(""); setTimeout(() => input.select(), 0); }
     input.addEventListener("focus", openAll);
     input.addEventListener("click", () => { if (!open) openAll(); });   // tapping an already-focused field must reopen it
@@ -637,7 +657,7 @@
     });
     input.addEventListener("blur", () => setTimeout(() => { hide(); sync(); }, 150));
     sel.addEventListener("change", sync);
-    sel.__picker = { sync, hide };
+    sel.__picker = { sync, hide, noun: n => { noun = n || "породу"; } };
     sync();
     return sel.__picker;
   }
@@ -659,7 +679,7 @@
       breedSel.innerHTML = `<option value="">${ph}</option>` + breeds.map(b => `<option>${esc(b)}</option>`).join("");
       if (cur && breeds.indexOf(cur) >= 0) breedSel.value = cur;
       if (breedField) breedField.hidden = false; breedSel.disabled = false; if (breedNote) breedNote.hidden = true;
-      initPicker(breedSel).sync();
+      const pk = initPicker(breedSel); pk.noun(isCat ? "послугу" : "породу"); pk.sync();
       syncWeightForBreed();
     } else {
       if (lbl) lbl.textContent = "Порода";
@@ -995,7 +1015,8 @@
     const want = bKey(v), opts = [].slice.call(sel.options).filter(o => o.value);
     const hit = opts.filter(o => o.value === v)[0]
       || opts.filter(o => bKey(o.value) === want)[0]
-      || (want.length >= 4 ? opts.filter(o => { const k = bKey(o.value); return k.length >= 4 && (k.indexOf(want) >= 0 || want.indexOf(k) >= 0); })[0] : null);
+      || (want.length >= 4 ? opts.filter(o => { const k = bKey(o.value); return k.length >= 4 && (k.indexOf(want) >= 0 || want.indexOf(k) >= 0); })
+            .sort((a, b) => Math.abs(bKey(a.value).length - want.length) - Math.abs(bKey(b.value).length - want.length))[0] : null);
     if (!hit) return false;
     sel.value = hit.value;
     if (sel.__picker) sel.__picker.sync();   // a programmatic pick must show up in the search box too
