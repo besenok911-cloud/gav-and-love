@@ -573,6 +573,74 @@
   const svcByName = n => SERVICES.find(x => x.name === n);
   const isBreedSvc = s => s && s.price_type === "breed" && s.rows && s.rows.length;
   const distinctNE = a => { const seen = {}, out = []; a.forEach(v => { if (v !== "" && v != null && !seen[v]) { seen[v] = 1; out.push(v); } }); return out; };
+  // A breed list can run to forty names, so it is typeable. The <select> keeps being the source of
+  // truth (it is what the form posts and what setOpt/prefill drive); the input just filters it.
+  function pkNorm(v) {   // same tolerance as the price matcher: «ши тцу» finds «Ши-тцу»
+    return String(v == null ? "" : v).toLowerCase().replace(/[ьъʼ’']/g, "").replace(/и/g, "і").replace(/[^a-zа-яіїєґ0-9]+/g, "");
+  }
+  function initPicker(sel) {
+    if (!sel || sel.__picker) return sel && sel.__picker;
+    const wrap = document.createElement("div");
+    wrap.className = "picker";
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.appendChild(sel);
+    const input = document.createElement("input");
+    input.type = "text"; input.className = "picker-input"; input.autocomplete = "off"; input.autocapitalize = "off";
+    input.setAttribute("role", "combobox"); input.setAttribute("aria-autocomplete", "list"); input.setAttribute("aria-expanded", "false");
+    if (sel.id) {
+      input.id = sel.id + "-search";
+      const lab = document.querySelector('label[for="' + sel.id + '"]');
+      if (lab) lab.setAttribute("for", input.id);
+    }
+    const list = document.createElement("div");
+    list.className = "picker-list"; list.hidden = true; list.setAttribute("role", "listbox");
+    wrap.appendChild(input); wrap.appendChild(list);
+    let open = false, active = -1, items = [];
+    const opts = () => [].slice.call(sel.options).filter(o => o.value);
+    const holder = () => (sel.options[0] && !sel.options[0].value ? sel.options[0].textContent : "Почніть вводити…");
+    function draw(q) {
+      const nq = pkNorm(q);
+      items = opts().filter(o => !nq || pkNorm(o.value).indexOf(nq) >= 0);
+      list.innerHTML = items.length
+        ? items.map((o, i) => '<div class="picker-item' + (o.value === sel.value ? " on" : "") + '" role="option" data-i="' + i + '">' + esc(o.value) + '</div>').join("")
+        : '<div class="picker-empty">Не знайшли таку породу. Виберіть найближчу або залиште поле порожнім — уточнимо при підтвердженні.</div>';
+      active = items.length ? 0 : -1;
+      mark();
+    }
+    function mark() { [].forEach.call(list.children, (el, i) => el.classList.toggle("active", i === active)); }
+    function show(q) { draw(q == null ? "" : q); list.hidden = false; open = true; input.setAttribute("aria-expanded", "true"); }
+    function hide() { list.hidden = true; open = false; input.setAttribute("aria-expanded", "false"); }
+    function sync() { input.value = sel.value || ""; input.placeholder = holder(); }
+    function pick(v) { sel.value = v; sync(); hide(); sel.dispatchEvent(new Event("change", { bubbles: true })); }
+    function openAll() { show(""); setTimeout(() => input.select(), 0); }
+    input.addEventListener("focus", openAll);
+    input.addEventListener("click", () => { if (!open) openAll(); });   // tapping an already-focused field must reopen it
+    input.addEventListener("input", () => show(input.value));
+    input.addEventListener("keydown", e => {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (!open) show(input.value);
+        active = Math.max(0, Math.min(items.length - 1, active + (e.key === "ArrowDown" ? 1 : -1)));
+        mark();
+        const el = list.children[active]; if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
+        e.preventDefault();
+      } else if (e.key === "Enter") {
+        e.preventDefault();                     // this is a search box: Enter picks, it never submits the form
+        if (open && items[active]) pick(items[active].value);
+      } else if (e.key === "Escape") { hide(); sync(); }
+    });
+    list.addEventListener("mousedown", e => {
+      const it = e.target.closest && e.target.closest(".picker-item");
+      if (!it) return;
+      e.preventDefault();                       // keep the focus so the blur handler does not fight us
+      const o = items[+it.getAttribute("data-i")];
+      if (o) pick(o.value);
+    });
+    input.addEventListener("blur", () => setTimeout(() => { hide(); sync(); }, 150));
+    sel.addEventListener("change", sync);
+    sel.__picker = { sync, hide };
+    sync();
+    return sel.__picker;
+  }
   // Breed dropdown = the service's breeds; weight dropdown = that breed's variants.
   function syncBreedWeight() {
     if (!SERVICES.length) return;                       // keep config fallback if catalog not loaded
@@ -587,13 +655,16 @@
       const isCat = s.species === "cat", ph = isCat ? "Оберіть послугу…" : "Оберіть породу…";
       if (lbl) lbl.textContent = isCat ? "Послуга" : "Порода";
       const breeds = distinctNE(s.rows.map(r => r[0])), cur = breedSel.value;
+      if (!isCat) breeds.sort((a, b) => a.localeCompare(b, "uk"));   // cat rows are named services, keep their order
       breedSel.innerHTML = `<option value="">${ph}</option>` + breeds.map(b => `<option>${esc(b)}</option>`).join("");
       if (cur && breeds.indexOf(cur) >= 0) breedSel.value = cur;
       if (breedField) breedField.hidden = false; breedSel.disabled = false; if (breedNote) breedNote.hidden = true;
+      initPicker(breedSel).sync();
       syncWeightForBreed();
     } else {
       if (lbl) lbl.textContent = "Порода";
       if (breedField) breedField.hidden = true; breedSel.disabled = true; breedSel.value = "";
+      if (breedSel.__picker) breedSel.__picker.sync();
       if (weightField) weightField.hidden = false;
       weightSel.innerHTML = '<option value="">Оберіть вагу…</option>' + (CFG.weightOptions || []).map(w => `<option>${esc(w)}</option>`).join("");
     }
@@ -926,7 +997,9 @@
       || opts.filter(o => bKey(o.value) === want)[0]
       || (want.length >= 4 ? opts.filter(o => { const k = bKey(o.value); return k.length >= 4 && (k.indexOf(want) >= 0 || want.indexOf(k) >= 0); })[0] : null);
     if (!hit) return false;
-    sel.value = hit.value; return true;
+    sel.value = hit.value;
+    if (sel.__picker) sel.__picker.sync();   // a programmatic pick must show up in the search box too
+    return true;
   }
   // The breed drives the price, so we cannot invent one. If the card's breed is not on this service's
   // list, tell the visitor what their card says and which service does groom that breed.

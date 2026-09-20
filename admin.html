@@ -794,7 +794,7 @@
   function fillSel(sel,cur,opts,ph){if(cur&&opts.indexOf(cur)<0)opts=[cur].concat(opts);$(sel).innerHTML='<option value="">'+ph+'</option>'+opts.map(function(o){return '<option>'+esc(o)+'</option>';}).join("");if(cur)$(sel).value=cur;}
   function setSelVal(sel,val){var el=$(sel);if(!el)return;if(val&&![].some.call(el.options,function(o){return o.value===val||o.text===val;})){var o=document.createElement("option");o.textContent=val;el.appendChild(o);}el.value=val;}
   function syncModalBreed(){var s=mSvc(),cur=$("#f-breed").value,lbl=$("#f-breed-label");
-    if(mIsBreed(s)){var isCat=s.species==="cat";if(lbl)lbl.textContent=isCat?"Послуга":"Порода";fillSel("#f-breed",cur,mDistinct(s.rows.map(function(r){return r[0];})),isCat?"Оберіть послугу…":"Оберіть породу…");$("#f-breed").disabled=false;$("#f-breed").hidden=false;if($("#f-breed-note"))$("#f-breed-note").hidden=true;}
+    if(mIsBreed(s)){var isCat=s.species==="cat";if(lbl)lbl.textContent=isCat?"Послуга":"Порода";var bl=mDistinct(s.rows.map(function(r){return r[0];}));if(!isCat)bl.sort(function(x,y){return x.localeCompare(y,"uk");});fillSel("#f-breed",cur,bl,isCat?"Оберіть послугу…":"Оберіть породу…");$("#f-breed").disabled=false;$("#f-breed").hidden=false;if($("#f-breed-note"))$("#f-breed-note").hidden=true;}
     else{if(lbl)lbl.textContent="Порода";fillSel("#f-breed",cur,(CFG.dogBreeds||[]),"Оберіть породу…");var isCat=$("#f-pet").value==="Кіт";$("#f-breed").disabled=isCat;$("#f-breed").hidden=isCat;if($("#f-breed-note"))$("#f-breed-note").hidden=!isCat;}
     syncModalWeight();}
   function syncModalWeight(){var s=mSvc(),cur=$("#f-weight").value;
