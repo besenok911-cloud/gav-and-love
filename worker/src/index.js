@@ -13,6 +13,9 @@
  *   TELEGRAM_BOT_TOKEN  bot token
  *   TELEGRAM_CHAT_ID    chat id to notify
  *   ALLOW_ORIGIN        allowed site origin (e.g. https://besenok911-cloud.github.io)
+ *   PLATFORM_TOKEN      operator-only: create companies and set their credentials (/platform/*)
+ *   SECRETS_KEY         base64 of 32 random bytes; encrypts per-company bot tokens and keys.
+ *                       A company with none of its own falls back to the secrets above.
  */
 
 const BUSINESS = {
@@ -54,8 +57,10 @@ export default {
 
     const url = new URL(request.url);
     if (env.DB) {                                   // from here on env.DB can only see one salon
-      const cid = await resolveCompany(request, url, env);
+      const co = await resolveCompany(request, url, env);
+      const cid = (co && co.id) || DEFAULT_COMPANY_ID;
       env = Object.assign({}, env, { CID: cid, DBRAW: env.DB, DB: tenantDb(env.DB, cid) });
+      if (co) env = await companyEnv(env, co);       // its bot, its calendar, its site
     }
     try {
       if (url.pathname === "/slots" && request.method === "GET") {
@@ -229,6 +234,24 @@ export default {
       if (url.pathname === "/admin/site-image" && request.method === "POST") {
         return json(await siteImageUpload(request, env), cors);
       }
+      // ---- Platform (the operator, not a salon): companies and their credentials ----
+      if (url.pathname.startsWith("/platform/") && request.method !== "OPTIONS") {
+        requirePlatform(request, env);
+        if (url.pathname === "/platform/companies" && request.method === "GET") {
+          const r = await (env.DBRAW || env.DB).prepare(
+            `SELECT id,slug,name,active,created_at,site_url,site_origin,tg_bot,
+                    (calendar_id<>'') AS has_calendar, (sa_private_key<>'') AS has_key,
+                    (tg_bot_token<>'') AS has_bot FROM companies ORDER BY id`).all();
+          return json({ ok: true, companies: (r && r.results) || [], encrypted: !!env.SECRETS_KEY }, cors);
+        }
+        if (url.pathname === "/platform/company-save" && request.method === "POST") {
+          return json(await companySave(request, env), cors);
+        }
+        if (url.pathname === "/platform/company-secrets" && request.method === "POST") {
+          return json(await companySecrets(request, env), cors);
+        }
+        return json({ ok: false, error: "not found" }, cors, 404);
+      }
       if (url.pathname === "/admin/backup-run" && request.method === "POST") {
         await requireOwner(request, env);
         let body = {}; try { body = await request.json(); } catch (e) { }
@@ -260,8 +283,10 @@ export default {
     ctx.waitUntil((async () => {
       // one company's failure must not stop the others, so each is awaited on its own
       const companies = await activeCompanies(env);
-      for (const co of companies) {
-        const e = Object.assign({}, env, { CID: co.id, DBRAW: env.DB, DB: tenantDb(env.DB, co.id) });
+      for (const row of companies) {
+        const co = await loadCompany(env, row.id);
+        let e = Object.assign({}, env, { CID: row.id, DBRAW: env.DB, DB: tenantDb(env.DB, row.id) });
+        e = await companyEnv(e, co);
         if (cron.startsWith("*/30")) { await runClientReminders(e, "soon").catch(() => { }); continue; }
         await runDailyDigest(e).catch(() => { });
         await runClientReminders(e, "day").catch(() => { });
@@ -339,23 +364,135 @@ const tenantDb = (db, cid) => ({
 // Which salon is this request for? A staff or client session knows; a public request says so with
 // ?c=<slug>; everything else is the original company, which is what every existing link resolves to.
 async function resolveCompany(request, url, env) {
-  if (!env.DB) return DEFAULT_COMPANY_ID;
-  const raw = env.DB;
+  if (!env.DB) return null;
+  const raw = env.DB;                                 // runs before the guard is armed, by design
   try {
     const tok = bearer(request);
     if (tok) {
-      const s = await raw.prepare(`SELECT company_id FROM sessions WHERE token=?`).bind(tok).first();
-      if (s && s.company_id) return s.company_id;
-      const c = await raw.prepare(`SELECT company_id FROM client_sessions WHERE token=?`).bind(tok).first();
-      if (c && c.company_id) return c.company_id;
+      const s = await raw.prepare(`SELECT c.* FROM companies c JOIN sessions s ON s.company_id=c.id WHERE s.token=?`).bind(tok).first();
+      if (s && s.id) return s;
+      const c = await raw.prepare(`SELECT co.* FROM companies co JOIN client_sessions cs ON cs.company_id=co.id WHERE cs.token=?`).bind(tok).first();
+      if (c && c.id) return c;
     }
     const slug = url.searchParams.get("c") || request.headers.get("X-Company") || "";
     if (slug) {
-      const co = await raw.prepare(`SELECT id FROM companies WHERE slug=? AND active=1`).bind(slug).first();
-      if (co && co.id) return co.id;
+      const co = await raw.prepare(`SELECT * FROM companies WHERE slug=? AND active=1`).bind(slug).first();
+      if (co && co.id) return co;
     }
+    return await raw.prepare(`SELECT * FROM companies WHERE id=?`).bind(DEFAULT_COMPANY_ID).first();
   } catch (e) { }
-  return DEFAULT_COMPANY_ID;
+  return null;
+}
+/* ---------- Per-company credentials ----------------------------------------------------------
+   A salon brings its own Telegram bot, its own Google calendar and its own site, so these cannot
+   stay worker-wide secrets. They live on the company row; the two that are genuinely secret — the
+   bot token and the service-account private key — are stored encrypted (AES-GCM) under SECRETS_KEY,
+   which exists only in wrangler secrets. Consequences worth knowing: the nightly dump carries
+   ciphertext rather than working credentials, and restoring that dump onto a worker with a different
+   SECRETS_KEY gives a database whose bot and calendar are silently dead until they are set again.
+   A company with nothing set falls back to the worker's own secrets — which is exactly company 1
+   today, so nothing changes for GAV&LOVE. */
+// The platform operator is not a salon owner: this token is separate from every ADMIN_TOKEN.
+function requirePlatform(request, env) {
+  const tok = bearer(request);
+  if (!env.PLATFORM_TOKEN || tok !== env.PLATFORM_TOKEN) {
+    const e = new Error("Доступ лише для платформи"); e.status = 401; throw e;
+  }
+  return true;
+}
+const COMPANY_FIELDS = ["slug", "name", "active", "site_url", "site_origin", "tz", "open_min", "close_min",
+  "slot_step_min", "buffer_min", "min_lead_min", "max_ahead_days", "digest_hour", "phone_prefix", "lang",
+  "theme", "features", "labels", "rules", "plan", "limits", "tg_bot"];
+async function companySave(request, env) {
+  const b = await request.json().catch(() => null);
+  if (!b || typeof b !== "object") { const e = new Error("bad request"); e.status = 400; throw e; }
+  const DB = env.DBRAW || env.DB;
+  if (b.id) {
+    const sets = [], vals = [];
+    for (const f of COMPANY_FIELDS) if (b[f] != null) { sets.push(f + "=?"); vals.push(b[f]); }
+    if (!sets.length) return { ok: false, error: "нічого змінювати" };
+    vals.push(Number(b.id));
+    await DB.prepare(`UPDATE companies SET ${sets.join(",")} WHERE id=?`).bind(...vals).run();
+    return { ok: true, id: Number(b.id) };
+  }
+  const slug = String(b.slug || "").trim();
+  if (!/^[a-z0-9-]{2,40}$/.test(slug)) return { ok: false, error: "slug: лише a-z, 0-9 і дефіс" };
+  if (!String(b.name || "").trim()) return { ok: false, error: "потрібна назва" };
+  const dup = await DB.prepare(`SELECT id FROM companies WHERE slug=?`).bind(slug).first();
+  if (dup) return { ok: false, error: "такий slug вже є" };
+  const r = await DB.prepare(
+    `INSERT INTO companies (slug,name,active,created_at,site_url,site_origin) VALUES (?,?,1,?,?,?)`
+  ).bind(slug, String(b.name).trim(), new Date().toISOString(), b.site_url || "", b.site_origin || "").run();
+  return { ok: true, id: r.meta && r.meta.last_row_id, slug };
+}
+// Values go in, never come back out: the response only says which ones are now set.
+async function companySecrets(request, env) {
+  const b = await request.json().catch(() => null);
+  const id = Number(b && b.id);
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "id required" };
+  const DB = env.DBRAW || env.DB;
+  const co = await DB.prepare(`SELECT id FROM companies WHERE id=?`).bind(id).first();
+  if (!co) return { ok: false, error: "немає такої компанії" };
+  const plain = { calendar_id: 1, sa_email: 1, tg_chat_id: 1, tg_bot: 1 };   // identifiers, not secrets
+  const sets = [], vals = [], touched = [];
+  for (const f of ["calendar_id", "sa_email", "sa_private_key", "tg_bot_token", "tg_chat_id", "tg_bot"]) {
+    if (b[f] == null) continue;
+    const v = String(b[f]);
+    sets.push(f + "=?");
+    vals.push(plain[f] ? v : (v ? await encSecret(env, v) : ""));
+    touched.push(f);
+  }
+  if (!sets.length) return { ok: false, error: "нічого зберігати" };
+  vals.push(id);
+  await DB.prepare(`UPDATE companies SET ${sets.join(",")} WHERE id=?`).bind(...vals).run();
+  return { ok: true, id, saved: touched, encrypted: !!env.SECRETS_KEY };
+}
+async function secretKey(env) {
+  if (!env.SECRETS_KEY) return null;
+  try {
+    const raw = Uint8Array.from(atob(env.SECRETS_KEY), c => c.charCodeAt(0));
+    if (raw.length !== 32) return null;
+    return await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  } catch (e) { return null; }
+}
+async function encSecret(env, plain) {
+  const k = await secretKey(env);
+  if (!k || !plain) return String(plain || "");     // no key configured → stored as given, and said so
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const body = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, k, new TextEncoder().encode(String(plain))));
+  const all = new Uint8Array(iv.length + body.length); all.set(iv); all.set(body, iv.length);
+  let s = ""; for (let i = 0; i < all.length; i++) s += String.fromCharCode(all[i]);
+  return "v1:" + btoa(s);
+}
+async function decSecret(env, stored) {
+  const s = String(stored || "");
+  if (!s) return "";
+  if (!s.startsWith("v1:")) return s;               // plain value (an id, or one seeded by hand)
+  const k = await secretKey(env);
+  if (!k) return "";
+  try {
+    const all = Uint8Array.from(atob(s.slice(3)), c => c.charCodeAt(0));
+    return new TextDecoder().decode(await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: all.slice(0, 12) }, k, all.slice(12)));
+  } catch (e) { return ""; }
+}
+// The company's own credentials win; anything it leaves empty falls back to the worker's secrets.
+async function companyEnv(env, co) {
+  if (!co) return env;
+  const over = { COMPANY: co, CID: co.id };
+  const put = async (k, v) => { const d = await decSecret(env, v); if (d) over[k] = d; };
+  await put("CALENDAR_ID", co.calendar_id);
+  await put("SA_EMAIL", co.sa_email);
+  await put("SA_PRIVATE_KEY", co.sa_private_key);
+  await put("TELEGRAM_BOT_TOKEN", co.tg_bot_token);
+  await put("TELEGRAM_CHAT_ID", co.tg_chat_id);
+  if (co.site_url) over.SITE_URL = co.site_url;
+  if (co.site_origin) over.ALLOW_ORIGIN = co.site_origin;
+  return Object.assign({}, env, over);
+}
+async function loadCompany(env, cid) {
+  try { return await (env.DBRAW || env.DB).prepare(`SELECT * FROM companies WHERE id=?`).bind(cid).first(); }
+  catch (e) { return null; }
 }
 async function activeCompanies(env) {
   if (!env.DB) return [{ id: DEFAULT_COMPANY_ID }];
