@@ -26,8 +26,10 @@ CREATE TABLE IF NOT EXISTS pet_photos (
   kind TEXT,                 -- before | after
   mime TEXT,
   data BLOB,
-  r2_key TEXT,
+  r2_key TEXT,             -- full photo in the bucket
   size INTEGER,
+  thumb_key TEXT,          -- small copy for grids and avatars
+  thumb_size INTEGER,
   token TEXT,                -- 16 hex, makes /photo/<id>/<token> unguessable
   created_at TEXT,
   note TEXT,

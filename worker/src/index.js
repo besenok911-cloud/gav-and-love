@@ -928,8 +928,8 @@ async function clientMe(request, url, env) {
   const c = await requireClient(request, env);
   const st = await loadSettings(env);
   const pets = (await env.DB.prepare(`SELECT id,name,species,breed,weight,birthdate,sex,color,allergies,behavior,prefs,client_notes FROM pets WHERE client_id=? ORDER BY id`).bind(c.id).all()).results || [];
-  let photos = []; try { photos = (await env.DB.prepare(`SELECT id,pet_id,kind,token,created_at FROM pet_photos WHERE pet_id IN (SELECT id FROM pets WHERE client_id=?) ORDER BY created_at DESC`).bind(c.id).all()).results || []; } catch (e) { }
-  pets.forEach(p => { p.photos = photos.filter(x => x.pet_id === p.id).map(x => ({ id: x.id, kind: x.kind, created_at: x.created_at, url: photoUrl(url.origin, x) })); });
+  let photos = []; try { photos = (await env.DB.prepare(`SELECT id,pet_id,kind,token,created_at,thumb_key FROM pet_photos WHERE pet_id IN (SELECT id FROM pets WHERE client_id=?) ORDER BY created_at DESC`).bind(c.id).all()).results || []; } catch (e) { }
+  pets.forEach(p => { p.photos = photos.filter(x => x.pet_id === p.id).map(x => ({ id: x.id, kind: x.kind, created_at: x.created_at, url: photoUrl(url.origin, x), thumb: photoThumbUrl(url.origin, x) })); });
   const bookings = await clientBookings(env, c);
   const visits = bookings.filter(b => b.status === "done" || b.status === "paid").length;
   const every = Math.max(2, parseInt(st.loyalty_every, 10) || 6), filled = visits % every, bonusNow = filled === every - 1;
@@ -993,19 +993,19 @@ async function clientPhotoUpload(request, env) {
   if (n && n.n >= CLIENT_PHOTOS_PER_PET) return { ok: false, error: "У картці вже 30 фото — видаліть зайві" };
   const t = await env.DB.prepare(`SELECT COUNT(*) AS n FROM pet_photos WHERE pet_id IN (SELECT id FROM pets WHERE client_id=?)`).bind(c.id).first();
   if (t && t.n >= CLIENT_PHOTOS_TOTAL) return { ok: false, error: "Досягнуто ліміт фото у кабінеті — видаліть зайві" };
-  return await savePetPhoto(env, new URL(request.url).origin, { pet_id: pet.id, kind: b.kind, data: b.data });
+  return await savePetPhoto(env, new URL(request.url).origin, { pet_id: pet.id, kind: b.kind, data: b.data, thumb: b.thumb });
 }
 async function clientPhotoDelete(request, env) {
   const c = await requireClient(request, env);
   const b = await request.json();
   const id = Number(b && b.id);
   if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "id required" };
-  const p = await env.DB.prepare(`SELECT id,pet_id,booking_id,published,r2_key FROM pet_photos WHERE id=?`).bind(id).first();
+  const p = await env.DB.prepare(`SELECT id,pet_id,booking_id,published,r2_key,thumb_key FROM pet_photos WHERE id=?`).bind(id).first();
   if (!p || !(await clientOwnPet(env, c, p.pet_id))) { const e = new Error("Немає доступу до цього фото"); e.status = 403; throw e; }
   if (p.booking_id) return { ok: false, error: "Це фото з візиту — його зробив салон. Попросіть адміністратора видалити" };
   if (p.published) return { ok: false, error: "Це фото салон показує в галереї сайту — попросіть прибрати його звідти" };
   await env.DB.prepare(`DELETE FROM pet_photos WHERE id=?`).bind(id).run();
-  await dropPhotoObjects(env, [p.r2_key]);
+  await dropPhotoObjects(env, [p.r2_key, p.thumb_key]);
   return { ok: true };
 }
 async function clientPetSave(request, env) {
@@ -1048,9 +1048,13 @@ const PHOTO_MAX_D1 = 900 * 1024;        // a D1 row has to stay small (fallback 
 const PHOTO_MAX_R2 = 5 * 1024 * 1024;   // the bucket does not mind; the browser still shrinks to ~1280 px
 const PHOTO_CACHE = "public, max-age=31536000, immutable";
 const PHOTO_EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+const PHOTO_THUMB_MAX = 400 * 1024;     // a 560 px q72 JPEG is ~25-60 KB
 const photoUrl = (origin, p) => `${origin}/photo/${p.id}/${p.token}`;
+// The small copy for grids and avatars; a row without one answers with the full photo.
+const photoThumbUrl = (origin, p) => p && p.thumb_key ? `${origin}/photo/${p.id}/${p.token}/t` : photoUrl(origin, p);
 const photoBucket = env => (env && env.PHOTOS && typeof env.PHOTOS.put === "function") ? env.PHOTOS : null;
 const photoKey = (petId, token, mime) => `pets/${petId}/${token}.${PHOTO_EXT[mime] || "jpg"}`;
+const thumbKey = (petId, token, mime) => `pets/${petId}/${token}-t.${PHOTO_EXT[mime] || "jpg"}`;
 // D1 hands a BLOB back as a plain array of byte values — Response() would send those numbers as text
 function blobBytes(raw) {
   return Array.isArray(raw) ? new Uint8Array(raw)
@@ -1064,7 +1068,10 @@ async function dropPhotoObjects(env, keys) {
   try { await bucket.delete(list.length === 1 ? list[0] : list); } catch (e) { }
 }
 async function photoKeysFor(env, where, ...binds) {   // collect the bucket keys before the rows are gone
-  try { return ((await env.DB.prepare(`SELECT r2_key FROM pet_photos WHERE ${where}`).bind(...binds).all()).results || []).map(r => r.r2_key).filter(Boolean); }
+  try {
+    const rows = (await env.DB.prepare(`SELECT r2_key, thumb_key FROM pet_photos WHERE ${where}`).bind(...binds).all()).results || [];
+    return rows.reduce((acc, r) => acc.concat([r.r2_key, r.thumb_key]), []).filter(Boolean);
+  }
   catch (e) { return []; }
 }
 async function savePetPhoto(env, origin, b) {   // shared by the admin pet card and the master's visit card
@@ -1085,13 +1092,27 @@ async function savePetPhoto(env, origin, b) {   // shared by the admin pet card 
     try { await bucket.put(key, bin, { httpMetadata: { contentType: m[1], cacheControl: PHOTO_CACHE } }); }
     catch (e) { return { ok: false, error: "Не вдалося зберегти фото, спробуйте ще раз" }; }
   }
+  // The small copy is a bonus, never a reason to lose the photo: if it fails, the row simply has none.
+  let tKey = null, tSize = null;
+  const tm = bucket ? /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.thumb || "")) : null;
+  if (tm) {
+    const tbin = Uint8Array.from(atob(tm[2]), c => c.charCodeAt(0));
+    if (tbin.length && tbin.length <= PHOTO_THUMB_MAX) {
+      const candidate = thumbKey(petId, token, tm[1]);
+      try {
+        await bucket.put(candidate, tbin, { httpMetadata: { contentType: tm[1], cacheControl: PHOTO_CACHE } });
+        tKey = candidate; tSize = tbin.length;
+      } catch (e) { }
+    }
+  }
   try {
-    const r = await env.DB.prepare(`INSERT INTO pet_photos (pet_id,client_id,booking_id,kind,mime,data,r2_key,size,token,created_at,note) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-      .bind(petId, pet.client_id || null, b.booking_id ? +b.booking_id : null, kind, m[1], key ? null : bin.buffer, key, bin.length, token, new Date().toISOString(), String(b.note || "").slice(0, 200)).run();
+    const r = await env.DB.prepare(`INSERT INTO pet_photos (pet_id,client_id,booking_id,kind,mime,data,r2_key,size,thumb_key,thumb_size,token,created_at,note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(petId, pet.client_id || null, b.booking_id ? +b.booking_id : null, kind, m[1], key ? null : bin.buffer, key, bin.length, tKey, tSize, token, new Date().toISOString(), String(b.note || "").slice(0, 200)).run();
     const id = r.meta && r.meta.last_row_id;
-    return { ok: true, id, kind, url: photoUrl(origin, { id, token }) };
-  } catch (e) {                    // no row means nobody can reach the object — do not leave it behind
-    await dropPhotoObjects(env, [key]);
+    const row = { id, token, thumb_key: tKey };
+    return { ok: true, id, kind, url: photoUrl(origin, row), thumb: photoThumbUrl(origin, row) };
+  } catch (e) {                    // no row means nobody can reach the objects — do not leave them behind
+    await dropPhotoObjects(env, [key, tKey]);
     throw e;
   }
 }
@@ -1103,8 +1124,8 @@ async function photoUpload(request, env) {
 async function adminPhotos(request, url, env) {
   await requireAdmin(request, env);
   const petId = +url.searchParams.get("pet_id"); if (!petId) return { ok: false, error: "pet_id required" };
-  const { results } = await env.DB.prepare(`SELECT id,pet_id,booking_id,kind,token,created_at,note,published,COALESCE(size,length(data)) AS size FROM pet_photos WHERE pet_id=? ORDER BY created_at DESC, id DESC`).bind(petId).all();
-  return { ok: true, photos: (results || []).map(p => ({ id: p.id, booking_id: p.booking_id, kind: p.kind, created_at: p.created_at, note: p.note, size: p.size, published: p.published ? 1 : 0, url: photoUrl(url.origin, p) })) };
+  const { results } = await env.DB.prepare(`SELECT id,pet_id,booking_id,kind,token,created_at,note,published,thumb_key,COALESCE(size,length(data)) AS size FROM pet_photos WHERE pet_id=? ORDER BY created_at DESC, id DESC`).bind(petId).all();
+  return { ok: true, photos: (results || []).map(p => ({ id: p.id, booking_id: p.booking_id, kind: p.kind, created_at: p.created_at, note: p.note, size: p.size, published: p.published ? 1 : 0, url: photoUrl(url.origin, p), thumb: photoThumbUrl(url.origin, p) })) };
 }
 // CRM: mark a photo for the public «До / після» gallery. A pair = «before» + «after» of the same pet on the same day, both published.
 async function photoPublish(request, env) {
@@ -1119,7 +1140,7 @@ async function photoPublish(request, env) {
 async function publicBeforeAfter(url, env) {
   let rows = [];
   try {
-    rows = (await env.DB.prepare(`SELECT p.id,p.pet_id,p.kind,p.token,p.created_at,t.name AS pet_name,t.species,t.breed
+    rows = (await env.DB.prepare(`SELECT p.id,p.pet_id,p.kind,p.token,p.created_at,p.thumb_key,t.name AS pet_name,t.species,t.breed
       FROM pet_photos p JOIN pets t ON t.id=p.pet_id WHERE COALESCE(p.published,0)=1 ORDER BY p.created_at DESC, p.id DESC`).all()).results || [];
   } catch (e) { return { ok: true, items: [] }; }
   const groups = {}, order = [];
@@ -1127,11 +1148,12 @@ async function publicBeforeAfter(url, env) {
   const pairs = order.map(k => groups[k]).filter(g => g.before && g.after);
   const items = pairs.slice(0, 40).map(g => ({
     id: "live" + g.after.id, before: photoUrl(url.origin, g.before), after: photoUrl(url.origin, g.after),
+    tb: photoThumbUrl(url.origin, g.before), ta: photoThumbUrl(url.origin, g.after),
     name: g.after.pet_name || "", species: ["cat", "dog"].indexOf(g.after.species) >= 0 ? g.after.species : "other", breed: g.after.breed || "", date: String(g.after.created_at || "").slice(0, 10), w: 1280, h: 1280,
   }));
   const paired = {}; pairs.forEach(g => { paired[g.before.id] = 1; paired[g.after.id] = 1; });
   const photos = rows.filter(r => !paired[r.id]).slice(0, 60).map(r => ({
-    id: "ph" + r.id, src: photoUrl(url.origin, r), name: r.pet_name || "",
+    id: "ph" + r.id, src: photoUrl(url.origin, r), t: photoThumbUrl(url.origin, r), name: r.pet_name || "",
     species: ["cat", "dog"].indexOf(r.species) >= 0 ? r.species : "other", breed: r.breed || "", kind: r.kind === "before" ? "before" : "portrait",
     date: String(r.created_at || "").slice(0, 10), w: 1280, h: 1280,
   }));
@@ -1174,14 +1196,15 @@ async function photosToR2(request, env) {
   return { ok: true, moved, bytes, remaining: (left && left.n) || 0, errors };
 }
 async function photoServe(url, env, cors) {   // public but unguessable (16-hex token), cached for a year
-  const m = /^\/photo\/(\d+)\/([0-9a-f]{16})$/.exec(url.pathname);
+  const m = /^\/photo\/(\d+)\/([0-9a-f]{16})(?:\/(t))?$/.exec(url.pathname);   // …/t = the small copy for grids
   if (!m) return new Response("not found", { status: 404, headers: cors });
-  const p = await env.DB.prepare(`SELECT mime,data,token,r2_key FROM pet_photos WHERE id=?`).bind(+m[1]).first();
+  const p = await env.DB.prepare(`SELECT mime,data,token,r2_key,thumb_key FROM pet_photos WHERE id=?`).bind(+m[1]).first();
   if (!p || p.token !== m[2]) return new Response("not found", { status: 404, headers: cors });
   const head = Object.assign({ "Content-Type": p.mime || "image/jpeg", "Cache-Control": PHOTO_CACHE }, cors);
-  if (p.r2_key) {
+  const wantKey = (m[3] === "t" && p.thumb_key) ? p.thumb_key : p.r2_key;
+  if (wantKey) {
     const bucket = photoBucket(env);
-    const obj = bucket ? await bucket.get(p.r2_key) : null;
+    const obj = bucket ? await bucket.get(wantKey) : null;
     if (obj) {
       if (obj.httpEtag) head.ETag = obj.httpEtag;
       return new Response(obj.body, { headers: head });
@@ -1341,28 +1364,28 @@ async function masterPhotoUpload(request, env) {
   const b = await masterBooking(env, m, body && body.booking_id);
   if (!b) forbid();
   if (!b.pet_id) return { ok: false, error: "У цьому записі ще немає картки улюбленця — попросіть адміністратора її створити" };
-  return await savePetPhoto(env, new URL(request.url).origin, { pet_id: b.pet_id, booking_id: b.id, kind: body.kind, data: body.data, note: body.note });
+  return await savePetPhoto(env, new URL(request.url).origin, { pet_id: b.pet_id, booking_id: b.id, kind: body.kind, data: body.data, thumb: body.thumb, note: body.note });
 }
 async function masterPhotos(request, url, env) {
   const m = await masterOr401(request, env, url.searchParams.get("code"));
   const b = await masterBooking(env, m, url.searchParams.get("booking_id"));
   if (!b) forbid();
   if (!b.pet_id) return { ok: true, photos: [] };
-  const rows = (await env.DB.prepare(`SELECT id,kind,token,created_at,booking_id FROM pet_photos WHERE pet_id=? ORDER BY created_at DESC, id DESC LIMIT 30`).bind(b.pet_id).all()).results || [];
+  const rows = (await env.DB.prepare(`SELECT id,kind,token,created_at,booking_id,thumb_key FROM pet_photos WHERE pet_id=? ORDER BY created_at DESC, id DESC LIMIT 30`).bind(b.pet_id).all()).results || [];
   const origin = new URL(request.url).origin;
-  return { ok: true, photos: rows.map(r => ({ id: r.id, kind: r.kind, created_at: r.created_at, url: photoUrl(origin, r), mine: r.booking_id === b.id })) };
+  return { ok: true, photos: rows.map(r => ({ id: r.id, kind: r.kind, created_at: r.created_at, url: photoUrl(origin, r), thumb: photoThumbUrl(origin, r), mine: r.booking_id === b.id })) };
 }
 async function masterPhotoDelete(request, env) {
   const body = await request.json();
   const m = await masterOr401(request, env, body && body.code);
   const id = Number(body && body.id);
   if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "id required" };
-  const p = await env.DB.prepare(`SELECT id,booking_id,published,r2_key FROM pet_photos WHERE id=?`).bind(id).first();
+  const p = await env.DB.prepare(`SELECT id,booking_id,published,r2_key,thumb_key FROM pet_photos WHERE id=?`).bind(id).first();
   if (!p || !p.booking_id) forbid();                       // only a photo taken on one of this master's visits
   if (p.published) return { ok: false, error: "Фото вже в галереї сайту — попросіть адміністратора спершу прибрати його звідти" };
   if (!(await masterBooking(env, m, p.booking_id))) forbid();
   await env.DB.prepare(`DELETE FROM pet_photos WHERE id=?`).bind(id).run();
-  await dropPhotoObjects(env, [p.r2_key]);
+  await dropPhotoObjects(env, [p.r2_key, p.thumb_key]);
   return { ok: true };
 }
 // POST /master/status {code,id,status} -> update status of one of the master's own bookings

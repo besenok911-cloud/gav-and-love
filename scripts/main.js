@@ -338,7 +338,7 @@
     if (CONFIG.bookingEndpoint) fetch(`${CONFIG.bookingEndpoint}/before-after`).then(r => r.json()).then(d => {
       const live = baItems((d && d.items) || []);
       const singles = ((d && d.photos) || []).filter(p => p && p.src).map(p => ({
-        id: p.id, src: p.src, species: p.species === "cat" ? "cat" : "dog", kind: "portrait",
+        id: p.id, src: p.src, t: p.t || p.src, species: p.species === "cat" ? "cat" : "dog", kind: "portrait",
         breed: [p.name, p.breed].filter(Boolean).join(" · "), w: p.w || 1280, h: p.h || 1280,
       }));
       if (!live.length && !singles.length) return;
@@ -410,8 +410,8 @@
         const alt = `GAV&LOVE — ${who || "улюбленець"}: до і після грумінгу`;
         fig.innerHTML =
           `<span class="g-badge g-badge-ba">${baLabel(it)}</span>` +
-          `<img class="ba-after" src="${it.after}" alt="${esc(alt)}" loading="lazy" decoding="async" width="${it.w}" height="${it.h}">` +
-          `<div class="ba-before"><img src="${it.before}" alt="" loading="lazy" decoding="async" width="${it.w}" height="${it.h}"></div>` +
+          `<img class="ba-after" src="${esc(it.ta || it.after)}" alt="${esc(alt)}" loading="lazy" decoding="async" width="${it.w}" height="${it.h}">` +
+          `<div class="ba-before"><img src="${esc(it.tb || it.before)}" alt="" loading="lazy" decoding="async" width="${it.w}" height="${it.h}"></div>` +
           `<span class="ba-lbl ba-l">До</span><span class="ba-lbl ba-r">Після</span><div class="ba-handle"></div>` +
           `<input type="range" class="ba-range" min="0" max="100" value="50" aria-label="Порівняти: до і після">`;
         const before = fig.querySelector(".ba-before"), handle = fig.querySelector(".ba-handle"), range = fig.querySelector(".ba-range");
