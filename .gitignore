@@ -9,3 +9,4 @@ desktop.ini
 _crm_mock.html
 .claude/
 .wrangler/
+worker/.dev.vars
