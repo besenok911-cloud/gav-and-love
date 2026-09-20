@@ -1205,7 +1205,7 @@ async function photoServe(url, env, cors) {   // public but unguessable (16-hex 
   if (small || p.r2_key) {
     const bucket = photoBucket(env);
     let obj = bucket ? await bucket.get(small ? p.thumb_key : p.r2_key) : null;
-    if (!obj && small && p.r2_key) obj = await bucket.get(p.r2_key);   // no small copy left — the big one still answers
+    if (!obj && small && p.r2_key && bucket) obj = await bucket.get(p.r2_key);   // no small copy left — the big one still answers
     if (obj) {
       if (obj.httpEtag) head.ETag = obj.httpEtag;
       return new Response(obj.body, { headers: head });
