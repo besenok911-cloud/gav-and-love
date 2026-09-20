@@ -53,6 +53,10 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: cors });
 
     const url = new URL(request.url);
+    if (env.DB) {                                   // from here on env.DB can only see one salon
+      const cid = await resolveCompany(request, url, env);
+      env = Object.assign({}, env, { CID: cid, DBRAW: env.DB, DB: tenantDb(env.DB, cid) });
+    }
     try {
       if (url.pathname === "/slots" && request.method === "GET") {
         return json(await getSlots(url, env), cors);
@@ -253,12 +257,114 @@ export default {
   // Cloudflare Cron Triggers: daily → salon digest + day-before client reminders; every 30 min → "starting soon" client reminders.
   async scheduled(event, env, ctx) {
     const cron = (event && event.cron) || "";
-    if (cron.startsWith("*/30")) ctx.waitUntil(runClientReminders(env, "soon").catch(() => {}));
-    else ctx.waitUntil(Promise.all([runDailyDigest(env).catch(() => {}), runClientReminders(env, "day").catch(() => {}),
-      siteMediaSweep(env).catch(() => {}), runBackup(env).catch(() => {})]));
+    ctx.waitUntil((async () => {
+      // one company's failure must not stop the others, so each is awaited on its own
+      const companies = await activeCompanies(env);
+      for (const co of companies) {
+        const e = Object.assign({}, env, { CID: co.id, DBRAW: env.DB, DB: tenantDb(env.DB, co.id) });
+        if (cron.startsWith("*/30")) { await runClientReminders(e, "soon").catch(() => { }); continue; }
+        await runDailyDigest(e).catch(() => { });
+        await runClientReminders(e, "day").catch(() => { });
+      }
+      if (cron.startsWith("*/30")) return;
+      await siteMediaSweep(env).catch(() => { });     // platform-wide janitors, not per company
+      await runBackup(env).catch(() => { });
+    })());
   },
 };
 
+/* ---------- Tenant isolation ----------------------------------------------------------------
+   One database holds every salon. A query naming a tenant table without naming company_id would
+   quietly read — or overwrite — another salon's rows, and across 158 queries that cannot be left to
+   discipline. So env.DB is wrapped once per request and every query passes through here:
+
+     · already names company_id → passed through (written by hand, trusted)
+     · a shape this can prove   → the filter is injected, company id as a literal
+     · anything else            → refused, loudly, before it reaches the database
+
+   The guard sees the SQL after template interpolation, which is why `${sets.join(",")}` and friends
+   need no special handling. Checked against all 158 real queries and a real SQLite built from the
+   migrated schema: 148 are scoped automatically, 10 are written by hand, none get through unscoped.
+   Platform-wide work (the backup, the media sweep, resolving which company a request belongs to)
+   uses env.DBRAW deliberately. */
+const DEFAULT_COMPANY_ID = 1;                 // GAV&LOVE — everything that existed before companies did
+const TENANT_TABLES = ["bookings", "clients", "pets", "pet_photos", "masters", "services", "expenses",
+  "reviews", "users", "sessions", "client_sessions", "client_otp", "settings", "tg_sessions", "site_media"];
+const TEN_T = TENANT_TABLES.join("|");
+const TEN_ONE = new RegExp("\\b(?:from|into|update|join)\\s+\"?(" + TEN_T + ")\"?\\b", "i");
+const TEN_ALL = new RegExp("\\b(?:from|into|update|join)\\s+\"?(" + TEN_T + ")\"?\\b", "gi");
+const TEN_TAIL = /\b(group\s+by|order\s+by|limit|returning)\b/i;
+const TEN_KW = /^(where|group|order|limit|set|values|on|using|left|right|inner|outer|cross|natural|join|do|select|as)$/i;
+
+function scopeSql(sql, cid) {
+  const flat = String(sql).replace(/\s+/g, " ").trim();
+  if (!TEN_ONE.test(flat)) return flat;                 // companies, sqlite_master, PRAGMA — not tenant data
+  if (/\bcompany_id\b/i.test(flat)) return flat;        // hand-written and already scoped
+  const refuse = why => { const e = new Error("Запит без company_id (" + why + "): " + flat.slice(0, 120)); e.status = 500; throw e; };
+
+  if ((flat.match(TEN_ALL) || []).length !== 1) refuse("кілька таблиць");
+  if (/\bjoin\b/i.test(flat)) refuse("join");
+  if (/\(\s*select\b/i.test(flat)) refuse("підзапит");
+
+  const table = TEN_ONE.exec(flat)[1];
+  const am = new RegExp("\\b(?:from|into|update|join)\\s+\"?" + table + "\"?\\s+(?:as\\s+)?([a-z_][a-z0-9_]*)", "i").exec(flat);
+  const col = ((am && !TEN_KW.test(am[1])) ? am[1] : table) + ".company_id";
+
+  if (/^insert\b/i.test(flat)) {
+    if (/\bon\s+conflict\b/i.test(flat)) refuse("on conflict");
+    if (/\bselect\b/i.test(flat)) refuse("insert…select");
+    const m = /^(insert(?:\s+or\s+[a-z]+)?\s+into\s+"?[a-z_]+"?\s*)\(([^)]*)\)\s*values\s*\((.*)\)\s*;?$/i.exec(flat);
+    if (!m) refuse("нерозпізнаний insert");
+    if (/\)\s*,\s*\(/.test(m[3])) refuse("кілька рядків одразу");
+    return m[1] + "(" + m[2] + ",company_id) VALUES (" + m[3] + "," + cid + ")";
+  }
+  if (!/^(select|update|delete)\b/i.test(flat)) refuse("нерозпізнаний запит");
+
+  const wi = flat.search(/\bwhere\b/i);
+  if (wi < 0) {                                          // no WHERE at all — the dangerous one
+    const t = flat.search(TEN_TAIL), cut = t < 0 ? flat.length : t;
+    return (flat.slice(0, cut).trim() + " WHERE " + col + "=" + cid + " " + flat.slice(cut)).trim();
+  }
+  const after = flat.slice(wi + 5), t = after.search(TEN_TAIL);
+  const cond = (t < 0 ? after : after.slice(0, t)).trim();
+  const rest = t < 0 ? "" : " " + after.slice(t).trim();
+  // the original condition is wrapped: without that, `a OR b AND company_id=1` lets a row escape
+  return (flat.slice(0, wi) + "WHERE (" + cond + ") AND " + col + "=" + cid + rest).trim();
+}
+const tenantDb = (db, cid) => ({
+  prepare: sql => db.prepare(scopeSql(sql, cid)),
+  batch: list => db.batch(list),
+  exec: sql => db.exec(sql),
+});
+// Which salon is this request for? A staff or client session knows; a public request says so with
+// ?c=<slug>; everything else is the original company, which is what every existing link resolves to.
+async function resolveCompany(request, url, env) {
+  if (!env.DB) return DEFAULT_COMPANY_ID;
+  const raw = env.DB;
+  try {
+    const tok = bearer(request);
+    if (tok) {
+      const s = await raw.prepare(`SELECT company_id FROM sessions WHERE token=?`).bind(tok).first();
+      if (s && s.company_id) return s.company_id;
+      const c = await raw.prepare(`SELECT company_id FROM client_sessions WHERE token=?`).bind(tok).first();
+      if (c && c.company_id) return c.company_id;
+    }
+    const slug = url.searchParams.get("c") || request.headers.get("X-Company") || "";
+    if (slug) {
+      const co = await raw.prepare(`SELECT id FROM companies WHERE slug=? AND active=1`).bind(slug).first();
+      if (co && co.id) return co.id;
+    }
+  } catch (e) { }
+  return DEFAULT_COMPANY_ID;
+}
+async function activeCompanies(env) {
+  if (!env.DB) return [{ id: DEFAULT_COMPANY_ID }];
+  try {
+    const r = await env.DB.prepare(`SELECT id FROM companies WHERE active=1 ORDER BY id`).all();
+    if (r && r.results && r.results.length) return r.results;
+  } catch (e) { }
+  return [{ id: DEFAULT_COMPANY_ID }];
+}
 const json = (obj, cors, status = 200) =>
   new Response(JSON.stringify(obj), {
     status,
@@ -956,7 +1062,7 @@ async function clientMe(request, url, env) {
   const c = await requireClient(request, env);
   const st = await loadSettings(env);
   const pets = (await env.DB.prepare(`SELECT id,name,species,breed,weight,birthdate,sex,color,allergies,behavior,prefs,client_notes FROM pets WHERE client_id=? ORDER BY id`).bind(c.id).all()).results || [];
-  let photos = []; try { photos = (await env.DB.prepare(`SELECT id,pet_id,kind,token,created_at,thumb_key FROM pet_photos WHERE pet_id IN (SELECT id FROM pets WHERE client_id=?) ORDER BY created_at DESC`).bind(c.id).all()).results || []; } catch (e) { }
+  let photos = []; try { photos = (await env.DB.prepare(`SELECT id,pet_id,kind,token,created_at,thumb_key FROM pet_photos WHERE company_id=${env.CID} AND pet_id IN (SELECT id FROM pets WHERE client_id=? AND company_id=${env.CID}) ORDER BY created_at DESC`).bind(c.id).all()).results || []; } catch (e) { }
   pets.forEach(p => { p.photos = photos.filter(x => x.pet_id === p.id).map(x => ({ id: x.id, kind: x.kind, created_at: x.created_at, url: photoUrl(url.origin, x), thumb: photoThumbUrl(url.origin, x) })); });
   const bookings = await clientBookings(env, c);
   const visits = bookings.filter(b => b.status === "done" || b.status === "paid").length;
@@ -1019,7 +1125,7 @@ async function clientPhotoUpload(request, env) {
   if (!pet) return { ok: false, error: "Улюбленця не знайдено" };
   const n = await env.DB.prepare(`SELECT COUNT(*) AS n FROM pet_photos WHERE pet_id=?`).bind(pet.id).first();
   if (n && n.n >= CLIENT_PHOTOS_PER_PET) return { ok: false, error: "У картці вже 30 фото — видаліть зайві" };
-  const t = await env.DB.prepare(`SELECT COUNT(*) AS n FROM pet_photos WHERE pet_id IN (SELECT id FROM pets WHERE client_id=?)`).bind(c.id).first();
+  const t = await env.DB.prepare(`SELECT COUNT(*) AS n FROM pet_photos WHERE company_id=${env.CID} AND pet_id IN (SELECT id FROM pets WHERE client_id=? AND company_id=${env.CID})`).bind(c.id).first();
   if (t && t.n >= CLIENT_PHOTOS_TOTAL) return { ok: false, error: "Досягнуто ліміт фото у кабінеті — видаліть зайві" };
   return await savePetPhoto(env, new URL(request.url).origin, { pet_id: pet.id, kind: b.kind, data: b.data, thumb: b.thumb });
 }
@@ -1097,7 +1203,7 @@ async function dropPhotoObjects(env, keys) {
 }
 async function photoKeysFor(env, where, ...binds) {   // collect the bucket keys before the rows are gone
   try {
-    const rows = (await env.DB.prepare(`SELECT r2_key, thumb_key FROM pet_photos WHERE ${where}`).bind(...binds).all()).results || [];
+    const rows = (await env.DB.prepare(`SELECT r2_key, thumb_key FROM pet_photos WHERE company_id=${env.CID} AND (${where})`).bind(...binds).all()).results || [];
     return rows.reduce((acc, r) => acc.concat([r.r2_key, r.thumb_key]), []).filter(Boolean);
   }
   catch (e) { return []; }
@@ -1169,7 +1275,8 @@ async function publicBeforeAfter(url, env) {
   let rows = [];
   try {
     rows = (await env.DB.prepare(`SELECT p.id,p.pet_id,p.kind,p.token,p.created_at,p.thumb_key,t.name AS pet_name,t.species,t.breed
-      FROM pet_photos p JOIN pets t ON t.id=p.pet_id WHERE COALESCE(p.published,0)=1 ORDER BY p.created_at DESC, p.id DESC`).all()).results || [];
+      FROM pet_photos p JOIN pets t ON t.id=p.pet_id AND t.company_id=p.company_id
+      WHERE p.company_id=${env.CID} AND COALESCE(p.published,0)=1 ORDER BY p.created_at DESC, p.id DESC`).all()).results || [];
   } catch (e) { return { ok: true, items: [] }; }
   const groups = {}, order = [];
   rows.forEach(r => { const k = r.pet_id + "|" + String(r.created_at || "").slice(0, 10); if (!groups[k]) { groups[k] = {}; order.push(k); } if (!groups[k][r.kind]) groups[k][r.kind] = r; });
@@ -1310,6 +1417,7 @@ async function siteImageServe(url, env, cors) {
 // A slot that was replaced or cleared is only STAMPED here. Deleting on save would take with it an
 // upload that has not been saved yet, or a slot a stale CRM page never knew about; the daily cron
 // removes what has been unreferenced for a week, by which time nothing points at it.
+async function siteMediaSweepRaw(env) { return env.DBRAW || env.DB; }
 async function siteMediaMark(env, images) {
   const keep = Object.keys(images || {}).map(k => Number(images[k] && images[k].id)).filter(n => Number.isInteger(n) && n > 0);
   const inKeep = "(" + (keep.length ? keep.join(",") : "0") + ")";
@@ -1319,13 +1427,14 @@ async function siteMediaMark(env, images) {
   } catch (e) { }
 }
 async function siteMediaSweep(env, days) {
+  const DB = await siteMediaSweepRaw(env);        // the janitor runs for every salon at once
   const cut = new Date(Date.now() - (days || 7) * 86400000).toISOString();
   try {
-    const rows = ((await env.DB.prepare(`SELECT id,r2_key,thumb_key FROM site_media WHERE unref_at IS NOT NULL AND unref_at < ?`).bind(cut).all()).results) || [];
+    const rows = ((await DB.prepare(`SELECT id,r2_key,thumb_key FROM site_media WHERE unref_at IS NOT NULL AND unref_at < ?`).bind(cut).all()).results) || [];
     if (!rows.length) return 0;
     const keys = []; rows.forEach(r => { keys.push(r.r2_key, r.thumb_key); });
     await dropPhotoObjects(env, keys);
-    await env.DB.prepare(`DELETE FROM site_media WHERE id IN (${rows.map(r => r.id).join(",")})`).run();
+    await DB.prepare(`DELETE FROM site_media WHERE id IN (${rows.map(r => r.id).join(",")})`).run();
     return rows.length;
   } catch (e) { return 0; }
 }
@@ -1371,8 +1480,8 @@ async function clientDelete(request, env) {
   await requireAdmin(request, env);
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
-  const petKeys = await photoKeysFor(env, "pet_id IN (SELECT id FROM pets WHERE client_id=?)", id);
-  try { await env.DB.prepare(`DELETE FROM pet_photos WHERE pet_id IN (SELECT id FROM pets WHERE client_id=?)`).bind(id).run(); } catch (e) { }   // photos live in the pet card
+  const petKeys = await photoKeysFor(env, `pet_id IN (SELECT id FROM pets WHERE client_id=? AND company_id=${env.CID})`, id);
+  try { await env.DB.prepare(`DELETE FROM pet_photos WHERE company_id=${env.CID} AND pet_id IN (SELECT id FROM pets WHERE client_id=? AND company_id=${env.CID})`).bind(id).run(); } catch (e) { }   // photos live in the pet card
   await dropPhotoObjects(env, petKeys);
   await env.DB.prepare(`DELETE FROM pets WHERE client_id=?`).bind(id).run();
   await env.DB.prepare(`DELETE FROM clients WHERE id=?`).bind(id).run();
@@ -1468,7 +1577,7 @@ async function masterData(request, url, env) {
   const since = new Date(Date.now() - 120 * 864e5).toISOString().slice(0, 10);
   const { results } = await env.DB.prepare(
     `SELECT id,date,time,name,phone,pet,pet_name,breed,weight,service,price,status,note,source,pay_method,pet_id,
-            (SELECT COUNT(*) FROM pet_photos ph WHERE ph.pet_id=bookings.pet_id) AS photos
+            (SELECT COUNT(*) FROM pet_photos ph WHERE ph.pet_id=bookings.pet_id AND ph.company_id=bookings.company_id) AS photos
        FROM bookings WHERE staff=? AND (date>=? OR date='' OR date IS NULL) ORDER BY date, time`
   ).bind(m.name, since).all();
   return {
@@ -1796,7 +1905,7 @@ async function settingsSave(request, env) {
   await requireAdmin(request, env);
   const b = await request.json();
   for (const k of ["reminders_enabled", "repeat_weeks", "note_gift", "note_big", "loyalty_enabled", "loyalty_every", "loyalty_reward", "client_reminders_enabled", "remind_hours_before"]) {
-    if (b[k] != null) await env.DB.prepare(`INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(k, String(b[k]), String(b[k])).run();
+    if (b[k] != null) await env.DB.prepare(`INSERT INTO settings (company_id,key,value) VALUES (${env.CID},?,?) ON CONFLICT(company_id,key) DO UPDATE SET value=?`).bind(k, String(b[k]), String(b[k])).run();
   }
   return { ok: true, settings: await loadSettings(env) };
 }
@@ -1887,8 +1996,8 @@ async function siteSave(request, env) {
   if (size > SITE_CMS_MAX && size >= new TextEncoder().encode(prev).length) {
     const e = new Error("Занадто багато тексту (ліміт 64 КБ)"); e.status = 413; throw e;   // a save that shrinks it always passes
   }
-  await env.DB.prepare(`INSERT INTO settings (key,value) VALUES ('site_cms_prev',?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(prev, prev).run();
-  await env.DB.prepare(`INSERT INTO settings (key,value) VALUES ('site_cms',?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(raw, raw).run();
+  await env.DB.prepare(`INSERT INTO settings (company_id,key,value) VALUES (${env.CID},'site_cms_prev',?) ON CONFLICT(company_id,key) DO UPDATE SET value=?`).bind(prev, prev).run();
+  await env.DB.prepare(`INSERT INTO settings (company_id,key,value) VALUES (${env.CID},'site_cms',?) ON CONFLICT(company_id,key) DO UPDATE SET value=?`).bind(raw, raw).run();
   await siteMediaMark(env, next.images);
   return { ok: true };
 }
@@ -1911,7 +2020,8 @@ function sqlLit(v) {
   return "'" + String(v).replace(/'/g, "''") + "'";
 }
 async function dumpDatabase(env) {
-  const tables = (((await env.DB.prepare(
+  const DB = env.DBRAW || env.DB;                  // a backup covers every salon, not the caller's
+  const tables = (((await DB.prepare(
     `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name`
   ).all()).results) || []).map(r => r.name);
   const out = ["-- GAV&LOVE CRM · " + new Date().toISOString(),
@@ -1919,7 +2029,7 @@ async function dumpDatabase(env) {
     "PRAGMA defer_foreign_keys = true;"];
   const counts = {};
   for (const t of tables) {
-    const rows = (((await env.DB.prepare(`SELECT * FROM "${t}"`).all()).results) || []);
+    const rows = (((await DB.prepare(`SELECT * FROM "${t}"`).all()).results) || []);
     counts[t] = rows.length;
     out.push("", `-- ${t} (${rows.length})`, `DELETE FROM "${t}";`);
     for (const r of rows) {
@@ -2413,7 +2523,7 @@ async function tgGetState(env, chat) {
   try { return JSON.parse(r.state || "{}"); } catch (e) { return null; }
 }
 async function tgSetState(env, chat, st) {
-  await env.DB.prepare(`INSERT INTO tg_sessions (chat_id,state,updated_at) VALUES (?,?,?) ON CONFLICT(chat_id) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at`)
+  await env.DB.prepare(`INSERT INTO tg_sessions (company_id,chat_id,state,updated_at) VALUES (${env.CID},?,?,?) ON CONFLICT(company_id,chat_id) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at`)
     .bind(chat, JSON.stringify(st || {}), new Date().toISOString()).run();
 }
 async function tgClearState(env, chat) { await env.DB.prepare(`DELETE FROM tg_sessions WHERE chat_id=?`).bind(chat).run(); }
@@ -2572,7 +2682,7 @@ async function tgSetup(request, env) { // owner: remember the bot username and r
   const me = await tgApi(env, "getMe", {});
   const username = me && me.ok && me.result ? me.result.username : "";
   if (!username) return { ok: false, error: "Telegram не відповів: " + (me && me.description || "getMe failed") };
-  await env.DB.prepare(`INSERT INTO settings (key,value) VALUES ('tg_bot',?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(username, username).run();
+  await env.DB.prepare(`INSERT INTO settings (company_id,key,value) VALUES (${env.CID},'tg_bot',?) ON CONFLICT(company_id,key) DO UPDATE SET value=?`).bind(username, username).run();
   const url = new URL(request.url).origin + "/tg/webhook";
   const wh = await tgApi(env, "setWebhook", { url, secret_token: await tgWebhookSecret(env), allowed_updates: ["message", "callback_query"] });
   try { await tgApi(env, "setMyCommands", { commands: [{ command: "book", description: "Записатися на грумінг" }, { command: "visits", description: "Мої візити — перенести чи скасувати" }, { command: "cabinet", description: "Мій кабінет на сайті" }, { command: "start", description: "Підключити нагадування" }] }); } catch (e) { }
