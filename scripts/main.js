@@ -182,12 +182,12 @@
     // breed search — delegated once on the container, survives re-renders
     panels.addEventListener("input", e => {
       const inp = e.target.closest(".price-search"); if (!inp) return;
-      const q = inp.value.trim().toLowerCase();
+      const q = pkNorm(inp.value.trim());        // same tolerance as the booking form: «ши тцу» finds «Ши-тцу»
       const body = inp.parentElement.querySelector("tbody");
       let shown = 0;
       $$("tr", body).forEach(tr => {
         if (tr.classList.contains("price-empty-row")) return;
-        const match = tr.cells[0].textContent.toLowerCase().includes(q);
+        const match = !q || pkNorm(tr.cells[0].textContent).includes(q);
         tr.style.display = match ? "" : "none";
         if (match) shown++;
       });
