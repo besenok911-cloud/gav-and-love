@@ -6,12 +6,12 @@
 <title>GAV&LOVE · Кабінет майстра</title>
 <style>
   :root{
-    --violet:#4a25c9; --violet-d:#3a1c9e; --violet-deep:#1c1340; --violet-soft:#efeaff;
-    --paper:#fff; --bg:#f5f2ea; --bg-2:#efeae1; --line:#e4ddcf; --line-soft:#efe9dd;
-    --ink:#24203a; --ink-soft:#7a748f;
+    --violet:#4a25c9; --violet-d:#35189b; --violet-deep:#1a1038; --violet-soft:#ede8fc;
+    --paper:#fff; --paper-2:#fdfbf8; --bg:#faf6f0; --bg-2:#f1e9dd; --line:#e6ded0; --line-soft:#efe9dd;
+    --ink:#1e1633; --ink-2:#3b3355; --ink-soft:#5b5278; --ink-mute:#8b83a6;
     --new:#4a25c9; --confirmed:#2f8f5b; --arrived:#0ea5b7; --in_progress:#e6912b;
-    --done:#8a83a3; --paid:#1a7f37; --no_show:#8a8a8a; --cancelled:#c0472b; --waitlist:#c9a24a;
-    --shadow-sm:0 1px 4px rgba(28,19,64,.06); --shadow:0 8px 30px rgba(28,19,64,.12);
+    --done:#6b647f; --paid:#1a7f37; --no_show:#8a8a8a; --cancelled:#b4402a; --waitlist:#c9a24a;
+    --shadow-sm:0 18px 38px -30px rgba(26,16,56,.55); --shadow:0 40px 70px -38px rgba(26,16,56,.5);
     --font-head:"Playfair Display",Georgia,serif; --font-body:"Nunito","Segoe UI",system-ui,sans-serif;
   }
   html{-webkit-text-size-adjust:100%}
@@ -135,6 +135,16 @@
   .btn.ghost2{background:#fff;border:1.5px solid var(--line);color:var(--ink-soft)}
   #pwBtn{white-space:nowrap}
   @media(max-width:560px){#pwBtn{font-size:0;padding:.4em .7em}#pwBtn::after{content:"🔑";font-size:1rem}}
+  /* ---- V2 shared polish (matches styles/main.css) ---- */
+  h1,h2,h3{letter-spacing:-.022em;text-wrap:pretty}
+  :focus-visible{outline:3px solid rgba(74,37,201,.5);outline-offset:3px;border-radius:8px}
+  .card,.panel,.box,section>article{transition:transform .32s cubic-bezier(.22,.8,.26,1),box-shadow .32s cubic-bezier(.22,.8,.26,1)}
+  button,.btn,a.btn{transition:transform .32s cubic-bezier(.22,.8,.26,1),background .32s cubic-bezier(.22,.8,.26,1),
+    color .32s cubic-bezier(.22,.8,.26,1),border-color .32s cubic-bezier(.22,.8,.26,1),box-shadow .32s cubic-bezier(.22,.8,.26,1)}
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
+      transition-duration:.001ms!important;scroll-behavior:auto!important}
+  }
 </style>
 </head>
 <body>

@@ -2,27 +2,48 @@
    GAV&LOVE — premium / minimal design system
    ============================================================ */
 :root{
-  --bg:#faf7f2;            /* warm bone page */
-  --bg-2:#f2ece2;          /* greige band */
+  --bg:#faf6f0;            /* warm bone page */
+  --bg-2:#f1e9dd;          /* greige band */
   --paper:#ffffff;
-  --ink:#221a38;           /* deep plum ink */
-  --ink-soft:#6d6484;
+  --paper-2:#fdfbf8;       /* recessed paper: inputs, inner rows */
+  --ink:#1e1633;           /* deep plum ink */
+  --ink-2:#3b3355;         /* body copy */
+  --ink-soft:#5b5278;
+  --ink-mute:#8b83a6;      /* captions only, never body copy */
   --violet:#4a25c9;        /* accent */
-  --violet-d:#3a1c9e;
-  --violet-tint:#ece7fb;   /* pale violet chips / photo placeholders */
-  --violet-deep:#1c1340;   /* dark sections */
-  --gold:#c9a24a;          /* warm metallic accent (wood/brass) */
-  --line:#e7e0d3;          /* warm hairline */
+  --violet-d:#35189b;
+  --violet-2:#7a57e8;      /* lighter accent: gradients, bars, glows */
+  --violet-tint:#ede8fc;   /* pale violet chips / photo placeholders */
+  --violet-deep:#1a1038;   /* dark sections */
+  --gold:#c9a24a;          /* brass on LIGHT surfaces (hairlines, icons) */
+  --gold-bright:#e9c978;   /* brass on DARK surfaces only */
+  --brass:#b98a2e;         /* brass text on light — 4.6:1 on --bg */
+  --gold-tint:#f6eedc;
+  --line:#e6ded0;          /* warm hairline */
   --line-soft:#efe9dd;
   --white:#fff;
-  --shadow:0 30px 60px -34px rgba(28,19,64,.42);
-  --shadow-sm:0 12px 30px -20px rgba(28,19,64,.35);
-  --radius:16px;
+  --ok:#2f8f5b; --ok-tint:#ddf0e5; --ok-ink:#17593a;
+  --warn:#b4402a; --warn-tint:#f8e2dc; --warn-ink:#86301d;
+  --shadow:0 40px 70px -38px rgba(26,16,56,.5);
+  --shadow-sm:0 18px 38px -30px rgba(26,16,56,.55);
+  --shadow-lift:0 52px 88px -44px rgba(26,16,56,.6);
+  --radius-sm:12px;
+  --radius:18px;
   --radius-lg:26px;
+  --radius-xl:32px;
+  --arch:50% 50% 26px 26px / 42% 42% 26px 26px;  /* the arch photo-frame motif */
   --maxw:1200px;
   --font-head:"Playfair Display",Georgia,serif;
   --font-body:"Nunito",system-ui,sans-serif;
   --font-script:"Playfair Display",Georgia,serif;
+  /* ---- motion system ---- */
+  --e-out:cubic-bezier(.22,.8,.26,1);
+  --e-spring:cubic-bezier(.34,1.56,.64,1);
+  --t-fast:180ms;
+  --t-base:320ms;
+  --t-slow:560ms;
+  --t-reveal:720ms;
+  --stagger:70ms;
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
@@ -33,7 +54,7 @@ body{
 }
 img{max-width:100%;display:block}
 a{color:inherit;text-decoration:none}
-h1,h2,h3{font-family:var(--font-head);font-weight:600;line-height:1.12;margin:0;letter-spacing:-.01em}
+h1,h2,h3{font-family:var(--font-head);font-weight:600;line-height:1.08;margin:0;letter-spacing:-.022em;text-wrap:pretty}
 .container{width:min(100% - 44px,var(--maxw));margin-inline:auto}
 .section{padding:clamp(60px,9vw,120px) 0}
 section[id],[id="booking"]{scroll-margin-top:84px}
@@ -45,16 +66,20 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 /* ===== Buttons ===== */
 .btn{
   display:inline-flex;align-items:center;gap:.55em;justify-content:center;
-  font-family:var(--font-body);font-weight:700;font-size:.93rem;letter-spacing:.01em;
-  padding:.9em 1.7em;border-radius:999px;cursor:pointer;border:1.5px solid transparent;
-  transition:transform .25s ease,box-shadow .25s ease,background .25s ease,color .25s ease,border-color .25s ease;
+  font-family:var(--font-body);font-weight:800;font-size:.95rem;letter-spacing:.01em;
+  padding:.92em 1.8em;min-height:48px;border-radius:999px;cursor:pointer;border:1.5px solid transparent;
+  transition:transform var(--t-base) var(--e-out),box-shadow var(--t-base) var(--e-out),
+             background var(--t-base) var(--e-out),color var(--t-base) var(--e-out),border-color var(--t-base) var(--e-out);
   white-space:nowrap;
 }
-.btn-lg{padding:1.05em 2.1em;font-size:1rem}
-.btn-primary{background:var(--violet);color:#fff;box-shadow:var(--shadow-sm)}
-.btn-primary:hover{background:var(--violet-d);transform:translateY(-2px);box-shadow:var(--shadow)}
-.btn-ghost{background:transparent;color:var(--ink);border-color:var(--line)}
-.btn-ghost:hover{border-color:var(--violet);color:var(--violet);transform:translateY(-2px)}
+.btn-lg{padding:1.06em 2.2em;font-size:1.02rem;min-height:54px}
+.btn-primary{background:var(--violet);color:#fff;box-shadow:0 20px 38px -20px rgba(74,37,201,.9)}
+.btn-primary:hover{background:var(--violet-d);transform:translateY(-3px);box-shadow:0 26px 46px -18px rgba(74,37,201,.95)}
+.btn-primary:active{transform:translateY(-1px)}
+.btn-ghost{background:transparent;color:var(--ink);border-color:#d9cfbc}
+.btn-ghost:hover{border-color:var(--violet);color:var(--violet);transform:translateY(-3px)}
+.btn-gold{background:var(--gold-bright);color:#3d2d05;border-color:var(--gold-bright)}
+.btn-gold:hover{background:#f0d68f;transform:translateY(-3px);box-shadow:0 22px 40px -22px rgba(185,138,46,.9)}
 
 /* ===== Header ===== */
 .site-header{
@@ -90,22 +115,32 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 .hero-decor{position:absolute;inset:0;z-index:0;
   background:radial-gradient(52% 60% at 88% 8%,rgba(74,37,201,.09),transparent 62%);}
 .hero-inner{position:relative;z-index:1;display:grid;grid-template-columns:1.02fr .98fr;gap:clamp(30px,5vw,72px);align-items:center}
-.hero-kicker{display:inline-flex;align-items:center;gap:.55em;font-weight:700;color:var(--violet);
-  font-size:.78rem;letter-spacing:.16em;text-transform:uppercase}
-.hero-title{font-size:clamp(2.5rem,6vw,4.5rem);margin:.42em 0 .5em;color:var(--ink);font-weight:600;line-height:1.05}
+.hero-kicker{display:inline-flex;align-items:center;gap:.7em;font-weight:800;color:var(--violet);
+  font-size:.76rem;letter-spacing:.2em;text-transform:uppercase;
+  background:var(--paper);border:1px solid var(--line);border-radius:999px;
+  padding:.62em 1.1em;box-shadow:var(--shadow-sm)}
+.hero-kicker::before{content:"";width:26px;height:1.5px;background:var(--brass);flex:none}
+.hero-title{font-size:clamp(2.7rem,6.6vw,5.15rem);margin:.34em 0 .44em;color:var(--ink);font-weight:600;
+  line-height:.98;letter-spacing:-.032em}
 .hero-title .script{font-size:1em}
-.hero-lead{font-size:clamp(1.02rem,1.35vw,1.2rem);max-width:40ch;color:var(--ink-soft)}
-.hero-lead b{color:var(--ink);font-weight:700}
+.hero-lead{position:relative;font-size:clamp(1.04rem,1.35vw,1.22rem);max-width:40ch;color:var(--ink-2);padding-left:70px}
+.hero-lead::before{content:"";position:absolute;left:0;top:.72em;width:52px;height:2px;background:var(--brass)}
+.hero-lead-more{padding-left:70px}
+.hero-lead-more::before{display:none}
+.hero-lead b{color:var(--ink);font-weight:800}
 .hero-actions{display:flex;flex-wrap:wrap;gap:14px;margin:30px 0 26px}
 .hero-badges{display:flex;flex-wrap:wrap;gap:8px 22px}
 .hero-badges span{display:inline-flex;align-items:center;gap:.5em;color:var(--ink-soft);
   font-weight:700;font-size:.82rem;letter-spacing:.02em}
 .hero-badges .i{fill:var(--violet)}
 .hero-photo{position:relative;max-width:520px;margin-left:auto}
+/* the second, offset arch sitting behind the photo — the motif that carries the new look */
+.hero-photo::before{content:"";position:absolute;z-index:0;left:-9%;top:5%;width:74%;aspect-ratio:3/4;
+  border-radius:var(--arch);background:var(--bg-2);border:1px solid var(--line)}
 .hero-photo-2{display:none}
 .hero-photo-glow{position:absolute;inset:8% -6% -4% 10%;border-radius:38% 62% 55% 45%/48% 42% 58% 52%;
   background:radial-gradient(circle at 40% 40%,rgba(74,37,201,.22),rgba(201,162,74,.12) 55%,transparent 75%);filter:blur(22px);z-index:0}
-.hero-photo-frame{position:relative;z-index:1;border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow);aspect-ratio:4/5;background:var(--violet-tint)}
+.hero-photo-frame{position:relative;z-index:1;border-radius:var(--arch);overflow:hidden;box-shadow:var(--shadow);aspect-ratio:4/5;background:var(--violet-tint)}
 .hero-photo-frame::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgba(255,255,255,.35);pointer-events:none}
 .hero-photo-frame img{width:100%;height:100%;object-fit:cover;display:block;object-position:var(--cms-pos,50% 50%)}
 .hero-photo-tag{position:absolute;left:-14px;bottom:26px;z-index:2;background:var(--paper);color:var(--ink);
@@ -121,20 +156,24 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 @keyframes scrolldot{0%{opacity:0;top:8px}40%{opacity:1}80%{opacity:0;top:22px}100%{opacity:0}}
 
 /* ===== Trust strip ===== */
-.trust{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--bg)}
-.trust-inner{display:grid;grid-template-columns:repeat(4,1fr);gap:0}
-.trust-item{padding:26px 22px;text-align:center;border-right:1px solid var(--line)}
-.trust-item:last-child{border-right:0}
-.trust-item .i-lg{margin-bottom:8px}
-.trust-item h3{font-size:1.12rem;color:var(--ink);margin-bottom:4px;font-weight:600}
-.trust-item p{margin:0;color:var(--ink-soft);font-size:.9rem;font-family:var(--font-body)}
+.trust{background:var(--bg);padding:clamp(22px,3vw,34px) 0 clamp(26px,3.4vw,40px)}
+.trust-inner{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.trust-item{padding:22px 24px 24px;text-align:left;background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--shadow-sm)}
+.trust-item .i-lg{margin-bottom:0;width:22px;height:22px;fill:var(--violet)}
+.trust-item .trust-ic{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;
+  border-radius:var(--radius-sm);background:var(--violet-tint);margin-bottom:12px}
+.trust-item h3{font-size:1.14rem;color:var(--ink);margin-bottom:5px;font-weight:600}
+.trust-item p{margin:0;color:var(--ink-soft);font-size:.92rem;font-family:var(--font-body);line-height:1.55}
 
 /* ===== Section head ===== */
 .section-head{max-width:720px;margin:0 auto clamp(34px,5vw,58px);text-align:center}
-.eyebrow{display:inline-flex;align-items:center;gap:.55em;font-weight:700;color:var(--violet);
-  text-transform:uppercase;letter-spacing:.16em;font-size:.76rem;margin:0 0 .8em}
-.section-head h2{font-size:clamp(2rem,4vw,3.1rem);color:var(--ink);font-weight:600}
-.section-sub{color:var(--ink-soft);margin:.8em auto 0;max-width:56ch}
+.eyebrow{display:inline-flex;align-items:center;gap:.7em;font-weight:800;color:var(--violet);
+  text-transform:uppercase;letter-spacing:.2em;font-size:.75rem;margin:0 0 .9em}
+.eyebrow::before{content:"";width:26px;height:1.5px;background:var(--brass);flex:none}
+.booking .eyebrow::before,.why-inner .eyebrow::before{background:var(--gold-bright)}
+.section-head h2{font-size:clamp(2.1rem,4.4vw,3.45rem);color:var(--ink);font-weight:600;letter-spacing:-.028em}
+.section-sub{color:var(--ink-2);margin:.85em auto 0;max-width:56ch}
 
 /* ===== About ===== */
 .about-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:clamp(28px,5vw,64px);align-items:center}
@@ -169,14 +208,16 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 .why-list span{color:#d5cdf0}
 
 /* ===== Services / Prices ===== */
-.price-tabs{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:32px}
-.price-tab{display:inline-flex;align-items:center;gap:.5em;background:transparent;border:1.5px solid var(--line);
-  color:var(--ink);font-family:var(--font-body);font-weight:700;font-size:.9rem;padding:.66em 1.2em;
-  border-radius:999px;cursor:pointer;transition:.2s}
-.price-tab .i{fill:var(--violet)}
-.price-tab:hover{border-color:var(--violet)}
-.price-tab.is-active{background:var(--violet);color:#fff;border-color:var(--violet)}
-.price-tab.is-active .i{fill:#fff}
+/* segmented control instead of loose outlined pills */
+.price-tabs{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin:0 auto 32px;width:max-content;max-width:100%;
+  background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-lg);padding:6px;box-shadow:var(--shadow-sm)}
+.price-tab{display:inline-flex;align-items:center;gap:.5em;background:transparent;border:0;
+  color:var(--ink-soft);font-family:var(--font-body);font-weight:800;font-size:.9rem;padding:.72em 1.25em;min-height:44px;
+  border-radius:999px;cursor:pointer;transition:background var(--t-base) var(--e-out),color var(--t-base) var(--e-out)}
+.price-tab .i{fill:currentColor}
+.price-tab:hover{background:var(--bg-2);color:var(--ink)}
+.price-tab.is-active{background:var(--violet);color:#fff}
+.price-tab.is-active:hover{background:var(--violet-d)}
 .price-panel{display:none}
 .price-panel.is-active{display:block;animation:fadeUp .4s ease}
 .price-search{width:100%;max-width:360px;margin:0 auto 18px;display:block;padding:.75em 1.15em;border-radius:999px;
@@ -184,13 +225,14 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 .price-search:focus{outline:none;border-color:var(--violet)}
 .price-table-wrap{overflow-x:auto;border-radius:var(--radius);border:1px solid var(--line);background:var(--paper);box-shadow:var(--shadow-sm)}
 .price-table{width:100%;border-collapse:collapse;min-width:420px}
-.price-table th,.price-table td{padding:1em 1.3em;text-align:left}
-.price-table thead th{background:var(--bg-2);color:var(--ink);font-family:var(--font-body);font-weight:700;
-  font-size:.8rem;text-transform:uppercase;letter-spacing:.06em}
-.price-table th:last-child,.price-table td:last-child{text-align:right;white-space:nowrap;font-weight:800;color:var(--violet-d);font-family:var(--font-head)}
-.price-table tbody tr{border-top:1px solid var(--line-soft);transition:background .15s}
-.price-table tbody tr:nth-child(even){background:rgba(74,37,201,.025)}
-.price-table tbody tr:hover{background:var(--violet-tint)}
+.price-table th,.price-table td{padding:.82em 1.3em;text-align:left}
+.price-table thead th{background:var(--bg-2);color:var(--ink-soft);font-family:var(--font-body);font-weight:800;
+  font-size:.72rem;text-transform:uppercase;letter-spacing:.11em}
+.price-table th:last-child,.price-table td:last-child{text-align:right;white-space:nowrap;font-weight:600;color:var(--violet-d);
+  font-family:var(--font-head);font-size:1.08rem;letter-spacing:-.01em}
+.price-table tbody tr{border-top:1px solid var(--line-soft);transition:background var(--t-fast) var(--e-out),box-shadow var(--t-fast) var(--e-out)}
+.price-table tbody tr:nth-child(even){background:rgba(74,37,201,.022)}
+.price-table tbody tr:hover{background:var(--violet-tint);box-shadow:inset 3px 0 0 var(--violet)}
 .price-table tbody td:first-child{font-weight:700;color:var(--ink)}
 .price-table tbody td:not(:first-child):not(:last-child){color:var(--ink-soft)}
 .price-empty{text-align:center;color:var(--ink-soft);padding:22px}
@@ -508,12 +550,15 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 /* ===== Team ===== */
 .team{background:var(--bg-2)}
 .team-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:6px}
-.team-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);transition:transform .3s ease,box-shadow .3s ease}
-.team-card:hover{transform:translateY(-4px);box-shadow:var(--shadow)}
-.team-photo{aspect-ratio:1/1;overflow:hidden;background:var(--violet-tint)}
-.team-photo img{width:100%;height:100%;object-fit:cover;display:block;object-position:var(--cms-pos,50% 50%);transition:transform .5s ease}
-.team-card:hover .team-photo img{transform:scale(1.04)}
-.team-body{padding:20px 22px 24px}
+.team-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-lg);padding:14px;
+  box-shadow:var(--shadow-sm);transition:transform var(--t-base) var(--e-out),box-shadow var(--t-base) var(--e-out)}
+.team-card:hover{transform:translateY(-5px);box-shadow:var(--shadow)}
+/* arch frame — the same motif as the hero photo */
+.team-photo{aspect-ratio:4/5;overflow:hidden;background:var(--violet-tint);border-radius:var(--arch)}
+.team-photo img{width:100%;height:100%;object-fit:cover;display:block;object-position:var(--cms-pos,50% 50%);
+  transition:transform var(--t-slow) var(--e-out)}
+.team-card:hover .team-photo img{transform:scale(1.05)}
+.team-body{padding:18px 10px 8px}
 .team-body h3{font-size:1.25rem;margin:0 0 4px;font-weight:600}
 .team-role{display:inline-block;margin:0 0 10px;font-size:.78rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--violet);background:var(--violet-tint);padding:.25em .8em;border-radius:999px}
 .team-body p:last-child{margin:0;color:var(--ink-soft);font-size:.95rem;line-height:1.55}
@@ -653,4 +698,110 @@ section[id],[id="booking"]{scroll-margin-top:84px}
   .lb-prev,.lb-next{width:44px;height:44px;background:rgba(28,19,64,.85);border:1.5px solid rgba(255,255,255,.25)}
   .lb-ba{max-height:70vh;max-height:70dvh}
   .lb-cap{top:auto;bottom:calc(100% + 8px);left:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+}
+
+/* ============================================================
+   V2 — motion system, arch motif, proof marquee, reduced motion
+   Tokens live in :root at the top of this file.
+   ============================================================ */
+
+/* ---- generalised staggered reveal: main.js sets --d on each child ---- */
+.reveal{opacity:0;transform:translateY(26px);
+  transition:opacity var(--t-reveal) var(--e-out) var(--d,0ms),
+             transform var(--t-reveal) var(--e-out) var(--d,0ms)}
+.reveal.in{opacity:1;transform:none}
+.reveal-soft{transform:translateY(18px) scale(.985)}
+.reveal-soft.in{transform:none}
+
+/* the old hard-coded trust delays are replaced by --d from JS */
+.trust-item:nth-child(1),.trust-item:nth-child(2),
+.trust-item:nth-child(3),.trust-item:nth-child(4){transition-delay:var(--d,0ms)}
+
+/* ---- proof marquee under the hero ---- */
+.proof{border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  background:var(--bg-2);overflow:hidden;--proof-speed:38s}
+.proof-track{display:flex;width:max-content;gap:0;
+  animation:proof-scroll var(--proof-speed) linear infinite}
+.proof:hover .proof-track,.proof:focus-within .proof-track{animation-play-state:paused}
+.proof-row{display:flex;gap:44px;padding:0 22px;align-items:center;height:62px;white-space:nowrap}
+.proof-row span{display:inline-flex;align-items:center;gap:.8em;font-size:.78rem;font-weight:800;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2)}
+.proof-row span::after{content:"";width:5px;height:5px;border-radius:50%;background:var(--brass)}
+@keyframes proof-scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@media (max-width:700px){.proof-row{gap:28px;height:54px}.proof-row span{font-size:.7rem;letter-spacing:.1em}}
+
+/* ---- counters in the trust cards ---- */
+.trust-num{font-family:var(--font-head);font-weight:600;font-size:2.1rem;line-height:1;
+  color:var(--ink);letter-spacing:-.02em;display:block;margin-bottom:2px;font-variant-numeric:tabular-nums}
+
+/* ---- arch frame, reusable ---- */
+.arch{border-radius:var(--arch);overflow:hidden}
+
+/* ---- interior / gallery cascade now driven by --d too ---- */
+.interior-grid.in figure:nth-child(n){transition-delay:var(--d,0ms)}
+.g-item{transition:opacity var(--t-reveal) var(--e-out) var(--d,0ms),
+        transform var(--t-reveal) var(--e-out) var(--d,0ms),box-shadow var(--t-base) var(--e-out)}
+.g-item:hover{transform:translateY(-4px)}
+
+/* ---- card lift, shared by service/QA/job/review cards ---- */
+.qa,.job-card,.hotel-rules,.cloud{transition:transform var(--t-base) var(--e-out),box-shadow var(--t-base) var(--e-out)}
+.qa:hover,.job-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-sm)}
+
+/* ---- header: tighter, deeper on scroll ---- */
+.site-header{backdrop-filter:blur(16px)}
+.site-header.scrolled{box-shadow:0 14px 34px -28px rgba(26,16,56,.75)}
+.main-nav a::after{height:2px;background:var(--violet);transition:right var(--t-base) var(--e-out)}
+
+/* ---- focus: one visible ring everywhere ---- */
+:focus-visible{outline:3px solid rgba(74,37,201,.5);outline-offset:3px;border-radius:8px}
+
+/* ---- respect the system setting: every non-essential motion off ---- */
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  .reveal,.reveal-soft,.g-item,.interior-grid figure{opacity:1!important;transform:none!important;transition:none!important}
+  .proof-track{animation:none;transform:none}
+  .hero-photo-frame,.hero-photo-tag,.hero-decor::before,.hero-decor::after{animation:none!important}
+  .btn-primary:hover::after{animation:none}
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
+    transition-duration:.001ms!important;scroll-behavior:auto!important}
+}
+
+/* hero photo tilt — the vars are written by main.js on pointermove */
+@media (hover:hover) and (pointer:fine){
+  .hero-photo{transform:perspective(1300px) rotateY(var(--rx,0deg)) rotateX(var(--ry,0deg));
+    transform-style:preserve-3d;transition:transform var(--t-slow) var(--e-out);will-change:transform}
+}
+@media (prefers-reduced-motion: reduce){.hero-photo{transform:none!important}}
+
+/* ---- header fits again after the buttons grew (V2) ---- */
+/* Eight nav links plus two buttons is a tight budget: let the nav scale with the
+   viewport instead of snapping at breakpoints, and never let the buttons squash. */
+.header-inner{gap:clamp(12px,1.4vw,22px)}
+.main-nav{display:flex;flex-wrap:nowrap;gap:clamp(10px,1.15vw,26px);min-width:0}
+.main-nav a{font-size:clamp(.78rem,.62vw + .42rem,.92rem);letter-spacing:.01em;white-space:nowrap}
+.btn-book-nav{padding:.6em clamp(.9em,1.1vw,1.3em);min-height:42px;font-size:.88rem;flex:none}
+.nav-cabinet{min-height:42px;padding:.5em clamp(.6em,.8vw,.95em);font-size:.84rem;flex:none}
+.brand-logo{height:clamp(36px,3vw,46px)}
+
+/* ---- accent text on the dark sections: violet #4a25c9 is unreadable there ---- */
+.booking .script,.why-inner .script,.booking .section-head h2 .script{color:#c0aaff}
+.booking .section-head h2 .script::after{background:linear-gradient(90deg,var(--gold-bright),rgba(233,201,120,.15))}
+.booking .section-sub{color:#cfc7ee}
+
+/* ---- V2 on phones ---- */
+@media (max-width:900px){
+  .hero-photo::before{display:none}            /* the offset arch needs room it doesn't have here */
+}
+@media (max-width:700px){
+  .hero-kicker{font-size:.66rem;letter-spacing:.14em;padding:.55em .9em;gap:.55em}
+  .hero-kicker::before{width:18px}
+  /* the brass rule goes above the lead instead of beside it — 70px of indent is a lot of a 390px screen */
+  .hero-lead,.hero-lead-more{padding-left:0}
+  .hero-lead::before{position:static;display:block;width:44px;margin:0 0 12px}
+  .trust-inner{grid-template-columns:1fr 1fr;gap:12px}
+  .trust-item{padding:18px 18px 20px}
+  .price-tabs{width:100%;justify-content:flex-start}
+}
+@media (max-width:430px){
+  .trust-inner{grid-template-columns:1fr}
 }

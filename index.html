@@ -16,8 +16,8 @@
 <link rel="preconnect" href="https://gavlove-booking.besenok911.workers.dev" crossorigin />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles/main.css?v=37" />
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles/main.css?v=38" />
 <script>
 /* A replaced hero is fetched by the CMS only after main.js parses and /site answers — far too late for
    the largest image on the page. If this visitor already has the config cached, preload it right here,
@@ -127,14 +127,36 @@ gll.setAttribute("fetchpriority","high");document.head.appendChild(gll);}}catch(
   <a href="#trust" class="scroll-hint" aria-label="Гортайте нижче"><span></span></a>
 </section>
 
+<!-- ===== Proof marquee ===== -->
+<aside class="proof" aria-label="Коротко про салон">
+  <div class="proof-track">
+    <div class="proof-row">
+      <span>Міні-готель 24/7</span>
+      <span>Денний садочок</span>
+      <span>Безпечна косметика</span>
+      <span>Паралельний грумінг</span>
+      <span>Перший грумінг цуценяти</span>
+      <span>Доглядаємо й котиків</span>
+    </div>
+    <div class="proof-row" aria-hidden="true">
+      <span>Міні-готель 24/7</span>
+      <span>Денний садочок</span>
+      <span>Безпечна косметика</span>
+      <span>Паралельний грумінг</span>
+      <span>Перший грумінг цуценяти</span>
+      <span>Доглядаємо й котиків</span>
+    </div>
+  </div>
+</aside>
+
 <!-- ===== Trust strip ===== -->
 <section class="trust" id="trust" data-cms-section="Переваги">
   <div class="container">
     <div class="trust-inner">
-      <article class="trust-item reveal"><svg class="i-lg"><use href="#i-heart"/></svg><h3 data-cms="trust.item1.h3">Любов</h3><p data-cms="trust.item1.p">Кожен хвостик — особистість, а не «номер».</p></article>
-      <article class="trust-item reveal"><svg class="i-lg"><use href="#i-paw"/></svg><h3 data-cms="trust.item2.h3">Турбота</h3><p data-cms="trust.item2.p">Спокій тварини — понад усе, на кожному етапі.</p></article>
-      <article class="trust-item reveal"><svg class="i-lg"><use href="#i-shield"/></svg><h3 data-cms="trust.item3.h3">Довіра</h3><p data-cms="trust.item3.p">Ніжний підхід і безпечна косметика.</p></article>
-      <article class="trust-item reveal"><svg class="i-lg"><use href="#i-star"/></svg><h3 data-cms="trust.item4.h3">Досвід</h3><p data-cms="trust.item4.p">Команда майстрів, що любить свою справу.</p></article>
+      <article class="trust-item reveal"><span class="trust-ic"><svg class="i-lg"><use href="#i-heart"/></svg></span><h3 data-cms="trust.item1.h3">Любов</h3><p data-cms="trust.item1.p">Кожен хвостик — особистість, а не «номер».</p></article>
+      <article class="trust-item reveal"><span class="trust-ic"><svg class="i-lg"><use href="#i-paw"/></svg></span><h3 data-cms="trust.item2.h3">Турбота</h3><p data-cms="trust.item2.p">Спокій тварини — понад усе, на кожному етапі.</p></article>
+      <article class="trust-item reveal"><span class="trust-ic"><svg class="i-lg"><use href="#i-shield"/></svg></span><h3 data-cms="trust.item3.h3">Довіра</h3><p data-cms="trust.item3.p">Ніжний підхід і безпечна косметика.</p></article>
+      <article class="trust-item reveal"><span class="trust-ic"><svg class="i-lg"><use href="#i-star"/></svg></span><h3 data-cms="trust.item4.h3">Досвід</h3><p data-cms="trust.item4.p">Команда майстрів, що любить свою справу.</p></article>
     </div>
   </div>
 </section>
@@ -628,6 +650,6 @@ gll.setAttribute("fetchpriority","high");document.head.appendChild(gll);}}catch(
 <script src="data/gallery.js?v=20" defer></script>
 <script src="data/videos.js?v=17" defer></script>
 <script src="data/beforeafter.js?v=2" defer></script>
-<script src="scripts/main.js?v=52" defer></script>
+<script src="scripts/main.js?v=53" defer></script>
 </body>
 </html>

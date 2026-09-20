@@ -61,12 +61,46 @@
     nav.classList.remove("open"); toggle.setAttribute("aria-expanded", "false");
   }));
 
-  /* ---- Reveal on scroll ---- */
+  /* ---- Reveal on scroll, cascading through siblings ----
+     CSS reads --d as the transition-delay; we stamp it once per element so a
+     row of cards lands one after another instead of all at the same instant.
+     The cascade is capped, or a long grid ends up waiting seconds for its tail. */
+  const REVEAL_STEP = 70, REVEAL_STEP_MAX = 5;
+  const stampStagger = (el) => {
+    if (el.dataset.glStagger) return;
+    el.dataset.glStagger = "1";
+    const p = el.parentElement; if (!p) return;
+    const sibs = [...p.children].filter(n => n.classList && n.classList.contains("reveal"));
+    if (sibs.length < 2) return;
+    const i = Math.min(sibs.indexOf(el), REVEAL_STEP_MAX);
+    if (i > 0) el.style.setProperty("--d", (i * REVEAL_STEP) + "ms");
+  };
   const revObserver = new IntersectionObserver((entries, obs) => {
     entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); obs.unobserve(e.target); } });
   }, { threshold: 0, rootMargin: "0px 0px 120px 0px" });
-  const observeReveals = () => $$(".reveal:not(.in)").forEach(el => revObserver.observe(el));
+  const observeReveals = () => $$(".reveal:not(.in)").forEach(el => { stampStagger(el); revObserver.observe(el); });
   observeReveals();
+
+  /* ---- Hero photo follows the pointer, barely ----
+     Only on a real pointer, only when motion is allowed: on phones this is dead weight. */
+  if (!reduced && matchMedia("(hover:hover) and (pointer:fine)").matches) {
+    const heroInner = $(".hero-inner"), heroPhoto = $(".hero-photo");
+    if (heroInner && heroPhoto) {
+      let raf = 0, tx = 0, ty = 0;
+      const paint = () => {
+        raf = 0;
+        heroPhoto.style.setProperty("--rx", tx.toFixed(2) + "deg");
+        heroPhoto.style.setProperty("--ry", ty.toFixed(2) + "deg");
+      };
+      heroInner.addEventListener("pointermove", (ev) => {
+        const r = heroInner.getBoundingClientRect();
+        tx = ((ev.clientX - r.left) / r.width - .5) * 5;    // ±2.5deg, no more
+        ty = (.5 - (ev.clientY - r.top) / r.height) * 4;
+        if (!raf) raf = requestAnimationFrame(paint);
+      });
+      heroInner.addEventListener("pointerleave", () => { tx = 0; ty = 0; if (!raf) raf = requestAnimationFrame(paint); });
+    }
+  }
 
   /* ============================================================
      SITE CMS — sections hidden / texts overridden from the CRM («Сайт» tab)
@@ -344,8 +378,16 @@
   let galleryItems = [], currentFilter = "all", visibleList = [], lbIndex = 0;
   const GAL_INITIAL = 16, GAL_PAGE = 24; let galShown = GAL_INITIAL;
 
+  /* Tiles cascade in the order they cross the fold, not by DOM index: a grid row
+     enters together, so a per-batch counter reads as a wave across the row. */
   const gObserver = new IntersectionObserver((entries, obs) => {
-    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); obs.unobserve(e.target); } });
+    let n = 0;
+    entries.forEach(e => {
+      if (!e.isIntersecting) return;
+      if (!reduced && n) e.target.style.setProperty("--d", (Math.min(n, 5) * 60) + "ms");
+      n++;
+      e.target.classList.add("in"); obs.unobserve(e.target);
+    });
   }, { threshold: 0, rootMargin: "0px 0px 120px 0px" });
 
   // Autoplay (muted) feed videos only while in view; pause when out.

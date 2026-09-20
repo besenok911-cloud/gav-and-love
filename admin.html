@@ -463,7 +463,103 @@
     .exp-add #exp-add-btn{grid-column:2}
     .kpi .v{font-size:1.5rem}
   }
+
+  /* ============================================================
+     V2 — side navigation + dark theme
+     The header keeps its markup; on a desktop it simply becomes a column
+     pinned to the left, which frees the full width for tables.
+     ============================================================ */
+  @media (min-width:981px){
+    body.crm-logged{padding-left:238px}
+    body.crm-logged header.top{position:fixed;left:0;top:0;bottom:0;width:238px;z-index:60;
+      flex-direction:column;align-items:stretch;flex-wrap:nowrap;gap:8px;
+      padding:20px 14px 16px;overflow-y:auto;overscroll-behavior:contain}
+    body.crm-logged header.top > a:first-child{align-self:flex-start}
+    body.crm-logged header.top h1{font-size:1.05rem;margin:2px 0 12px}
+    body.crm-logged #tabs{flex-direction:column;width:100%;background:transparent;padding:0;gap:2px;border-radius:0}
+    body.crm-logged .tabbtn{width:100%;text-align:left;padding:.66em 1em;min-height:44px;border-radius:12px;font-size:.9rem}
+    body.crm-logged header.top .sp{margin-left:0;margin-top:auto}
+    body.crm-logged .whoami{white-space:normal;margin:6px 0;opacity:1;font-size:.78rem;line-height:1.35}
+    body.crm-logged header.top .btn.sm{width:100%;justify-content:flex-start;text-align:left;
+      padding:.5em .9em;min-height:38px;font-size:.82rem}
+    body.crm-logged #themeBtn{margin-bottom:2px}
+    /* these two are icon-only in the top bar; a bare glyph in a 238px column reads as a bug */
+    body.crm-logged #pwBtn::after{content:"Пароль"}
+    body.crm-logged #remindBtn::after{content:"Нагадування"}
+    body.crm-logged header.top .btn.sm{gap:.5em}
+    body.crm-logged header.top > .btn.sm + .btn.sm{margin-top:-2px}
+  }
+
+  /* theme switch sits with the other header buttons, so it needs no layout of its own */
+  #themeBtn .lbl{font-weight:700}
+
+  /* ---- dark theme ---- */
+  html[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#100d1f; --paper:#1b1540; --bg-2:#241d50;
+    --ink:#efeaff; --ink-soft:#b7acdf;
+    --violet:#6d4fe0; --violet-d:#5a3fc4; --violet-deep:#171232; --violet-soft:#2e2568;
+    --line:#2a2358; --line-soft:#241d50; --gold:#e9c978;
+    --new:#a78bff; --confirmed:#6bd99b; --done:#8279ad; --cancelled:#f1705a;
+    --shadow:0 24px 50px -34px rgba(0,0,0,.8); --shadow-sm:0 12px 30px -24px rgba(0,0,0,.75);
+  }
+  /* the literals that a variable swap cannot reach */
+  html[data-theme="dark"] header.top{background:#171232;border-right:1px solid #2a2358}
+  html[data-theme="dark"] header.top img{background:#efeaff}
+  html[data-theme="dark"] .tabbtn{color:#b7acdf}
+  html[data-theme="dark"] .tabbtn.on{background:#30266e;color:#fff}
+  html[data-theme="dark"] .tabbtn:hover:not(.on){background:rgba(255,255,255,.06)}
+  html[data-theme="dark"] tbody tr:hover{background:#221b4c}
+  html[data-theme="dark"] select.status,
+  html[data-theme="dark"] .rev-pub,
+  html[data-theme="dark"] .rev-share code,
+  html[data-theme="dark"] .stamp{background:#241d50;color:var(--ink)}
+  html[data-theme="dark"] .fld input:focus,
+  html[data-theme="dark"] .fld select:focus,
+  html[data-theme="dark"] .fld textarea:focus,
+  html[data-theme="dark"] .site-in:focus,
+  html[data-theme="dark"] .site-fld.changed .site-in{background:#241d50}
+  html[data-theme="dark"] .btn.danger:hover{background:#3b1e18}
+  html[data-theme="dark"] .stamp.reward{background:#3b3018}
+  html[data-theme="dark"] .loy.ready .stamp.on{background:#4a3d1c}
+  html[data-theme="dark"] .ppill.special{background:#3b3018;color:#e9c978}
+  html[data-theme="dark"] .conf{background:#3b1e18;border-color:#5c2f24;color:#f1a08f}
+  html[data-theme="dark"] .src-site{background:#16304a;color:#8fc4f5}
+  html[data-theme="dark"] .src-phone{background:#16331f;color:#6bd99b}
+  html[data-theme="dark"] .src-instagram{background:#3a1430;color:#f08fd0}
+  html[data-theme="dark"] .kpi::before{opacity:.9}
+  html[data-theme="dark"] input,html[data-theme="dark"] select,html[data-theme="dark"] textarea{
+    background:#171240;color:var(--ink);border-color:var(--line)}
+  html[data-theme="dark"] .login input{background:#171240;color:var(--ink)}
+  html[data-theme="dark"] ::placeholder{color:#8279ad}
+
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}
+  }
 </style>
+<script>
+/* Theme, applied before the first paint so a dark-theme user never sees a white flash.
+   Runs in <head>, so the toggle is bound by delegation rather than to the button itself. */
+(function(){
+  var KEY="gl_crm_theme",root=document.documentElement,saved=null;
+  try{saved=localStorage.getItem(KEY);}catch(e){}
+  if(!saved&&window.matchMedia&&matchMedia("(prefers-color-scheme:dark)").matches)saved="dark";
+  function apply(t){
+    root.setAttribute("data-theme",t==="dark"?"dark":"light");
+    var b=document.getElementById("themeBtn");
+    if(b){b.firstChild.nodeValue=(t==="dark"?"☀️ ":"🌙 ");b.setAttribute("aria-pressed",t==="dark"?"true":"false");}
+  }
+  apply(saved||"light");
+  document.addEventListener("DOMContentLoaded",function(){apply(root.getAttribute("data-theme"));});
+  document.addEventListener("click",function(e){
+    var t=e.target,b=t&&t.closest?t.closest("#themeBtn"):null;
+    if(!b)return;
+    var next=root.getAttribute("data-theme")==="dark"?"light":"dark";
+    apply(next);
+    try{localStorage.setItem(KEY,next);}catch(e2){}
+  });
+})();
+</script>
 </head>
 <body>
 <div class="toast" id="toast"></div>
@@ -484,6 +580,7 @@
   </div>
   <span class="sp"></span>
   <span class="whoami" id="whoami" hidden></span>
+  <button class="btn ghost sm" id="themeBtn" title="Світла / темна тема" aria-pressed="false">🌙 <span class="lbl">Тема</span></button>
   <a class="btn ghost sm" id="siteBtn" href="index.html" target="_blank" rel="noopener" hidden title="Відкрити сайт у новій вкладці">🌐 <span class="lbl">Сайт</span></a>
   <button class="btn ghost sm" id="usersBtn" hidden title="Доступи та акаунти">👥 <span class="lbl">Доступи</span></button>
   <button class="btn ghost sm" id="pwBtn" hidden title="Змінити пароль">🔑</button>
@@ -853,10 +950,12 @@
   $("#f-weight").addEventListener("change",autoPrice);
   if($("#f-addons"))$("#f-addons").addEventListener("change",autoPrice);
 
-  function showLogin(msg){$("#siteBtn").hidden=true;$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
+  function showLogin(msg){document.body.classList.remove("crm-logged");
+    $("#siteBtn").hidden=true;$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;
     $("#whoami").hidden=true;$("#usersBtn").hidden=true;$("#pwBtn").hidden=true;$("#loginErr").textContent=msg||"";}
-  function showApp(){$("#siteBtn").hidden=false;$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;$("#remindBtn").hidden=false;
+  function showApp(){document.body.classList.add("crm-logged");
+    $("#siteBtn").hidden=false;$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;$("#remindBtn").hidden=false;
     $("#pwBtn").hidden=false;applyRole();setView(view);}
   var ROLE_L={owner:"Власник",admin:"Адміністратор",master:"Майстер"};
   function isOwner(){return userRole==="owner";}
