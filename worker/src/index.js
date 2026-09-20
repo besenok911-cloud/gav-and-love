@@ -2185,9 +2185,22 @@ async function dumpDatabase(env) {
   const tables = (((await DB.prepare(
     `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name`
   ).all()).results) || []).map(r => r.name);
+  // The dump carries its own CREATE TABLE. Without it a backup can only be restored over a
+  // database that already has today's exact schema: an empty D1 fails on "no such table",
+  // and a dump taken before a migration fails on a table that has since been dropped.
+  const ddlRows = (((await DB.prepare(
+    `SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL
+       AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'
+     ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, tbl_name, name`
+  ).all()).results) || []);
+  const ifNotExists = sql => String(sql).trim()
+    .replace(/^CREATE TABLE\s+(?!IF NOT EXISTS)/i, "CREATE TABLE IF NOT EXISTS ")
+    .replace(/^CREATE (UNIQUE )?INDEX\s+(?!IF NOT EXISTS)/i, (m, u) => "CREATE " + (u || "") + "INDEX IF NOT EXISTS ");
   const out = ["-- GAV&LOVE CRM · " + new Date().toISOString(),
-    "-- restore: npx wrangler d1 execute <db> --remote --file <this file>",
-    "PRAGMA defer_foreign_keys = true;"];
+    "-- restore into an empty database: npx wrangler d1 execute <db> --remote --file <this file>",
+    "-- this file is self-contained: schema first, then the rows.",
+    "PRAGMA defer_foreign_keys = true;", ""];
+  for (const d of ddlRows) out.push(ifNotExists(d.sql) + ";");
   const counts = {};
   for (const t of tables) {
     const rows = (((await DB.prepare(`SELECT * FROM "${t}"`).all()).results) || []);
