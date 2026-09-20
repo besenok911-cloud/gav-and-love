@@ -723,27 +723,50 @@
 
   // What happens after the booking goes through: a first-timer is invited to connect Telegram —
   // that is what turns on reminders, the bonus card and the ability to move a visit in two taps.
-  function showAfterBooking(d, isRequest, msg) {
+  const UA_MONTH = ["січня", "лютого", "березня", "квітня", "травня", "червня", "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"];
+  const UA_DOW = ["неділя", "понеділок", "вівторок", "середа", "четвер", "пʼятниця", "субота"];
+  function whenText(iso, time) {   // «субота, 20 вересня, о 11:00»
+    const p = String(iso || "").split("-");
+    if (p.length !== 3) return "";
+    const dt = new Date(+p[0], +p[1] - 1, +p[2]);
+    const day = `${UA_DOW[dt.getDay()]}, ${+p[2]} ${UA_MONTH[+p[1] - 1] || ""}`;
+    return time ? `${day}, о ${time}` : day;
+  }
+  // The card leads with the visit: when, what, with whom. Then what the bot does.
+  function showAfterBooking(d, isRequest, msg, v) {
     const box = $("#bfDone"); if (!box || !d) return;
     const tg = d.tg_link || "", bot = d.bot ? "https://t.me/" + String(d.bot).replace(/[^A-Za-z0-9_]/g, "") : "";
     const link = tg || bot;
-    if (d.linked) {   // already with us in Telegram — nothing to set up
-      box.innerHTML = `<h3>Все готово 🐾</h3><p>${esc(msg || "")}</p>
-        <ul><li><span>🔔</span><span>Нагадування про візит надішлемо в Telegram.</span></li></ul>
-        <div class="bf-done-act"><a class="btn btn-ghost" href="cabinet.html">Мій кабінет</a></div>`;
-      box.hidden = false; return;
-    }
+    v = v || {};
+    const when = whenText(v.date, v.time);
+    const who = [v.service, v.staff ? "майстер " + v.staff : "", v.pet_name].filter(Boolean).join(" · ");
+    const visitCard =
+      `<div class="bf-visit">` +
+        `<div class="bf-visit-when">${when ? esc(when) : "Час узгодимо з вами"}</div>` +
+        (who ? `<div class="bf-visit-what">${esc(who)}</div>` : "") +
+        (isRequest ? `<div class="bf-visit-note">Це заявка — ми зателефонуємо, щоб підтвердити час.</div>`
+                   : `<div class="bf-visit-note">Чекаємо вас. Якщо плани зміняться — перенесіть візит у боті або в кабінеті.</div>`) +
+      `</div>`;
     const L = d.loyalty;
-    const items = [
-      ["🔔", "<b>Нагадаємо про візит</b> — за день і за годину, щоб не загубилось."],
-      ["🔁", "<b>Перенести або скасувати</b> — двома кнопками, без дзвінків."],
-      ["🔑", "<b>Кабінет</b>: усі візити, картки улюбленців і фото після грумінгу."],
+    const botCan = [
+      ["📅", "<b>записати на грумінг</b> — за пару натискань"],
+      ["🔔", "<b>нагадати про візит</b> — за день і за годину"],
+      ["🔁", "<b>перенести чи скасувати</b> — без дзвінків"],
+      ["🔑", "<b>відкрити кабінет</b>: візити, улюбленці, фото"],
     ];
-    if (L && L.reward) items.unshift(["🎁", `<b>Бонусна картка</b>: кожен ${L.every}-й візит — ${esc(L.reward)}. Відмітки нараховуються самі.`]);
+    if (L && L.reward) botCan.push(["🎁", `<b>рахувати бонуси</b>: кожен ${L.every}-й візит — ${esc(L.reward)}`]);
+    if (d.linked) {   // already with us in Telegram — nothing to set up
+      box.innerHTML = `<h3>Все готово 🐾</h3>` + visitCard +
+        `<ul><li><span>🔔</span><span>Нагадування надішлемо в Telegram — за день і за годину.</span></li></ul>` +
+        `<div class="bf-done-act"><a class="btn btn-ghost" href="cabinet.html">Мій кабінет</a></div>`;
+      box.hidden = false;
+      if (!reduced) box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      return;
+    }
     box.innerHTML =
-      `<h3>${d.first ? "Вітаємо в GAV&LOVE 🐾" : "Готово 🐾"}</h3>` +
-      `<p>${esc(msg || (isRequest ? "Заявку прийнято — ми зв'яжемось, щоб підтвердити час." : "Запис створено."))}</p>` +
-      "<ul>" + items.map(it => `<li><span>${it[0]}</span><span>${it[1]}</span></li>`).join("") + "</ul>" +
+      `<h3>${d.first ? "Вітаємо в GAV&LOVE 🐾" : "Готово 🐾"}</h3>` + visitCard +
+      `<p class="bf-done-sub">Підключіть Telegram-бот — ось що він уміє:</p>` +
+      "<ul>" + botCan.map(it => `<li><span>${it[0]}</span><span>${it[1]}</span></li>`).join("") + "</ul>" +
       `<div class="bf-done-act">` +
         (link ? `<a class="btn btn-primary" href="${esc(link)}" target="_blank" rel="noopener">Підключити Telegram</a>` : "") +
         `<a class="btn btn-ghost" href="cabinet.html">Кабінет клієнта</a>` +
@@ -1055,7 +1078,13 @@
             ? "Дякуємо! Заявку надіслано — ми зв'яжемось для підтвердження."
             : "Готово! Запис створено" + (assignedStaff ? " до майстра " + assignedStaff : "") + " — до зустрічі 🐾";
       if (demo) { const c = document.getElementById("contacts"); if (c) c.scrollIntoView({ behavior: "smooth" }); }
-      if (!demo) { showAfterBooking(booked, request, status.textContent); status.textContent = ""; status.className = "form-status"; }
+      if (!demo) {
+        showAfterBooking(booked, request, status.textContent, {
+          date: data.date || "", time: data.time || "", service: data.service || "",
+          staff: assignedStaff || data.staff || "", pet_name: data.pet_name || "",
+        });
+        status.textContent = ""; status.className = "form-status";
+      }
       const rememberMe = $("#bf-remember"), rememberOn = !rememberMe || rememberMe.checked;
       if (rememberOn) lsSet(PF_KEY, JSON.stringify({ t: Date.now(), name: data.name || "", phone: data.phone || "", pet: data.pet || "", pet_name: data.pet_name || "", breed: data.breed || "", weight: data.weight || "" }));
       else lsDel(PF_KEY);

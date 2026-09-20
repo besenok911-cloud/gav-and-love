@@ -323,6 +323,11 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 .bf-done{margin-top:16px;padding:18px 18px 16px;border-radius:16px;background:var(--violet-tint);border:1.5px solid rgba(74,37,201,.18);text-align:left}
 .bf-done h3{font-family:var(--font-head);font-weight:600;font-size:1.15rem;margin:0 0 6px;color:var(--violet-deep)}
 .bf-done p{margin:0 0 10px;color:var(--ink);font-weight:600}
+.bf-visit{background:var(--paper);border-radius:12px;padding:12px 14px;margin:0 0 14px;border:1px solid rgba(74,37,201,.14)}
+.bf-visit-when{font-family:var(--font-head);font-weight:600;font-size:1.1rem;color:var(--violet-deep);line-height:1.25}
+.bf-visit-what{margin-top:3px;font-weight:700;font-size:.92rem;color:var(--ink)}
+.bf-visit-note{margin-top:6px;font-size:.84rem;font-weight:600;color:var(--ink-soft);line-height:1.4}
+.bf-done-sub{margin:0 0 10px!important;font-weight:800!important}
 .bf-done ul{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:8px}
 .bf-done li{display:flex;gap:9px;align-items:flex-start;font-size:.94rem;color:var(--ink);line-height:1.45}
 .bf-done li span:first-child{flex:none;font-size:1.05rem;line-height:1.3}
