@@ -798,7 +798,7 @@
     else{if(lbl)lbl.textContent="Порода";fillSel("#f-breed",cur,(CFG.dogBreeds||[]),"Оберіть породу…");var isCat=$("#f-pet").value==="Кіт";$("#f-breed").disabled=isCat;$("#f-breed").hidden=isCat;if($("#f-breed-note"))$("#f-breed-note").hidden=!isCat;}
     syncModalWeight();}
   function syncModalWeight(){var s=mSvc(),cur=$("#f-weight").value;
-    if(mIsBreed(s)){var ws=mDistinct(s.rows.filter(function(r){return r[0]===$("#f-breed").value;}).map(function(r){return r[1];}));
+    if(mIsBreed(s)){var ws=mDistinct(s.rows.filter(function(r){return r[0]===$("#f-breed").value;}).map(function(r){return r[1];}));var kgn=function(v){var m=String(v||"").match(/d+/);return m?+m[0]:null;};ws.sort(function(x,y){var a1=kgn(x),b1=kgn(y);if(a1===null&&b1===null)return 0;if(a1===null)return 1;if(b1===null)return -1;return a1-b1||(/від|понад/i.test(x)?1:0)-(/від|понад/i.test(y)?1:0);});
       if(ws.length)fillSel("#f-weight",cur,ws,"Оберіть вагу…"); else $("#f-weight").innerHTML='<option value="">— будь-яка —</option>';}
     else fillSel("#f-weight",cur,(CFG.weightOptions||[]),"Оберіть вагу…");}
   function mBaseNum(){var s=mSvc();if(!s)return null;

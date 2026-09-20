@@ -578,7 +578,7 @@
   function pkNorm(v) {   // same tolerance as the price matcher: «ши тцу» finds «Ши-тцу»
     return String(v == null ? "" : v).toLowerCase().replace(/[ьъʼ’']/g, "").replace(/и/g, "і").replace(/[^a-zа-яіїєґ0-9]+/g, "");
   }
-  function initPicker(sel) {
+  function initPicker(sel, elsewhere) {
     if (!sel || sel.__picker) return sel && sel.__picker;
     const wrap = document.createElement("div");
     wrap.className = "picker";
@@ -608,12 +608,20 @@
       list.innerHTML = items.length
         ? items.map((o, i) => '<div class="picker-item' + (o.value === sel.value ? " on" : "") + '" role="option" id="' + list.id + '-' + i +
             '" aria-selected="' + (o.value === sel.value ? "true" : "false") + '" data-i="' + i + '">' + esc(o.value) + '</div>').join("")
-        : '<div class="picker-empty" role="status">Не знайшли таку ' + noun + '. Виберіть найближчу зі списку — на підтвердженні уточнимо.</div>';
+        : emptyHtml(q);
       // typing highlights the best match; merely opening the list highlights what is already chosen,
       // so Enter can never quietly swap the visitor's breed for the first one in the alphabet
+      if (items.length) list.setAttribute("role", "listbox"); else list.removeAttribute("role");   // a message and a button are not options
       const cur = items.map(o => o.value).indexOf(sel.value);
       active = nq && items.length ? 0 : cur;
       mark();
+    }
+    // the breed may simply belong to another service — say so, and offer to move there
+    function emptyHtml(q) {
+      const alt = elsewhere ? elsewhere(q) : null;
+      if (!alt) return '<div class="picker-empty" role="status">Не знайшли таку ' + noun + '. Виберіть найближчу зі списку — на підтвердженні уточнимо.</div>';
+      return '<div class="picker-empty" role="status">«' + esc(alt.breed) + '» є в послузі «' + esc(alt.service) + '».</div>' +
+        '<button type="button" class="picker-jump" data-svc="' + esc(alt.service) + '" data-breed="' + esc(alt.breed) + '">Перейти до «' + esc(alt.service) + '»</button>';
     }
     function mark() {
       [].forEach.call(list.children, (el, i) => el.classList.toggle("active", i === active));
@@ -649,6 +657,14 @@
       } else if (e.key === "Escape") { hide(); sync(); }
     });
     list.addEventListener("mousedown", e => {
+      const jump = e.target.closest && e.target.closest(".picker-jump");
+      if (jump) {
+        e.preventDefault();
+        const svcName = jump.getAttribute("data-svc"), breed = jump.getAttribute("data-breed");
+        if (serviceSel) { serviceSel.value = svcName; serviceSel.dispatchEvent(new Event("change", { bubbles: true })); }
+        sel.value = breed; hide(); sync(); sel.dispatchEvent(new Event("change", { bubbles: true }));
+        return;
+      }
       const it = e.target.closest && e.target.closest(".picker-item");
       if (!it) return;
       e.preventDefault();                       // keep the focus so the blur handler does not fight us
@@ -679,7 +695,7 @@
       breedSel.innerHTML = `<option value="">${ph}</option>` + breeds.map(b => `<option>${esc(b)}</option>`).join("");
       if (cur && breeds.indexOf(cur) >= 0) breedSel.value = cur;
       if (breedField) breedField.hidden = false; breedSel.disabled = false; if (breedNote) breedNote.hidden = true;
-      const pk = initPicker(breedSel); pk.noun(isCat ? "послугу" : "породу"); pk.sync();
+      const pk = initPicker(breedSel, breedElsewhere); pk.noun(isCat ? "послугу" : "породу"); pk.sync();
       syncWeightForBreed();
     } else {
       if (lbl) lbl.textContent = "Порода";
@@ -689,9 +705,30 @@
       weightSel.innerHTML = '<option value="">Оберіть вагу…</option>' + (CFG.weightOptions || []).map(w => `<option>${esc(w)}</option>`).join("");
     }
   }
+  // Which other service prices this breed? Used when the search comes up empty.
+  function breedElsewhere(q) {
+    const nq = pkNorm(q);
+    if (!nq || nq.length < 3 || !SERVICES.length) return null;
+    const sp = petSpecies();
+    for (const s of SERVICES) {
+      if (!isBreedSvc(s) || s.bookable === 0 || s.name === serviceSel.value) continue;
+      if (s.species && s.species !== "both" && sp && s.species !== sp) continue;
+      const hit = distinctNE(s.rows.map(r => r[0])).filter(b => pkNorm(b).indexOf(nq) >= 0)
+        .sort((a, b) => a.length - b.length)[0];
+      if (hit) return { service: s.name, breed: hit };
+    }
+    return null;
+  }
   function syncWeightForBreed() {
     const s = svcByName(serviceSel.value); if (!isBreedSvc(s)) return;
-    const weights = distinctNE(s.rows.filter(r => r[0] === breedSel.value).map(r => r[1]));
+    const weights = distinctNE(s.rows.filter(r => r[0] === breedSel.value).map(r => r[1]))
+      .sort((x, y) => {                                   // by kilograms, not by alphabet: «до 10 кг» before «від 30 кг»
+        const nx = kgNums(x)[0], ny = kgNums(y)[0];
+        if (nx == null && ny == null) return 0;
+        if (nx == null) return 1;
+        if (ny == null) return -1;
+        return nx - ny || (/від|понад|більше/i.test(x) ? 1 : 0) - (/від|понад|більше/i.test(y) ? 1 : 0);
+      });
     if (weights.length) {
       const cur = weightSel.value;
       weightSel.innerHTML = '<option value="">Оберіть вагу…</option>' + weights.map(w => `<option>${esc(w)}</option>`).join("");
