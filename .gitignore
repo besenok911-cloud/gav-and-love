@@ -12,3 +12,5 @@ _crm_mock.html
 worker/.dev.vars
 # случайно попавшая сюда папка со сторонними файлами — не часть проекта
 Archive/
+# screenshots the design pass leaves behind
+Claude outputs/

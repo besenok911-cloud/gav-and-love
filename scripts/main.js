@@ -370,10 +370,10 @@
 
   const filters = [
     { id: "all", label: "Усі", test: () => true },
-    { id: "dog", label: "🐶 Собаки", test: it => it.species === "dog" },
-    { id: "cat", label: "🐱 Коти", test: it => it.species === "cat" },
-    { id: "ba", label: "✨ До / після", test: it => !!it.ba },
-    { id: "video", label: "🎬 Відео", test: it => !!it.video },
+    { id: "dog", label: "Собаки", test: it => it.species === "dog" },
+    { id: "cat", label: "Коти", test: it => it.species === "cat" },
+    { id: "ba", label: "До / після", test: it => !!it.ba },
+    { id: "video", label: "Відео", test: it => !!it.video },
   ];
   let galleryItems = [], currentFilter = "all", visibleList = [], lbIndex = 0;
   const GAL_INITIAL = 16, GAL_PAGE = 24; let galShown = GAL_INITIAL;
@@ -468,7 +468,7 @@
       : Object.assign({ kind: "beforeafter", ba: true, src: b.after, w: b.w || 800, h: b.h || 800 }, b));
   }
   function baWho(it) { return [it.name, it.breed].filter(Boolean).join(" · "); }
-  function baLabel(it) { const who = baWho(it); return "✨ До / після" + (who ? " · " + esc(who) : ""); }
+  function baLabel(it) { const who = baWho(it); return "До / після" + (who ? " · " + esc(who) : ""); }
   function renderGallery() {
     const grid = $("#galleryGrid");
     const f = filters.find(x => x.id === currentFilter);
@@ -494,7 +494,7 @@
           : `<span class="g-badge g-badge-play"><svg class="i"><use href="#i-play"/></svg> Відео</span>`;
         fig.innerHTML = badge + hint +
           `<video src="${it.video}" poster="${it.src}" muted loop playsinline preload="none" width="${it.w}" height="${it.h}"` +
-          (it.ba ? ` aria-label="${baLabel(it).replace(/^✨ /, "")}"` : "") + `></video>`;
+          (it.ba ? ` aria-label="${baLabel(it)}"` : "") + `></video>`;
         fig.addEventListener("click", () => openLightbox(i));
         grid.appendChild(fig);
         gObserver.observe(fig);
@@ -1031,7 +1031,7 @@
   }
   function firstOpen() { for (let i = 1; i <= STEPS; i++) if (!stepDone(i)) return i; return STEPS; }
   function stepSummary(i) {
-    if (i === 1) return [val(petHidden) === "Кіт" ? "🐱 Кіт" : val(petHidden) ? "🐶 Собака" : "", val(petNameInput)].filter(Boolean).join(" · ");
+    if (i === 1) return [val(petHidden) || "", val(petNameInput)].filter(Boolean).join(" · ");
     if (i === 2) {
       const add = form ? form.querySelectorAll('input[name="addon"]:checked').length : 0;
       return [val(serviceSel), shown(breedField) ? val(breedSel) : "", shown(weightField) ? val(weightSel) : "", add ? "+" + add + " доп." : ""].filter(Boolean).join(" · ");
