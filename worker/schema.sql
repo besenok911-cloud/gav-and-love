@@ -36,3 +36,26 @@ CREATE TABLE IF NOT EXISTS pet_photos (
   published INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_pet_photos_pet ON pet_photos(pet_id);
+
+-- Photos of the public site itself, replaced from the CRM «Сайт» tab (hero, team, interior, hotel).
+-- The slot -> {id, token} map lives in settings.site_cms; the bytes always live in the R2 bucket
+-- (there is no `data` column on purpose — a hero served from a database row is worse than refusing
+-- the upload). `unref_at` is stamped when a slot stops pointing at the row; the daily cron deletes
+-- rows that have been unreferenced for a week, together with their objects.
+CREATE TABLE IF NOT EXISTS site_media (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cms_key TEXT,
+  mime TEXT,
+  r2_key TEXT,
+  size INTEGER,
+  thumb_key TEXT,
+  thumb_size INTEGER,
+  w INTEGER,
+  h INTEGER,
+  tw INTEGER,
+  th INTEGER,
+  token TEXT,
+  created_at TEXT,
+  unref_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_site_media_unref ON site_media(unref_at);

@@ -361,6 +361,21 @@
   .site-toggle input{width:18px;height:18px;margin:0;accent-color:var(--violet);cursor:pointer}
   .site-body{margin-top:14px;padding-top:12px;border-top:1px solid var(--line-soft);display:grid;gap:12px}
   .site-sub{margin:8px 0 -2px;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--violet)}
+  .simg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+  .simg{border:1.5px solid var(--line);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--paper);min-width:0}
+  .simg.changed{border-color:var(--violet);box-shadow:0 0 0 3px var(--violet-soft)}
+  .simg-t{font-size:.82rem;font-weight:700;color:var(--ink-soft);display:flex;align-items:center;gap:6px;justify-content:space-between}
+  .simg-shots{display:flex;gap:8px;align-items:flex-start}
+  .simg-shot{position:relative;flex:1 1 0;min-width:0;border-radius:10px;overflow:hidden;background:var(--violet-soft);cursor:crosshair}
+  .simg-shot.sm{flex:0 0 74px}
+  .simg-shot img{width:100%;height:100%;object-fit:cover;display:block}
+  .simg-shot.fit img{object-fit:contain;background:var(--violet-soft)}
+  .simg-shot .cap{position:absolute;left:0;right:0;bottom:0;padding:2px 5px;font-size:.62rem;font-weight:700;color:#fff;background:rgba(28,19,64,.55);text-align:center}
+  .simg-dot{position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;border:2.5px solid #fff;box-shadow:0 0 0 2px rgba(28,19,64,.5);pointer-events:none}
+  .simg-act{display:flex;flex-wrap:wrap;gap:6px}
+  .simg-act .btn{padding:.34em .6em;font-size:.76rem}
+  .simg-alt{width:100%;border:1.5px solid var(--line);border-radius:8px;padding:.34em .5em;font:inherit;font-size:.78rem}
+  .simg-hint{font-size:.7rem;color:var(--muted);line-height:1.35}
   .site-fld{display:flex;flex-direction:column;gap:4px;min-width:0}
   .site-lbl{display:flex;align-items:center;gap:8px}
   .site-lbl label{font-weight:700;font-size:.82rem;color:var(--ink)}
@@ -1922,10 +1937,12 @@
   //   [data-cms-section="Назва"] — a section that can be hidden (by its id)
   //   [data-cms-group="Назва"]   — texts of a section that is always shown (hero, services, booking, contacts)
   //   [data-cms="key"]           — an editable text; only values that differ from the markup are saved
-  var SITE={cfg:{hidden:[],texts:{}},sections:[],groups:[],defs:{}};
+  // SITE.pending outlives renderSite(): an upload is finished on the server but only becomes visible on the
+  // site when «Зберегти» is pressed, and re-entering the tab must not throw those uploads away.
+  var SITE={cfg:{hidden:[],texts:{},images:{}},sections:[],groups:[],defs:{},remove:[],pending:{images:{},remove:[]}};
   var SITE_LBL={eyebrow:"Надзаголовок",kicker:"Надзаголовок",h1:"Заголовок",h2:"Заголовок",h3:"Заголовок",h4:"Заголовок",title:"Заголовок",sub:"Підзаголовок",lead:"Опис",p:"Текст",text:"Текст",
     q:"Питання",a:"Відповідь",name:"Ім'я",role:"Посада",tag:"Мітка",meta:"Деталі",btn:"Кнопка",quote:"Цитата",qa:"Питання-відповідь",member:"Майстер",item:"Пункт",expect:"Очікуємо",offer:"Пропонуємо",
-    cap:"Підпис фото",point:"Пункт",rules:"Умови заселення",interview:"Інтерв'ю",note:"Примітка",address:"Адреса",hours:"Графік роботи",hint:"Підказка"};
+    main:"Головне фото",inset:"Друге фото",photo:"Фото",tile:"Фото",cap:"Підпис фото",point:"Пункт",rules:"Умови заселення",interview:"Інтерв'ю",note:"Примітка",address:"Адреса",hours:"Графік роботи",hint:"Підказка"};
   function siteLabel(key){
     return key.split(".").slice(1).map(function(seg){
       if(SITE_LBL[seg])return SITE_LBL[seg];
@@ -1952,9 +1969,17 @@
   function siteCollect(doc){
     SITE.defs={};
     function fieldsOf(root){return [].map.call(root.querySelectorAll("[data-cms]"),function(el){var f={key:el.getAttribute("data-cms"),def:siteText(el),rich:siteIsRich(el)};SITE.defs[f.key]=f.def;return f;});}
-    SITE.groups=[].map.call(doc.querySelectorAll("[data-cms-group]"),function(s){return {id:s.id,title:s.getAttribute("data-cms-group"),fields:fieldsOf(s)};});
-    SITE.sections=[].map.call(doc.querySelectorAll("[data-cms-section]"),function(s){return {id:s.id,title:s.getAttribute("data-cms-section"),fields:fieldsOf(s)};});
+    // the photo slots carry their own frame shape, so the preview crops exactly like the page does
+    function imagesOf(root){return [].map.call(root.querySelectorAll("[data-cms-img]"),function(el){
+      return {key:el.getAttribute("data-cms-img"),def:SITE_BASE+el.getAttribute("src"),
+        ratio:el.getAttribute("data-cms-img-ratio")||"auto",ratio2:el.getAttribute("data-cms-img-ratio2")||"",
+        alt:el.getAttribute("alt")||""};});}
+    SITE.groups=[].map.call(doc.querySelectorAll("[data-cms-group]"),function(s){return {id:s.id,title:s.getAttribute("data-cms-group"),fields:fieldsOf(s),images:imagesOf(s)};});
+    SITE.sections=[].map.call(doc.querySelectorAll("[data-cms-section]"),function(s){return {id:s.id,title:s.getAttribute("data-cms-section"),fields:fieldsOf(s),images:imagesOf(s)};});
   }
+  // admin.html sits next to index.html, so the bundled photos resolve as-is; this stays a constant
+  // in case the CRM is ever served from somewhere else.
+  var SITE_BASE="";
   async function renderSite(){
     wireSite();
     var v=$("#siteView");v.innerHTML='<p class="nodata">Завантаження…</p>';
@@ -1963,7 +1988,11 @@
     catch(e){v.innerHTML='<p class="nodata">Не вдалося завантажити сторінку сайту. Перевірте з’єднання.</p>';return;}
     try{cfg=await fetch(API+"/site",{cache:"no-store"}).then(function(r){return r.json();});}catch(e){cfg=null;}
     siteCollect(new DOMParser().parseFromString(page,"text/html"));
-    SITE.cfg={hidden:(cfg&&Array.isArray(cfg.hidden))?cfg.hidden.slice():[],texts:(cfg&&cfg.texts&&typeof cfg.texts==="object")?cfg.texts:{}};
+    var saved=(cfg&&cfg.images&&typeof cfg.images==="object")?cfg.images:{};
+    SITE.cfg={hidden:(cfg&&Array.isArray(cfg.hidden))?cfg.hidden.slice():[],texts:(cfg&&cfg.texts&&typeof cfg.texts==="object")?cfg.texts:{},
+      images:Object.assign({},saved,SITE.pending.images)};
+    SITE.pending.remove.forEach(function(k){delete SITE.cfg.images[k];});
+    SITE.remove=SITE.pending.remove.slice();
     drawSite();
     if(!cfg||!cfg.ok)toast("Не вдалося отримати збережені зміни — показано тексти з сайту",true);
   }
@@ -1977,25 +2006,50 @@
       (f.rich?'<span class="site-rich" title="*слово* — рукописний акцент, **слово** — жирний, Enter — новий рядок">✎ форматування</span>':'')+
       '<button type="button" class="site-reset" title="Повернути початковий текст">↺</button></div>'+ctl+'</div>';
   }
+  function siteShotHtml(im,src,pos,ratio,cap,small){
+    var fit=ratio==="auto";
+    return '<div class="simg-shot'+(small?" sm":"")+(fit?" fit":"")+'" data-key="'+esc(im.key)+'" style="aspect-ratio:'+(fit?"4/3":esc(ratio))+'">'+
+      '<img src="'+esc(src)+'" alt="" style="object-position:'+esc(pos)+'">'+(cap?'<span class="cap">'+esc(cap)+'</span>':"")+
+      (fit?"":'<span class="simg-dot" style="left:'+pos.split(" ")[0]+';top:'+pos.split(" ")[1]+'"></span>')+'</div>';
+  }
+  function siteImgHtml(im){
+    var ov=SITE.cfg.images[im.key],on=!!(ov&&ov.u);
+    var src=on?(ov.t||ov.u):im.def,pos=(on&&ov.pos)||"50% 50%";
+    var shots=siteShotHtml(im,src,pos,im.ratio,im.ratio2?"комп'ютер":"",false)+
+      (im.ratio2?siteShotHtml(im,src,pos,im.ratio2,"телефон",true):"");
+    return '<div class="simg'+(on?" changed":"")+'" data-key="'+esc(im.key)+'" data-pos="'+esc(pos)+'">'+
+      '<div class="simg-t"><span>'+esc(siteLabel(im.key))+'</span>'+(on?'<span class="tag">замінено</span>':"")+'</div>'+
+      '<div class="simg-shots">'+shots+'</div>'+
+      '<div class="simg-act"><button type="button" class="btn outline sm simg-pick">Замінити</button>'+
+      (on?'<button type="button" class="btn outline sm simg-clear">↺ Повернути</button>':"")+
+      '<input type="file" accept="image/*" class="simg-file" hidden></div>'+
+      (on?'<input class="simg-alt" maxlength="160" placeholder="Опис фото для пошуковиків" value="'+esc(ov.alt||"")+'">':"")+
+      '<div class="simg-hint">'+(im.ratio==="auto"?"Показується повністю, без обрізання.":"Натисніть на превʼю — туди зміститься центр кадру.")+'</div>'+
+    '</div>';
+  }
+  function siteImagesHtml(list){
+    if(!list||!list.length)return "";
+    return '<div class="site-sub-imgs"><h4 class="site-sub">Фото</h4><div class="simg-grid">'+list.map(siteImgHtml).join("")+'</div></div>';
+  }
   function siteCardHtml(sec,hideable){
     var off=hideable&&SITE.cfg.hidden.indexOf(sec.id)>=0;
     return '<div class="panel site-card'+(off?" off":"")+'" data-sec="'+esc(sec.id)+'">'+
       '<div class="site-head"><h3>'+esc(sec.title)+' <span class="tag site-cnt" hidden></span></h3>'+
       (hideable?'<label class="site-toggle"><input type="checkbox" class="site-show"'+(off?"":" checked")+'> Показувати на сайті</label>':'')+
-      (sec.fields.length?'<button type="button" class="btn outline sm site-open">Тексти ('+sec.fields.length+') ▾</button>':'')+'</div>'+
-      (sec.fields.length?'<div class="site-body" hidden>'+sec.fields.map(siteFieldHtml).join("")+'</div>':'')+
+      ((sec.fields.length||(sec.images||[]).length)?'<button type="button" class="btn outline sm site-open">Тексти й фото ('+(sec.fields.length+(sec.images||[]).length)+') ▾</button>':'')+'</div>'+
+      ((sec.fields.length||(sec.images||[]).length)?'<div class="site-body" hidden>'+sec.fields.map(siteFieldHtml).join("")+siteImagesHtml(sec.images)+'</div>':'')+
     '</div>';
   }
   function siteGroupsHtml(){
-    var n=SITE.groups.reduce(function(s,g){return s+g.fields.length;},0);
+    var n=SITE.groups.reduce(function(s,g){return s+g.fields.length+(g.images||[]).length;},0);
     if(!n)return "";
-    return '<div class="panel site-card" data-sec=""><div class="site-head"><h3>Основні тексти <span class="tag site-cnt" hidden></span></h3>'+
-      '<button type="button" class="btn outline sm site-open">Тексти ('+n+') ▾</button></div>'+
-      '<div class="site-body" hidden>'+SITE.groups.map(function(g){return '<h4 class="site-sub">'+esc(g.title)+'</h4>'+g.fields.map(siteFieldHtml).join("");}).join("")+'</div></div>';
+    return '<div class="panel site-card" data-sec=""><div class="site-head"><h3>Основні тексти й фото <span class="tag site-cnt" hidden></span></h3>'+
+      '<button type="button" class="btn outline sm site-open">Тексти й фото ('+n+') ▾</button></div>'+
+      '<div class="site-body" hidden>'+SITE.groups.map(function(g){return '<h4 class="site-sub">'+esc(g.title)+'</h4>'+g.fields.map(siteFieldHtml).join("")+siteImagesHtml(g.images);}).join("")+'</div></div>';
   }
   function drawSite(){
     var v=$("#siteView");
-    v.innerHTML='<div class="site-intro"><p>Приховуйте розділи головної сторінки або змінюйте їхні тексти. Порожнє поле чи ↺ повертає початковий текст. Головний екран, послуги, запис і контакти показуються завжди. Зміни з’являться на сайті протягом хвилини після збереження.</p>'+
+    v.innerHTML='<div class="site-intro"><p>Приховуйте розділи головної сторінки, змінюйте їхні тексти та фото. Порожнє поле чи ↺ повертає початкове. Головний екран, послуги, запис і контакти показуються завжди. Нове фото зберігається разом з усіма змінами — кнопкою внизу; на сайті все зʼявиться протягом хвилини. Галерея робіт наповнюється не тут, а з картки улюбленця (кнопка 🌐 на фото).</p>'+
       '<a class="btn outline sm" href="index.html" target="_blank" rel="noopener">↗ Відкрити сайт</a></div>'+
       siteGroupsHtml()+SITE.sections.map(function(s){return siteCardHtml(s,true);}).join("")+
       '<div class="site-bar"><span class="muted" id="site-stat"></span><a class="btn outline sm" href="index.html" target="_blank" rel="noopener">↗ Відкрити сайт</a><button type="button" class="btn save-main" id="site-save">Зберегти зміни</button></div>';
@@ -2003,16 +2057,88 @@
     siteUpdateStat();
   }
   function siteFldSync(fld){var t=fld.querySelector(".site-in").value.trim();fld.classList.toggle("changed",!!t&&t!==SITE.defs[fld.dataset.key]);}
-  function siteCardSync(card){var n=card.querySelectorAll(".site-fld.changed").length,tag=card.querySelector(".site-cnt");if(tag){tag.textContent="змінено: "+n;tag.hidden=!n;}}
+  function siteCardSync(card){var n=card.querySelectorAll(".site-fld.changed,.simg.changed").length,tag=card.querySelector(".site-cnt");if(tag){tag.textContent="змінено: "+n;tag.hidden=!n;}}
   function siteState(){
     var hidden=[],texts={},v=$("#siteView");
     [].forEach.call(v.querySelectorAll(".site-show"),function(c){if(!c.checked)hidden.push(c.closest(".site-card").dataset.sec);});
     [].forEach.call(v.querySelectorAll(".site-fld"),function(f){var t=f.querySelector(".site-in").value.trim();if(t&&t!==SITE.defs[f.dataset.key])texts[f.dataset.key]=t;});
-    return {hidden:hidden,texts:texts};
+    return {hidden:hidden,texts:texts,images:SITE.cfg.images,remove:SITE.remove};
   }
   function siteUpdateStat(){var el=$("#site-stat");if(!el)return;var st=siteState();
-    el.textContent="Приховано розділів: "+st.hidden.length+" · змінено текстів: "+Object.keys(st.texts).length;}
+    el.textContent="Приховано розділів: "+st.hidden.length+" · змінено текстів: "+Object.keys(st.texts).length+
+      " · замінено фото: "+Object.keys(st.images).length;}
+  // One decode, two copies: 1600 px long side for the lightbox and ~1000 px for the page itself.
+  // The canvas is filled white first — a transparent PNG would otherwise composite onto black.
+  function siteFit(src,w,h,maxLong,maxShort){
+    var k=Math.min(1,maxLong/Math.max(w,h),maxShort?maxShort/Math.min(w,h):1/0);
+    var c=document.createElement("canvas");c.width=Math.max(1,Math.round(w*k));c.height=Math.max(1,Math.round(h*k));
+    var x=c.getContext("2d");x.fillStyle="#ffffff";x.fillRect(0,0,c.width,c.height);
+    x.imageSmoothingEnabled=true;x.imageSmoothingQuality="high";x.drawImage(src,0,0,c.width,c.height);return c;}
+  function siteEnc(c,q){var d=c.toDataURL("image/webp",q);return d.indexOf("data:image/webp")===0?d:c.toDataURL("image/jpeg",q);}
+  function shrinkSiteImage(file){return new Promise(function(res,rej){
+    var url=URL.createObjectURL(file),img=new Image();
+    img.onload=function(){try{
+      var big=siteFit(img,img.naturalWidth,img.naturalHeight,1600,0);
+      var small=siteFit(big,big.width,big.height,1000,760);
+      URL.revokeObjectURL(url);
+      res({data:siteEnc(big,0.85),small:siteEnc(small,0.82),w:big.width,h:big.height,tw:small.width,th:small.height});
+    }catch(e){URL.revokeObjectURL(url);rej(e);}};
+    img.onerror=function(){URL.revokeObjectURL(url);rej(new Error("не вдалося прочитати зображення"));};
+    img.src=url;});}
+  function siteImgRedraw(key){
+    var card=$("#siteView").querySelector('.simg[data-key="'+key+'"]');if(!card)return;
+    var all=SITE.groups.concat(SITE.sections),im=null;
+    all.forEach(function(g){(g.images||[]).forEach(function(x){if(x.key===key)im=x;});});
+    if(!im)return;
+    var tmp=document.createElement("div");tmp.innerHTML=siteImgHtml(im);
+    card.parentNode.replaceChild(tmp.firstChild,card);
+    siteCardSync($("#siteView").querySelector('.simg[data-key="'+key+'"]').closest(".site-card"));siteUpdateStat();
+  }
+  async function siteUploadImage(key,file){
+    if(!file)return;
+    var card=$("#siteView").querySelector('.simg[data-key="'+key+'"]');
+    var hint=card&&card.querySelector(".simg-hint");var old=hint?hint.textContent:"";
+    if(hint)hint.textContent="Стискаємо та надсилаємо…";
+    try{
+      var im=await shrinkSiteImage(file);
+      var r=await api("/admin/site-image",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({key:key,data:im.data,small:im.small,w:im.w,h:im.h,tw:im.tw,th:im.th})});
+      if(!r||!r.ok)throw new Error((r&&r.error)||"помилка");
+      var prev=SITE.cfg.images[key]||{};
+      SITE.cfg.images[key]={id:r.id,token:r.token,u:r.u,t:r.t,w:im.w,h:im.h,tw:im.tw,th:im.th,pos:prev.pos||"",alt:prev.alt||""};
+      SITE.pending.images[key]=SITE.cfg.images[key];
+      SITE.remove=SITE.remove.filter(function(k){return k!==key;});
+      SITE.pending.remove=SITE.pending.remove.filter(function(k){return k!==key;});
+      siteImgRedraw(key);
+      toast("Фото завантажено — не забудьте «Зберегти зміни»");
+    }catch(e){
+      if(e&&e.code===401){showLogin("Сесія завершилась — увійдіть знову.");return;}
+      if(hint)hint.textContent=old;
+      toast("Не вдалося завантажити"+(e&&e.message?": "+e.message:""),true);
+    }
+  }
   function wireSite(){var v=$("#siteView");if(v.dataset.wired)return;v.dataset.wired="1";
+    v.addEventListener("click",function(e){
+      var shot=e.target.closest(".simg-shot");
+      if(shot&&!shot.classList.contains("fit")){
+        var r=shot.getBoundingClientRect();
+        var x=Math.max(0,Math.min(100,Math.round((e.clientX-r.left)/r.width*100)));
+        var y=Math.max(0,Math.min(100,Math.round((e.clientY-r.top)/r.height*100)));
+        var key=shot.dataset.key,ov=SITE.cfg.images[key];
+        if(!ov||!ov.u){toast("Спочатку замініть фото",true);return;}
+        ov.pos=x+"% "+y+"%";SITE.pending.images[key]=ov;siteImgRedraw(key);return;
+      }
+      var pick=e.target.closest(".simg-pick");
+      if(pick){pick.closest(".simg").querySelector(".simg-file").click();return;}
+      var clr=e.target.closest(".simg-clear");
+      if(clr){
+        var k=clr.closest(".simg").dataset.key;
+        delete SITE.cfg.images[k];delete SITE.pending.images[k];
+        if(SITE.remove.indexOf(k)<0)SITE.remove.push(k);
+        if(SITE.pending.remove.indexOf(k)<0)SITE.pending.remove.push(k);
+        siteImgRedraw(k);return;
+      }
+    });
     v.addEventListener("click",function(e){
       var t=e.target.closest(".site-open,.site-reset,#site-save");if(!t)return;
       if(t.id==="site-save"){saveSite();return;}
@@ -2020,7 +2146,17 @@
       if(t.classList.contains("site-open")){var body=card.querySelector(".site-body");body.hidden=!body.hidden;t.textContent=t.textContent.replace(/[▾▴]$/,body.hidden?"▾":"▴");return;}
       var fld=t.closest(".site-fld");fld.querySelector(".site-in").value=SITE.defs[fld.dataset.key]||"";siteFldSync(fld);siteCardSync(card);siteUpdateStat();
     });
-    v.addEventListener("input",function(e){var fld=e.target.closest(".site-fld");if(!fld)return;siteFldSync(fld);siteCardSync(fld.closest(".site-card"));siteUpdateStat();});
+    v.addEventListener("input",function(e){
+      if(e.target.classList.contains("simg-alt")){
+        var k=e.target.closest(".simg").dataset.key,ov=SITE.cfg.images[k];
+        if(ov){ov.alt=e.target.value.slice(0,160);SITE.pending.images[k]=ov;}
+        return;
+      }
+      var fld=e.target.closest(".site-fld");if(!fld)return;siteFldSync(fld);siteCardSync(fld.closest(".site-card"));siteUpdateStat();});
+    v.addEventListener("change",function(e){
+      if(!e.target.classList.contains("simg-file"))return;
+      var k=e.target.closest(".simg").dataset.key,f=e.target.files&&e.target.files[0];
+      e.target.value="";siteUploadImage(k,f);});
     v.addEventListener("change",function(e){if(!e.target.classList.contains("site-show"))return;e.target.closest(".site-card").classList.toggle("off",!e.target.checked);siteUpdateStat();});
   }
   async function saveSite(){
@@ -2028,7 +2164,8 @@
     btn.disabled=true;var old=btn.textContent;btn.textContent="Зберігаємо…";
     try{var r=await api("/admin/site-save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(st)});
       if(!r||!r.ok)throw new Error((r&&r.error)||"");
-      SITE.cfg=st;toast("Збережено — сайт оновиться протягом хвилини");btn.classList.add("saved");setTimeout(function(){btn.classList.remove("saved");},1600);
+      SITE.cfg={hidden:st.hidden,texts:st.texts,images:SITE.cfg.images};SITE.remove=[];SITE.pending={images:{},remove:[]};
+      toast("Збережено — сайт оновиться протягом хвилини");btn.classList.add("saved");setTimeout(function(){btn.classList.remove("saved");},1600);
     }catch(e){if(e&&e.code===401){showLogin("Сесія завершилась — увійдіть знову.");return;}toast("Не вдалося зберегти"+(e&&e.message?": "+e.message:""),true);}
     btn.disabled=false;btn.textContent=old;
   }

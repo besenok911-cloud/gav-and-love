@@ -71,10 +71,13 @@
   /* ============================================================
      SITE CMS — sections hidden / texts overridden from the CRM («Сайт» tab)
      Markup contract: [data-cms-section="Назва"] = hideable section (by id),
-     [data-cms="key"] = editable text. cfg = { hidden: [id…], texts: { key: text } }.
+     [data-cms="key"] = editable text, [data-cms-img="key"] = replaceable photo
+     (+ data-cms-img-sm = show the page copy, data-cms-img-ratio = the frame the CRM previews).
+     cfg = { hidden: [id…], texts: { key: text }, images: { key: {u,t,w,h,tw,th,pos,alt} } }.
      ============================================================ */
   const CMS_HIDDEN = new Set(); window.GL_CMS_HIDDEN = CMS_HIDDEN;
   const CMS_DEFAULTS = new Map();                 // el -> { html, rich } captured before the first override
+  const IMG_DEFAULTS = new Map();                 // el -> every attribute the markup shipped with
   let reviewsReady = false;                       // renderReviews() received published reviews
   const cmsIsRich = html => /<br|class="script"|<b>/i.test(html);
   // Rich fields (headings with accents, texts with <b>/<br>): "*слово*" → <span class="script">,
@@ -94,6 +97,51 @@
       if (last < line.length) el.appendChild(document.createTextNode(line.slice(last)));
     });
   }
+  // Photos are swapped attribute by attribute on the element that is already there: the click
+  // handlers of the lightbox and the .reveal observer are bound to these nodes and are never rebound.
+  function cmsImgDefaults(el) {
+    if (!IMG_DEFAULTS.has(el)) IMG_DEFAULTS.set(el, {
+      src: el.getAttribute("src"), srcset: el.getAttribute("srcset"), sizes: el.getAttribute("sizes"),
+      full: el.getAttribute("data-full"), w: el.getAttribute("width"), h: el.getAttribute("height"),
+      alt: el.getAttribute("alt"),
+    });
+    return IMG_DEFAULTS.get(el);
+  }
+  function cmsImgRestore(el) {
+    const d = cmsImgDefaults(el);
+    ["src", "srcset", "sizes", "width", "height", "alt"].forEach(n => {
+      const v = d[n === "width" ? "w" : n === "height" ? "h" : n];
+      if (v == null) el.removeAttribute(n); else el.setAttribute(n, v);
+    });
+    if (d.full == null) el.removeAttribute("data-full"); else el.setAttribute("data-full", d.full);
+    el.style.removeProperty("--cms-pos");
+  }
+  function cmsForgetImage(key) {   // a dead override must not come back from the cache on the next visit
+    try {
+      const c = JSON.parse(localStorage.getItem("gl_site_cms") || "{}");
+      if (c.images && c.images[key]) { delete c.images[key]; localStorage.setItem("gl_site_cms", JSON.stringify(c)); }
+    } catch (e) { }
+  }
+  function applySiteImages(images) {
+    $$("[data-cms-img]").forEach(el => {
+      const key = el.dataset.cmsImg, ov = images[key], d = cmsImgDefaults(el);
+      if (!ov || !ov.u) { if (el.getAttribute("src") !== d.src) cmsImgRestore(el); return; }
+      const small = el.hasAttribute("data-cms-img-sm") && ov.t, shown = small ? ov.t : ov.u;
+      if (el.getAttribute("src") !== shown) el.setAttribute("src", shown);
+      // real descriptors: the two copies are capped on different sides, so a guessed "560w" lies
+      if (d.sizes && ov.tw && ov.w) el.setAttribute("srcset", ov.t + " " + ov.tw + "w, " + ov.u + " " + ov.w + "w");
+      else el.removeAttribute("srcset");
+      if (d.full != null) el.setAttribute("data-full", ov.u);
+      const w = small ? ov.tw : ov.w, h = small ? ov.th : ov.h;
+      if (w && h) { el.setAttribute("width", w); el.setAttribute("height", h); }
+      else { el.removeAttribute("width"); el.removeAttribute("height"); }
+      if (ov.alt) el.setAttribute("alt", ov.alt);
+      if (ov.pos) el.style.setProperty("--cms-pos", ov.pos); else el.style.removeProperty("--cms-pos");
+      // A photo replaced twice can leave a dead id in somebody's cached config. Rather than a broken
+      // frame above the fold, fall back to the picture that ships with the page.
+      el.onerror = () => { el.onerror = null; cmsImgRestore(el); cmsForgetImage(key); };
+    });
+  }
   function applySiteCms(cfg) {
     const hidden = (cfg && Array.isArray(cfg.hidden)) ? cfg.hidden.map(String) : [];
     const texts = (cfg && cfg.texts && typeof cfg.texts === "object") ? cfg.texts : {};
@@ -109,13 +157,14 @@
       if (typeof val === "string" && val.trim()) { if (def.rich) cmsRender(el, val); else el.textContent = val; }
       else if (el.innerHTML !== def.html) el.innerHTML = def.html;                // override removed → back to the markup default
     });
+    applySiteImages((cfg && cfg.images && typeof cfg.images === "object") ? cfg.images : {});
   }
   // cached copy first (no flash on repeat visits), then the live config from the worker
   try { const c = localStorage.getItem("gl_site_cms"); if (c) applySiteCms(JSON.parse(c)); } catch (e) { }
   if (CONFIG.bookingEndpoint) {
     fetch(`${CONFIG.bookingEndpoint}/site`).then(r => r.json()).then(d => {
       if (!d || !d.ok) return;
-      const cfg = { hidden: d.hidden || [], texts: d.texts || {} };
+      const cfg = { hidden: d.hidden || [], texts: d.texts || {}, images: d.images || {} };
       applySiteCms(cfg);
       try { localStorage.setItem("gl_site_cms", JSON.stringify(cfg)); } catch (e) { }
     }).catch(() => { });
@@ -1240,12 +1289,19 @@
      ============================================================ */
   $$("#interiorGrid img, .hotel-photos img").length && (function () {
     const imgs = $$("#interiorGrid img, .hotel-photos img");
-    // de-duplicate by src so repeated photos share one lightbox slide set
-    const seen = new Set(), list = [];
     const full = im => im.dataset.full || im.getAttribute("src");
-    imgs.forEach(im => { const s = full(im); if (!seen.has(s)) { seen.add(s); list.push({ src: s }); } });
+    // Built on every click, not once at load: the CRM can replace these photos after the page is up,
+    // and a list captured at load would hold the old paths (every tile would open slide one).
+    // A photo inside a section the CRM has hidden is not a slide at all.
+    function slides() {
+      const seen = new Set(), list = [];
+      imgs.filter(im => !im.closest("[hidden]")).forEach(im => {
+        const s = full(im); if (!seen.has(s)) { seen.add(s); list.push({ src: s }); }
+      });
+      return list;
+    }
     imgs.forEach(im => im.addEventListener("click", () => {
-      const i = list.findIndex(x => x.src === full(im));
+      const list = slides(), i = list.findIndex(x => x.src === full(im));
       visibleList = list; openLightbox(i < 0 ? 0 : i);
     }));
   })();

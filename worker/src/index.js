@@ -170,6 +170,7 @@ export default {
         return json(await runClientReminders(env, b && b.kind === "soon" ? "soon" : "day", true), cors);
       }
       if (url.pathname.startsWith("/photo/") && request.method === "GET") return photoServe(url, env, cors);
+      if (url.pathname.startsWith("/img/") && request.method === "GET") return siteImageServe(url, env, cors);   // photos of the site itself
       if (url.pathname === "/admin/photos" && request.method === "GET") return json(await adminPhotos(request, url, env), cors);
       if (url.pathname === "/admin/photo-upload" && request.method === "POST") return json(await photoUpload(request, env), cors);
       if (url.pathname === "/admin/photo-delete" && request.method === "POST") return json(await photoDelete(request, env), cors);
@@ -216,10 +217,13 @@ export default {
       }
       // ---- Site CMS (CRM «Сайт» tab): hidden sections + text overrides for index.html ----
       if (url.pathname === "/site" && request.method === "GET") {
-        return json(await publicSite(env), { ...cors, "Cache-Control": "public, max-age=60" });   // public: read by the site
+        return json(await publicSite(env, url.origin), { ...cors, "Cache-Control": "public, max-age=60" });   // public: read by the site
       }
       if (url.pathname === "/admin/site-save" && request.method === "POST") {
         return json(await siteSave(request, env), cors);
+      }
+      if (url.pathname === "/admin/site-image" && request.method === "POST") {
+        return json(await siteImageUpload(request, env), cors);
       }
       if (url.pathname === "/admin/send-digest" && request.method === "POST") {
         await requireAdmin(request, env);
@@ -235,7 +239,8 @@ export default {
   async scheduled(event, env, ctx) {
     const cron = (event && event.cron) || "";
     if (cron.startsWith("*/30")) ctx.waitUntil(runClientReminders(env, "soon").catch(() => {}));
-    else ctx.waitUntil(Promise.all([runDailyDigest(env).catch(() => {}), runClientReminders(env, "day").catch(() => {})]));
+    else ctx.waitUntil(Promise.all([runDailyDigest(env).catch(() => {}), runClientReminders(env, "day").catch(() => {}),
+      siteMediaSweep(env).catch(() => {})]));
   },
 };
 
@@ -1195,12 +1200,119 @@ async function photosToR2(request, env) {
   const left = await env.DB.prepare(`SELECT COUNT(*) AS n FROM pet_photos WHERE r2_key IS NULL AND data IS NOT NULL`).first();
   return { ok: true, moved, bytes, remaining: (left && left.n) || 0, errors };
 }
+/* ---------- Photos of the SITE (CRM «Сайт» tab): hero, team, interior, hotel ----------
+   The bytes live in the same bucket as pet photos, the slot map lives in settings.site_cms.
+   Two copies, both bigger than a pet-card thumbnail because these fill whole sections:
+   1600 px long side for the lightbox, ~1000 px for the page. There is no D1 fallback on
+   purpose — a hero served out of a database row is worse than refusing the upload. */
+const SITE_IMG_MAX = 2.5 * 1024 * 1024;
+const SITE_IMG_SMALL_MAX = 900 * 1024;
+const SITE_IMG_SLOTS = 40;                  // the markup has 14; the cap only stops abuse
+const CMS_KEY_RE = /^[\w.-]{1,80}$/;       // one rule for the upload and for the saved map
+const siteMediaKey = (token, mime, small) => `site/${token}${small ? "-m" : ""}.${PHOTO_EXT[mime] || "jpg"}`;
+const iSize = v => { const n = Math.round(Number(v)); return Number.isInteger(n) && n > 0 && n < 20000 ? n : null; };
+
+// The claimed mime is the uploader's word; the first bytes are not.
+function sniffImage(b) {
+  if (b.length > 3 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return "image/jpeg";
+  if (b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return "image/png";
+  if (b.length > 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46
+    && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
+  return null;
+}
+function dataUrlBytes(s, maxBytes) {
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(s || ""));
+  if (!m) return { error: "Очікується зображення JPEG / PNG / WebP" };
+  if (m[2].length * 0.75 > maxBytes + 1024) return { error: "Зображення завелике" };   // judged before decoding
+  let bin; try { bin = Uint8Array.from(atob(m[2]), c => c.charCodeAt(0)); } catch (e) { return { error: "Пошкоджене зображення" }; }
+  if (!bin.length || bin.length > maxBytes) return { error: "Зображення завелике" };
+  const real = sniffImage(bin);
+  if (!real || real !== m[1]) return { error: "Файл не схожий на зображення" };
+  return { bin, mime: real };
+}
+async function siteImageUpload(request, env) {
+  await requireAdmin(request, env);
+  const bucket = photoBucket(env);
+  if (!bucket) return { ok: false, error: "R2 не підключено: немає binding PHOTOS" };
+  const b = await request.json().catch(() => null);
+  const key = String((b && b.key) || "");
+  if (!CMS_KEY_RE.test(key)) return { ok: false, error: "Невідомий слот фото" };
+  const big = dataUrlBytes(b && b.data, SITE_IMG_MAX);
+  if (big.error) return { ok: false, error: big.error };
+  const token = randHex(8);
+  const r2big = siteMediaKey(token, big.mime, false);
+  // The row goes in FIRST. An object nobody can name is garbage nothing can ever find again;
+  // a row whose object is missing is a visible broken frame the owner simply replaces.
+  const ins = await env.DB.prepare(
+    `INSERT INTO site_media (cms_key,mime,r2_key,size,w,h,token,created_at) VALUES (?,?,?,?,?,?,?,?)`
+  ).bind(key, big.mime, r2big, big.bin.length, iSize(b && b.w), iSize(b && b.h), token, new Date().toISOString()).run();
+  const id = ins.meta && ins.meta.last_row_id;
+  try { await bucket.put(r2big, big.bin, { httpMetadata: { contentType: big.mime, cacheControl: PHOTO_CACHE } }); }
+  catch (e) {
+    try { await env.DB.prepare(`DELETE FROM site_media WHERE id=?`).bind(id).run(); } catch (e2) { }
+    return { ok: false, error: "Не вдалося зберегти фото, спробуйте ще раз" };
+  }
+  // The page copy is a bonus, never a reason to lose the upload: without it /img/<id>/<token>/t
+  // simply answers with the big one.
+  const small = dataUrlBytes(b && b.small, SITE_IMG_SMALL_MAX);
+  if (!small.error) {
+    try {
+      const k = siteMediaKey(token, small.mime, true);
+      await bucket.put(k, small.bin, { httpMetadata: { contentType: small.mime, cacheControl: PHOTO_CACHE } });
+      await env.DB.prepare(`UPDATE site_media SET thumb_key=?,thumb_size=?,tw=?,th=? WHERE id=?`)
+        .bind(k, small.bin.length, iSize(b && b.tw), iSize(b && b.th), id).run();
+    } catch (e) { }
+  }
+  const o = new URL(request.url).origin;
+  return { ok: true, id, token, mime: big.mime, size: big.bin.length,
+    u: `${o}/img/${id}/${token}`, t: `${o}/img/${id}/${token}/t` };
+}
+async function siteImageServe(url, env, cors) {
+  const miss = () => new Response("not found", { status: 404, headers: { ...cors, "Cache-Control": "no-store" } });
+  const m = /^\/img\/(\d+)\/([0-9a-f]{16})(?:\/(t))?$/.exec(url.pathname);
+  if (!m) return miss();
+  // The data column is deliberately not selected: this is the public site's LCP path, not an admin screen.
+  const p = await env.DB.prepare(`SELECT mime,token,r2_key,thumb_key FROM site_media WHERE id=?`).bind(+m[1]).first();
+  if (!p || p.token !== m[2]) return miss();
+  const bucket = photoBucket(env);
+  if (!bucket) return miss();
+  const small = m[3] === "t" && p.thumb_key;
+  let obj = await bucket.get(small ? p.thumb_key : p.r2_key);
+  if (!obj && small) obj = await bucket.get(p.r2_key);        // no page copy left — the big one answers
+  if (!obj) return miss();
+  const head = { ...cors, "Content-Type": p.mime || "image/jpeg", "Cache-Control": PHOTO_CACHE, "X-Content-Type-Options": "nosniff" };
+  if (obj.httpEtag) head.ETag = obj.httpEtag;
+  return new Response(obj.body, { headers: head });
+}
+// A slot that was replaced or cleared is only STAMPED here. Deleting on save would take with it an
+// upload that has not been saved yet, or a slot a stale CRM page never knew about; the daily cron
+// removes what has been unreferenced for a week, by which time nothing points at it.
+async function siteMediaMark(env, images) {
+  const keep = Object.keys(images || {}).map(k => Number(images[k] && images[k].id)).filter(n => Number.isInteger(n) && n > 0);
+  const inKeep = "(" + (keep.length ? keep.join(",") : "0") + ")";
+  try {
+    await env.DB.prepare(`UPDATE site_media SET unref_at=NULL WHERE unref_at IS NOT NULL AND id IN ${inKeep}`).run();
+    await env.DB.prepare(`UPDATE site_media SET unref_at=? WHERE unref_at IS NULL AND id NOT IN ${inKeep}`).bind(new Date().toISOString()).run();
+  } catch (e) { }
+}
+async function siteMediaSweep(env, days) {
+  const cut = new Date(Date.now() - (days || 7) * 86400000).toISOString();
+  try {
+    const rows = ((await env.DB.prepare(`SELECT id,r2_key,thumb_key FROM site_media WHERE unref_at IS NOT NULL AND unref_at < ?`).bind(cut).all()).results) || [];
+    if (!rows.length) return 0;
+    const keys = []; rows.forEach(r => { keys.push(r.r2_key, r.thumb_key); });
+    await dropPhotoObjects(env, keys);
+    await env.DB.prepare(`DELETE FROM site_media WHERE id IN (${rows.map(r => r.id).join(",")})`).run();
+    return rows.length;
+  } catch (e) { return 0; }
+}
 async function photoServe(url, env, cors) {   // public but unguessable (16-hex token), cached for a year
+  const miss = () => new Response("not found", { status: 404, headers: { ...cors, "Cache-Control": "no-store" } });
   const m = /^\/photo\/(\d+)\/([0-9a-f]{16})(?:\/(t))?$/.exec(url.pathname);   // …/t = the small copy for grids
-  if (!m) return new Response("not found", { status: 404, headers: cors });
+  if (!m) return miss();
   const p = await env.DB.prepare(`SELECT mime,data,token,r2_key,thumb_key FROM pet_photos WHERE id=?`).bind(+m[1]).first();
-  if (!p || p.token !== m[2]) return new Response("not found", { status: 404, headers: cors });
-  const head = Object.assign({ "Content-Type": p.mime || "image/jpeg", "Cache-Control": PHOTO_CACHE }, cors);
+  if (!p || p.token !== m[2]) return miss();
+  const head = Object.assign({ "Content-Type": p.mime || "image/jpeg", "Cache-Control": PHOTO_CACHE, "X-Content-Type-Options": "nosniff" }, cors);
   const small = m[3] === "t" && p.thumb_key;
   if (small || p.r2_key) {
     const bucket = photoBucket(env);
@@ -1212,7 +1324,7 @@ async function photoServe(url, env, cors) {   // public but unguessable (16-hex 
     }
     // no bucket (deployed without the binding) or no object — fall back to the D1 copy while it still exists
   }
-  if (p.data == null) return new Response("not found", { status: 404, headers: cors });   // an empty 200 here would be cached for a year
+  if (p.data == null) return miss();   // an empty 200 here would be cached for a year
   return new Response(blobBytes(p.data), { headers: head });
 }
 const CLIENT_FIELDS = ["name", "phone", "email", "messenger", "source", "note", "consent", "status"];
@@ -1670,8 +1782,11 @@ async function settingsSave(request, env) {
 // One JSON blob in `settings` (key "site_cms"): { hidden: [sectionId…], texts: { key: text } }.
 // The site (scripts/main.js) hides the listed [data-cms-section] ids and replaces [data-cms] texts.
 const SITE_CMS_MAX = 64 * 1024;
-function normalizeSiteCms(b) {
-  const hidden = [], texts = {}, seen = new Set();
+// The second argument is the map already stored. The CRM builds its editor from GET /site, which publishes URLs
+// rather than ids, so an entry that comes back carrying only a new crop or a new alt is a CORRECTION
+// to the slot that is already there — not a broken entry to drop.
+function normalizeSiteCms(b, cur) {
+  const hidden = [], texts = {}, images = {}, seen = new Set();
   (Array.isArray(b && b.hidden) ? b.hidden : []).forEach(x => {
     const id = String(x == null ? "" : x).trim();
     if (/^[\w-]{1,40}$/.test(id) && !seen.has(id)) { seen.add(id); hidden.push(id); }
@@ -1684,27 +1799,68 @@ function normalizeSiteCms(b) {
       if (v) texts[k] = v;
     }
   }
-  return { hidden, texts };
+  // { "hero.main": { id, token, w, h, tw, th, pos:"50% 30%", alt } } — ids and tokens only,
+  // never a URL: the worker builds those from its own origin when the site asks for them.
+  const im = b && b.images;
+  if (im && typeof im === "object" && !Array.isArray(im)) {
+    for (const k of Object.keys(im)) {
+      if (!CMS_KEY_RE.test(k) || Object.keys(images).length >= SITE_IMG_SLOTS) continue;
+      const v = im[k];
+      if (!v || typeof v !== "object") continue;
+      const base = (cur && cur.images && cur.images[k]) || null;
+      const good = x => Number.isInteger(x.id) && x.id > 0 && /^[0-9a-f]{16}$/.test(x.token);
+      let cand = { id: Math.round(Number(v.id)), token: String(v.token || "") };
+      if (!good(cand) && base) cand = { id: base.id, token: base.token };   // keep the photo, take the edit
+      if (!good(cand)) continue;
+      const o = { id: cand.id, token: cand.token };
+      ["w", "h", "tw", "th"].forEach(f => { const n = iSize(v[f]) || (base ? iSize(base[f]) : 0); if (n) o[f] = n; });
+      const pos = String(v.pos || "").trim();
+      if (/^\d{1,3}% \d{1,3}%$/.test(pos) && pos !== "50% 50%") o.pos = pos;
+      const alt = String(v.alt || "").replace(/\s+/g, " ").trim();
+      if (alt) o.alt = alt.slice(0, 160);
+      images[k] = o;
+    }
+  }
+  return { hidden, texts, images };
 }
 async function loadSiteCms(env) {
-  if (!env.DB) return { hidden: [], texts: {} };
+  if (!env.DB) return { hidden: [], texts: {}, images: {} };
   try {
     const row = await env.DB.prepare(`SELECT value FROM settings WHERE key='site_cms'`).first();
     if (row && row.value) return normalizeSiteCms(JSON.parse(row.value));
   } catch (e) { }
-  return { hidden: [], texts: {} };
+  return { hidden: [], texts: {}, images: {} };
 }
-async function publicSite(env) {
+async function publicSite(env, origin) {
   const c = await loadSiteCms(env);
-  return { ok: true, hidden: c.hidden, texts: c.texts };
+  const images = {};
+  for (const k of Object.keys(c.images || {})) {
+    const v = c.images[k];
+    images[k] = { u: `${origin}/img/${v.id}/${v.token}`, t: `${origin}/img/${v.id}/${v.token}/t`,
+      w: v.w, h: v.h, tw: v.tw, th: v.th, pos: v.pos, alt: v.alt };
+  }
+  return { ok: true, hidden: c.hidden, texts: c.texts, images };
 }
 async function siteSave(request, env) {
   await requireAdmin(request, env);
   const b = await request.json().catch(() => null);
   if (!b || typeof b !== "object") { const e = new Error("bad request"); e.status = 400; throw e; }
-  const raw = JSON.stringify(normalizeSiteCms(b));
-  if (raw.length > SITE_CMS_MAX) { const e = new Error("Занадто багато тексту (ліміт 64 КБ)"); e.status = 413; throw e; }
+  const cur = await loadSiteCms(env);
+  const next = normalizeSiteCms(b, cur);
+  // Texts are replaced wholesale (the editor always sends them all), photos are MERGED: a second tab,
+  // or a CRM page that parsed an older index.html, must not drop a slot it never knew about.
+  // Clearing a photo is explicit — the editor names the slot in the remove list.
+  next.images = Object.assign({}, cur.images || {}, next.images);
+  (Array.isArray(b.remove) ? b.remove : []).forEach(k => { if (CMS_KEY_RE.test(String(k))) delete next.images[String(k)]; });
+  if (Object.keys(next.images).length > SITE_IMG_SLOTS) { const e = new Error("Забагато фото"); e.status = 413; throw e; }
+  const raw = JSON.stringify(next), prev = JSON.stringify(cur);
+  const size = new TextEncoder().encode(raw).length;   // bytes, not UTF-16 units — Cyrillic costs double
+  if (size > SITE_CMS_MAX && size >= new TextEncoder().encode(prev).length) {
+    const e = new Error("Занадто багато тексту (ліміт 64 КБ)"); e.status = 413; throw e;   // a save that shrinks it always passes
+  }
+  await env.DB.prepare(`INSERT INTO settings (key,value) VALUES ('site_cms_prev',?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(prev, prev).run();
   await env.DB.prepare(`INSERT INTO settings (key,value) VALUES ('site_cms',?) ON CONFLICT(key) DO UPDATE SET value=?`).bind(raw, raw).run();
+  await siteMediaMark(env, next.images);
   return { ok: true };
 }
 // YYYY-MM-DD for a Date in a timezone.

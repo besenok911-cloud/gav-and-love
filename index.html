@@ -13,10 +13,22 @@
 <meta property="og:image:height" content="630" />
 <meta name="theme-color" content="#4a25c9" />
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://gavlove-booking.besenok911.workers.dev" crossorigin />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles/main.css?v=36" />
+<link rel="stylesheet" href="styles/main.css?v=37" />
+<script>
+/* A replaced hero is fetched by the CMS only after main.js parses and /site answers — far too late for
+   the largest image on the page. If this visitor already has the config cached, preload it right here,
+   in parallel with the bundled photo. First visits have nothing cached and keep the bundled one. */
+try{var glc=JSON.parse(localStorage.getItem("gl_site_cms")||"{}"),glh=glc.images&&glc.images["hero.main"];
+if(glh&&glh.u){var gll=document.createElement("link");gll.rel="preload";gll.as="image";gll.href=glh.u;
+/* the same candidate set main.js puts on the <img>, or the browser preloads one copy and renders the other */
+if(glh.t&&glh.tw&&glh.w){gll.setAttribute("imagesrcset",glh.t+" "+glh.tw+"w, "+glh.u+" "+glh.w+"w");
+gll.setAttribute("imagesizes","(max-width:900px) 92vw, 520px");}
+gll.setAttribute("fetchpriority","high");document.head.appendChild(gll);}}catch(e){}
+</script>
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -105,9 +117,9 @@
     <div class="hero-photo reveal">
       <div class="hero-photo-glow" aria-hidden="true"></div>
       <div class="hero-photo-frame">
-        <img src="assets/people/hero-sofa.webp" srcset="assets/people/hero-sofa-800.webp 740w, assets/people/hero-sofa.webp 1100w" sizes="(max-width:900px) 92vw, 520px" alt="Дві грумерки GAV&LOVE на дивані салону з білосніжним самоїдом" width="1100" height="1375" fetchpriority="high" decoding="async" />
+        <img data-cms-img="hero.main" data-cms-img-ratio="4/5" data-cms-img-ratio2="1/1" src="assets/people/hero-sofa.webp" srcset="assets/people/hero-sofa-800.webp 740w, assets/people/hero-sofa.webp 1100w" sizes="(max-width:900px) 92vw, 520px" alt="Дві грумерки GAV&LOVE на дивані салону з білосніжним самоїдом" width="1100" height="1375" fetchpriority="high" decoding="async" />
       </div>
-      <div class="hero-photo-2"><img src="assets/people/hero-duo.webp" alt="Та сама грумерка тримає на руках коргі та французького бульдога" width="700" height="700" loading="lazy" decoding="async" /></div>
+      <div class="hero-photo-2"><img data-cms-img="hero.inset" data-cms-img-sm data-cms-img-ratio="1/1" src="assets/people/hero-duo.webp" alt="Та сама грумерка тримає на руках коргі та французького бульдога" width="700" height="700" loading="lazy" decoding="async" /></div>
       <div class="hero-photo-tag hero-tag-top"><svg class="i"><use href="#i-heart"/></svg> Без стресу · без поспіху</div>
       <div class="hero-photo-tag"><svg class="i"><use href="#i-paw"/></svg> Тут ваш улюбленець — як удома</div>
     </div>
@@ -137,7 +149,7 @@
     </header>
     <div class="about-grid">
       <div class="about-photo reveal">
-        <img src="assets/people/team.webp" srcset="assets/people/team-800.webp 800w, assets/people/team.webp 1440w" sizes="(max-width:900px) 92vw, 520px" alt="Команда грумерів GAV&LOVE з улюбленцями" width="1440" height="1440" loading="lazy" decoding="async" />
+        <img data-cms-img="about.photo" data-cms-img-ratio="auto" src="assets/people/team.webp" srcset="assets/people/team-800.webp 800w, assets/people/team.webp 1440w" sizes="(max-width:900px) 92vw, 520px" alt="Команда грумерів GAV&LOVE з улюбленцями" width="1440" height="1440" loading="lazy" decoding="async" />
       </div>
       <div class="about-quotes">
         <blockquote class="cloud reveal" data-cms="about.quote1">Ми не працюємо через силу й не поспішаємо. Слухаємо, спостерігаємо та підлаштовуємось — бо комфорт і безпека тварини важливіші за ідеальну «картинку».</blockquote>
@@ -194,7 +206,7 @@
     </header>
     <div class="team-grid">
       <article class="team-card reveal">
-        <div class="team-photo"><img src="assets/people/darya.webp" alt="Дар'я Краснопольська, грумер GAV&LOVE, з білим бішоном" width="800" height="800" loading="lazy" /></div>
+        <div class="team-photo"><img data-cms-img="team.member1.photo" data-cms-img-sm data-cms-img-ratio="1/1" src="assets/people/darya.webp" alt="Дар'я Краснопольська, грумер GAV&LOVE, з білим бішоном" width="800" height="800" loading="lazy" /></div>
         <div class="team-body">
           <h3 data-cms="team.member1.name">Дар'я Краснопольська</h3>
           <p class="team-role" data-cms="team.member1.role">Грумер</p>
@@ -202,7 +214,7 @@
         </div>
       </article>
       <article class="team-card reveal">
-        <div class="team-photo"><img src="assets/people/symon.webp" alt="Симон Волик, грумер GAV&LOVE, з померанським шпіцем після купання" width="800" height="800" loading="lazy" /></div>
+        <div class="team-photo"><img data-cms-img="team.member2.photo" data-cms-img-sm data-cms-img-ratio="1/1" src="assets/people/symon.webp" alt="Симон Волик, грумер GAV&LOVE, з померанським шпіцем після купання" width="800" height="800" loading="lazy" /></div>
         <div class="team-body">
           <h3 data-cms="team.member2.name">Симон Волик</h3>
           <p class="team-role" data-cms="team.member2.role">Грумер</p>
@@ -210,7 +222,7 @@
         </div>
       </article>
       <article class="team-card reveal">
-        <div class="team-photo"><img src="assets/people/yuliia.webp" alt="Юлія Литвинова, грумер GAV&LOVE, з пуделем і бультер'єром" width="800" height="800" loading="lazy" /></div>
+        <div class="team-photo"><img data-cms-img="team.member3.photo" data-cms-img-sm data-cms-img-ratio="1/1" src="assets/people/yuliia.webp" alt="Юлія Литвинова, грумер GAV&LOVE, з пуделем і бультер'єром" width="800" height="800" loading="lazy" /></div>
         <div class="team-body">
           <h3 data-cms="team.member3.name">Юлія Литвинова</h3>
           <p class="team-role" data-cms="team.member3.role">Грумер</p>
@@ -309,11 +321,11 @@
       <p data-cms="interior.p">Стильний, теплий простір із деревом і м'яким світлом — місце, де хочеться залишитися. Загляньте всередину.</p>
     </header>
     <div class="interior-grid reveal" id="interiorGrid">
-      <figure class="span2 row2"><img src="assets/interior/t/hotel-3.webp" data-full="assets/interior/hotel-3.webp" alt="Лаунж-зона GAV&LOVE dog hotel and spa" loading="lazy" decoding="async"><figcaption class="interior-cap" data-cms="interior.cap1">Лаунж-зона</figcaption></figure>
-      <figure><img src="assets/interior/t/hotel-front.webp" data-full="assets/interior/hotel-front.webp" alt="Вхід до GAV&LOVE dog hotel and spa" loading="lazy" decoding="async"><figcaption class="interior-cap" data-cms="interior.cap2">Вхід</figcaption></figure>
-      <figure><img src="assets/interior/t/hotel-suites.webp" data-full="assets/interior/hotel-suites.webp" alt="Дерев'яні номери-бокси GAV&LOVE" loading="lazy" decoding="async"><figcaption class="interior-cap" data-cms="interior.cap3">Номери</figcaption></figure>
-      <figure><img src="assets/interior/t/hotel-reception.webp" data-full="assets/interior/hotel-reception.webp" alt="Ресепшн GAV&LOVE" loading="lazy" decoding="async"><figcaption class="interior-cap" data-cms="interior.cap4">Ресепшн</figcaption></figure>
-      <figure><img src="assets/interior/t/hotel-box.webp" data-full="assets/interior/hotel-box.webp" alt="Затишний бокс із лежанкою у GAV&LOVE" loading="lazy" decoding="async"><figcaption class="interior-cap" data-cms="interior.cap5">Особистий бокс</figcaption></figure>
+      <figure class="span2 row2"><img data-cms-img="interior.tile1" data-cms-img-sm data-cms-img-ratio="1.42/1" src="assets/interior/t/hotel-3.webp" data-full="assets/interior/hotel-3.webp" alt="Лаунж-зона GAV&LOVE dog hotel and spa" loading="lazy" decoding="async"><figcaption class="interior-cap" data-cms="interior.cap1">Лаунж-зона</figcaption></figure>
+      <figure><img data-cms-img="interior.tile2" data-cms-img-sm data-cms-img-ratio="1.44/1" src="assets/interior/t/hotel-front.webp" data-full="assets/interior/hotel-front.webp" alt="Вхід до GAV&LOVE dog hotel and spa" loading="lazy" decoding="async"><figcaption class="interior-cap" data-cms="interior.cap2">Вхід</figcaption></figure>
+      <figure><img data-cms-img="interior.tile3" data-cms-img-sm data-cms-img-ratio="1.44/1" src="assets/interior/t/hotel-suites.webp" data-full="assets/interior/hotel-suites.webp" alt="Дерев'яні номери-бокси GAV&LOVE" loading="lazy" decoding="async"><figcaption class="interior-cap" data-cms="interior.cap3">Номери</figcaption></figure>
+      <figure><img data-cms-img="interior.tile4" data-cms-img-sm data-cms-img-ratio="1.44/1" src="assets/interior/t/hotel-reception.webp" data-full="assets/interior/hotel-reception.webp" alt="Ресепшн GAV&LOVE" loading="lazy" decoding="async"><figcaption class="interior-cap" data-cms="interior.cap4">Ресепшн</figcaption></figure>
+      <figure><img data-cms-img="interior.tile5" data-cms-img-sm data-cms-img-ratio="1.44/1" src="assets/interior/t/hotel-box.webp" data-full="assets/interior/hotel-box.webp" alt="Затишний бокс із лежанкою у GAV&LOVE" loading="lazy" decoding="async"><figcaption class="interior-cap" data-cms="interior.cap5">Особистий бокс</figcaption></figure>
     </div>
   </div>
 </section>
@@ -340,9 +352,9 @@
       </div>
     </div>
     <div class="hotel-photos reveal">
-      <img src="assets/interior/t/hotel-suites.webp" data-full="assets/interior/hotel-suites.webp" alt="Стіна дерев'яних номерів GAV&LOVE dog hotel and spa" loading="lazy" decoding="async" />
-      <img src="assets/interior/t/hotel-box.webp" data-full="assets/interior/hotel-box.webp" alt="Песик у затишному боксі GAV&LOVE" loading="lazy" decoding="async" />
-      <img src="assets/interior/t/hotel-5.webp" data-full="assets/interior/hotel-5.webp" alt="Гість готелю GAV&LOVE відпочиває на дивані" loading="lazy" decoding="async" />
+      <img data-cms-img="hotel.photo1" data-cms-img-sm data-cms-img-ratio="16/10" src="assets/interior/t/hotel-suites.webp" data-full="assets/interior/hotel-suites.webp" alt="Стіна дерев'яних номерів GAV&LOVE dog hotel and spa" loading="lazy" decoding="async" />
+      <img data-cms-img="hotel.photo2" data-cms-img-sm data-cms-img-ratio="4/5" src="assets/interior/t/hotel-box.webp" data-full="assets/interior/hotel-box.webp" alt="Песик у затишному боксі GAV&LOVE" loading="lazy" decoding="async" />
+      <img data-cms-img="hotel.photo3" data-cms-img-sm data-cms-img-ratio="4/5" src="assets/interior/t/hotel-5.webp" data-full="assets/interior/hotel-5.webp" alt="Гість готелю GAV&LOVE відпочиває на дивані" loading="lazy" decoding="async" />
     </div>
   </div>
 </section>
@@ -616,6 +628,6 @@
 <script src="data/gallery.js?v=20" defer></script>
 <script src="data/videos.js?v=17" defer></script>
 <script src="data/beforeafter.js?v=2" defer></script>
-<script src="scripts/main.js?v=49" defer></script>
+<script src="scripts/main.js?v=51" defer></script>
 </body>
 </html>
