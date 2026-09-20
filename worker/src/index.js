@@ -47,21 +47,25 @@ const STAFF = ["Дар'я", "Катерина", "Марія"];
 /* ----------------------------- HTTP entry ----------------------------- */
 export default {
   async fetch(request, env) {
-    const origin = env.ALLOW_ORIGIN || "*";
+    const url = new URL(request.url);
+    let company = null;
+    if (env.DB) {                                   // from here on env.DB can only see one salon
+      company = await resolveCompany(request, url, env);
+      if (company === "unknown") {
+        return json({ ok: false, error: "Невідомий салон" },
+          { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,OPTIONS" }, 404);
+      }
+      const cid = (company && company.id) || DEFAULT_COMPANY_ID;
+      env = Object.assign({}, env, { CID: cid, DBRAW: env.DB, DB: tenantDb(env.DB, cid) });
+      if (company) env = await companyEnv(env, company);   // its bot, its calendar, its site
+    }
+    // built after the salon is known: each one allows its own site, not the first salon's
     const cors = {
-      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Origin": (company && company.site_origin) || env.ALLOW_ORIGIN || "*",
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Company",
     };
     if (request.method === "OPTIONS") return new Response(null, { headers: cors });
-
-    const url = new URL(request.url);
-    if (env.DB) {                                   // from here on env.DB can only see one salon
-      const co = await resolveCompany(request, url, env);
-      const cid = (co && co.id) || DEFAULT_COMPANY_ID;
-      env = Object.assign({}, env, { CID: cid, DBRAW: env.DB, DB: tenantDb(env.DB, cid) });
-      if (co) env = await companyEnv(env, co);       // its bot, its calendar, its site
-    }
     try {
       if (url.pathname === "/slots" && request.method === "GET") {
         return json(await getSlots(url, env), cors);
@@ -162,7 +166,7 @@ export default {
         return json(await userDelete(request, env), cors);
       }
       // ---- Client reminders via Telegram ----
-      if (url.pathname === "/tg/webhook" && request.method === "POST") {
+      if ((url.pathname === "/tg/webhook" || /^\/tg\/webhook\/\d+$/.test(url.pathname)) && request.method === "POST") {
         return json(await tgWebhook(request, env), cors);        // called by Telegram (secret header checked inside)
       }
       if (url.pathname === "/admin/tg-setup" && request.method === "POST") {
@@ -252,17 +256,18 @@ export default {
         }
         return json({ ok: false, error: "not found" }, cors, 404);
       }
+      // These read the WHOLE database, every salon in it — operator only, never a salon owner.
       if (url.pathname === "/admin/backup-run" && request.method === "POST") {
-        await requireOwner(request, env);
+        requirePlatform(request, env);
         let body = {}; try { body = await request.json(); } catch (e) { }
         return json(await runBackup(env, !!(body && body.monthly)), cors);
       }
       if (url.pathname === "/admin/backup-list" && request.method === "GET") {
-        await requireOwner(request, env);
+        requirePlatform(request, env);
         return json(await backupList(env), cors);
       }
       if (url.pathname === "/admin/backup-get" && request.method === "GET") {
-        await requireOwner(request, env);
+        requirePlatform(request, env);
         const obj = await backupFetch(env, url.searchParams.get("key"));
         if (!obj) return json({ ok: false, error: "not found" }, cors, 404);
         return new Response(obj.body, { headers: { ...cors, "Content-Type": "application/sql; charset=utf-8", "Cache-Control": "no-store" } });
@@ -324,7 +329,10 @@ const TEN_KW = /^(where|group|order|limit|set|values|on|using|left|right|inner|o
 function scopeSql(sql, cid) {
   const flat = String(sql).replace(/\s+/g, " ").trim();
   if (!TEN_ONE.test(flat)) return flat;                 // companies, sqlite_master, PRAGMA — not tenant data
-  if (/\bcompany_id\b/i.test(flat)) return flat;        // hand-written and already scoped
+  // Only the OUTER statement counts: company_id inside a subquery says nothing about the rows the
+  // statement itself returns. Waving those through is exactly how the master cabinet leaked.
+  const outer = /^insert\b/i.test(flat) ? flat : flat.replace(/\(([^()]|\([^()]*\))*\)/g, "( )");
+  if (/\bcompany_id\b/i.test(outer)) return flat;       // hand-written and already scoped
   const refuse = why => { const e = new Error("Запит без company_id (" + why + "): " + flat.slice(0, 120)); e.status = 500; throw e; };
 
   if ((flat.match(TEN_ALL) || []).length !== 1) refuse("кілька таблиць");
@@ -374,10 +382,16 @@ async function resolveCompany(request, url, env) {
       const c = await raw.prepare(`SELECT co.* FROM companies co JOIN client_sessions cs ON cs.company_id=co.id WHERE cs.token=?`).bind(tok).first();
       if (c && c.id) return c;
     }
+    const w = /^\/tg\/webhook\/(\d+)$/.exec(url.pathname);        // the bot says which salon it is
+    if (w) {
+      const co = await raw.prepare(`SELECT * FROM companies WHERE id=? AND active=1`).bind(+w[1]).first();
+      return co && co.id ? co : "unknown";
+    }
     const slug = url.searchParams.get("c") || request.headers.get("X-Company") || "";
     if (slug) {
       const co = await raw.prepare(`SELECT * FROM companies WHERE slug=? AND active=1`).bind(slug).first();
       if (co && co.id) return co;
+      return "unknown";                                          // a typo must not serve another salon
     }
     return await raw.prepare(`SELECT * FROM companies WHERE id=?`).bind(DEFAULT_COMPANY_ID).first();
   } catch (e) { }
@@ -434,6 +448,10 @@ async function companySecrets(request, env) {
   const co = await DB.prepare(`SELECT id FROM companies WHERE id=?`).bind(id).first();
   if (!co) return { ok: false, error: "немає такої компанії" };
   const plain = { calendar_id: 1, sa_email: 1, tg_chat_id: 1, tg_bot: 1 };   // identifiers, not secrets
+  const secretGiven = ["sa_private_key", "tg_bot_token"].some(f => b[f] != null && String(b[f]));
+  if (secretGiven && !(await secretKey(env))) {
+    return { ok: false, error: "SECRETS_KEY не заданий або не 32 байти — секрет не збережено у відкритому вигляді" };
+  }
   const sets = [], vals = [], touched = [];
   for (const f of ["calendar_id", "sa_email", "sa_private_key", "tg_bot_token", "tg_chat_id", "tg_bot"]) {
     if (b[f] == null) continue;
@@ -480,7 +498,10 @@ async function decSecret(env, stored) {
 async function companyEnv(env, co) {
   if (!co) return env;
   const over = { COMPANY: co, CID: co.id };
-  const put = async (k, v) => { const d = await decSecret(env, v); if (d) over[k] = d; };
+  // Falling back to the worker's secrets is the migration path for company 1 and nobody else: for any
+  // other salon it would mean its bookings ringing GAV&LOVE's Telegram and landing in its calendar.
+  const inherits = co.id === DEFAULT_COMPANY_ID;
+  const put = async (k, v) => { const d = await decSecret(env, v); if (d) over[k] = d; else if (!inherits) over[k] = ""; };
   await put("CALENDAR_ID", co.calendar_id);
   await put("SA_EMAIL", co.sa_email);
   await put("SA_PRIVATE_KEY", co.sa_private_key);
@@ -758,9 +779,12 @@ async function book(body, env, source) {
       staff = freeM.name;
     }
 
-    const ev = await calCreate(env, token, { pet, pet_name, service, breed, weight, name, phone, note, date, time, staff, source });
-    eventLink = ev.htmlLink;
-    eventId = ev.id;
+    if (calOn(env)) {          // the token is fetched here, not above: busy time no longer needs one
+      const ev = await calCreate(env, await getAccessToken(env),
+        { pet, pet_name, service, breed, weight, name, phone, note, date, time, staff, source });
+      eventLink = ev.htmlLink;
+      eventId = ev.id;
+    }
   }
 
   await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest, staff, waitlist, source });
@@ -1539,7 +1563,7 @@ async function siteImageServe(url, env, cors) {
   const m = /^\/img\/(\d+)\/([0-9a-f]{16})(?:\/(t))?$/.exec(url.pathname);
   if (!m) return miss();
   // The data column is deliberately not selected: this is the public site's LCP path, not an admin screen.
-  const p = await env.DB.prepare(`SELECT mime,token,r2_key,thumb_key FROM site_media WHERE id=?`).bind(+m[1]).first();
+  const p = await (env.DBRAW || env.DB).prepare(`SELECT mime,token,r2_key,thumb_key,company_id FROM site_media WHERE id=?`).bind(+m[1]).first();
   if (!p || p.token !== m[2]) return miss();
   const bucket = photoBucket(env);
   if (!bucket) return miss();
@@ -1579,7 +1603,7 @@ async function photoServe(url, env, cors) {   // public but unguessable (16-hex 
   const miss = () => new Response("not found", { status: 404, headers: { ...cors, "Cache-Control": "no-store" } });
   const m = /^\/photo\/(\d+)\/([0-9a-f]{16})(?:\/(t))?$/.exec(url.pathname);   // …/t = the small copy for grids
   if (!m) return miss();
-  const p = await env.DB.prepare(`SELECT mime,data,token,r2_key,thumb_key FROM pet_photos WHERE id=?`).bind(+m[1]).first();
+  const p = await (env.DBRAW || env.DB).prepare(`SELECT mime,data,token,r2_key,thumb_key,company_id FROM pet_photos WHERE id=?`).bind(+m[1]).first();
   if (!p || p.token !== m[2]) return miss();
   const head = Object.assign({ "Content-Type": p.mime || "image/jpeg", "Cache-Control": PHOTO_CACHE, "X-Content-Type-Options": "nosniff" }, cors);
   const small = m[3] === "t" && p.thumb_key;
@@ -1715,7 +1739,7 @@ async function masterData(request, url, env) {
   const { results } = await env.DB.prepare(
     `SELECT id,date,time,name,phone,pet,pet_name,breed,weight,service,price,status,note,source,pay_method,pet_id,
             (SELECT COUNT(*) FROM pet_photos ph WHERE ph.pet_id=bookings.pet_id AND ph.company_id=bookings.company_id) AS photos
-       FROM bookings WHERE staff=? AND (date>=? OR date='' OR date IS NULL) ORDER BY date, time`
+       FROM bookings WHERE company_id=${env.CID} AND staff=? AND (date>=? OR date='' OR date IS NULL) ORDER BY date, time`
   ).bind(m.name, since).all();
   return {
     ok: true,
@@ -2820,7 +2844,7 @@ async function tgSetup(request, env) { // owner: remember the bot username and r
   const username = me && me.ok && me.result ? me.result.username : "";
   if (!username) return { ok: false, error: "Telegram не відповів: " + (me && me.description || "getMe failed") };
   await env.DB.prepare(`INSERT INTO settings (company_id,key,value) VALUES (${env.CID},'tg_bot',?) ON CONFLICT(company_id,key) DO UPDATE SET value=?`).bind(username, username).run();
-  const url = new URL(request.url).origin + "/tg/webhook";
+  const url = new URL(request.url).origin + "/tg/webhook/" + (env.CID || DEFAULT_COMPANY_ID);
   const wh = await tgApi(env, "setWebhook", { url, secret_token: await tgWebhookSecret(env), allowed_updates: ["message", "callback_query"] });
   try { await tgApi(env, "setMyCommands", { commands: [{ command: "book", description: "Записатися на грумінг" }, { command: "visits", description: "Мої візити — перенести чи скасувати" }, { command: "cabinet", description: "Мій кабінет на сайті" }, { command: "start", description: "Підключити нагадування" }] }); } catch (e) { }
   return { ok: !!(wh && wh.ok), bot: username, webhook: url, set: (wh && wh.description) || "", error: wh && !wh.ok ? wh.description : undefined };
