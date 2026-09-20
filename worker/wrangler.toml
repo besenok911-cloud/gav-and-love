@@ -18,6 +18,11 @@ binding = "DB"
 database_name = "gavlove-crm"
 database_id = "50b72473-38b0-4908-bcf6-3938dffbf3f2"
 
+# Pet photos (bytes). Metadata stays in D1; the row keeps r2_key.
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "gavlove-photos"
+
 # Secrets are NOT stored here. Set them with:
 #   wrangler secret put SA_EMAIL
 #   wrangler secret put SA_PRIVATE_KEY
