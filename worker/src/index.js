@@ -880,7 +880,11 @@ async function supportClose(request, env) {
 const REL_ASK_MIN = 60;     // скільки живе запит без відповіді
 const REL_BACK_MIN = 45;    // скільки світиться кнопка «повернути як було»
 function requireDeploy(request, env) {
-  if (!env.DEPLOY_TOKEN || bearer(request) !== env.DEPLOY_TOKEN) {
+  // Секрет заводить людина руками у ДВОХ місцях — у GitHub і у воркері, — і у Windows на
+  // кінці легко приїжджає невидимий перенос рядка. bearer() вхідне значення вже підрізає, тож підрізаємо і збережене — інакше два
+  // однакові на вигляд рядки не збігаються, і причину видно тільки посимвольно.
+  const want = String(env.DEPLOY_TOKEN || "").trim();
+  if (!want || bearer(request) !== want) {
     const e = new Error("Доступ лише для викочування"); e.status = 401; throw e;
   }
   return true;
