@@ -262,6 +262,11 @@ export default {
       }
       // Машинні ручки для release.yml. Окремий секрет DEPLOY_TOKEN, а не PLATFORM_TOKEN:
       // той відкриває нічні дампи з телефонами і хешами паролів, і в GitHub йому не місце.
+      // Анкета власниці салону — вона заповнює її на сторінці системи, відповіді приходять
+      // розробнику в телеграм. Ручка публічна: анкету заповнюють ДО того, як з'явився акаунт.
+      if (url.pathname === "/brief" && request.method === "POST") {
+        return json(await briefSubmit(request, env), cors);
+      }
       if (url.pathname === "/release/ask" && request.method === "POST") {
         return json(await releaseAsk(request, env), cors);
       }
@@ -865,6 +870,60 @@ async function supportClose(request, env) {
   await sendTelegram(env, "🔒 <b>Доступ для підтримки закрито.</b>").catch(() => { });
   return await supportState(env);
 }
+/* ------------------------------- Бриф ------------------------------------------------
+   Публічна ручка без пароля: анкету заповнює власниця, у якої акаунта ще може не бути.
+   Через це — три запобіжники, бо інакше це безкоштовний спамер у чужий телеграм:
+   пастка для ботів (приховане поле, яке людина не заповнює), жорсткі обмеження довжини,
+   і пауза між надсиланнями, яка живе в settings. Ключ brief_at у списку settingsSave
+   відсутній, тож ніхто зсередини CRM його не зрушить. */
+const BRIEF_GAP_SEC = 40;
+const BRIEF_MAX_FIELD = 700;
+const BRIEF_MAX_TOTAL = 3600;
+async function briefSubmit(request, env) {
+  const b = await request.json().catch(() => null);
+  if (!b || typeof b !== "object") return { ok: false, error: "Порожня анкета" };
+  // Пастка: справжня людина цього поля не бачить і не заповнює. Ботам відповідаємо «добре»,
+  // щоб вони не шукали обхід, але нікуди нічого не шлемо.
+  if (String(b.site || "").trim()) return { ok: true };
+
+  const items = Array.isArray(b.items) ? b.items.slice(0, 40) : [];
+  const clean = v => String(v == null ? "" : v).replace(/\s+/g, " ").trim().slice(0, BRIEF_MAX_FIELD);
+  const rows = items
+    .map(it => ({ q: clean(it && it.q), a: clean(it && it.a) }))
+    .filter(it => it.q && it.a);
+  if (!rows.length) return { ok: false, error: "Анкета порожня — заповніть хоча б одне поле" };
+
+  const who = clean(b.who) || "власниця салону";
+  const contact = clean(b.contact);
+  const kind = clean(b.kind) || "бриф";
+
+  const st = await loadSettings(env);
+  const last = Date.parse(st.brief_at || "") || 0;
+  if (Date.now() - last < BRIEF_GAP_SEC * 1000) {
+    return { ok: false, error: "Зачекайте хвилину — попередня анкета ще надсилається" };
+  }
+
+  // Позначку ставимо ДО надсилання: інакше кожна невдала спроба не рахувалась би, і бот
+  // міг би молотити в Telegram API без обмежень.
+  try { await setSetting(env, "brief_at", new Date().toISOString()); } catch (e) { }
+
+  let text = `📝 <b>${tgEsc(kind)}</b>\nВід: ${tgEsc(who)}${contact ? " · " + tgEsc(contact) : ""}\n`;
+  for (const r of rows) {
+    const line = `\n<b>${tgEsc(r.q)}</b>\n${tgEsc(r.a)}\n`;
+    if (text.length + line.length > BRIEF_MAX_TOTAL) { text += "\n… далі обрізано\n"; break; }
+    text += line;
+  }
+
+  // Окремий чат розробника. Якщо він не заданий — анкета йде в чат салону: краще так,
+  // ніж мовчки нікуди.
+  const chat = env.BRIEF_CHAT_ID || env.TELEGRAM_CHAT_ID;
+  if (!chat) return { ok: false, error: "Надсилання не налаштоване — напишіть нам у месенджер" };
+  const sent = await tgSendTo(env, chat, text);
+  if (!sent || sent.ok === false) return { ok: false, error: "Не вдалося надіслати. Спробуйте ще раз або напишіть у месенджер" };
+
+  return { ok: true };
+}
+
 /* ------------------------------- Випуски (оновлення коду) -------------------------------
    Роль support НЕ вміє викочувати код і не навчиться: якби сесія, якій ми свідомо не дали
    телефонів клієнтів, могла замінити код, що ці телефони віддає, білий список скасовувався б
@@ -2252,7 +2311,9 @@ async function loadSettings(env) {
     client_reminders_enabled: "1", remind_hours_before: "2", tg_bot: "",
     // Вимикач підтримки. У списку settingsSave його немає і бути не повинно: змінюють його
     // тільки /admin/support-open та /admin/support-close, і обидві — лише для власниці.
-    support_until: "", support_prices: "0" };
+    support_until: "", support_prices: "0",
+    // Коли востаннє надсилали анкету — щоб публічна ручка /brief не стала спамером.
+    brief_at: "" };
   if (!env.DB) return def;
   try {
     const { results } = await env.DB.prepare(`SELECT key, value FROM settings`).all();

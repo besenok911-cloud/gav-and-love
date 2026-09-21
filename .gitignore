@@ -14,3 +14,6 @@ worker/.dev.vars
 Archive/
 # screenshots the design pass leaves behind
 Claude outputs/
+
+# памятка клиенту: содержит пароли, в репозиторий не попадает
+handover/
