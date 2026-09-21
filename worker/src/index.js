@@ -2027,7 +2027,11 @@ async function health(env) {
       users: await one(`SELECT COUNT(*) AS n FROM users WHERE active=1`),
     };
     out.upcoming = await one(`SELECT COUNT(*) AS n FROM bookings WHERE date>='${today}' AND COALESCE(status,'new') NOT IN ('cancelled','no_show')`);
-    out.booked_last_24h = await one(`SELECT COUNT(*) AS n FROM bookings WHERE created_at > datetime('now','-1 day')`);
+    // created_at is stored as a JS ISO string ("…T22:56:55.239Z") and SQLite's datetime() returns
+    // "… 11:19:35" with a space. Compared as text, "T" sorts after " ", so the SQLite form quietly
+    // swept in a whole extra day. Build the boundary in the same format the column uses.
+    const since = new Date(Date.now() - 86400000).toISOString();
+    out.booked_last_24h = await one(`SELECT COUNT(*) AS n FROM bookings WHERE created_at > '${since}'`);
     // An installation that cannot take a booking is the thing worth shouting about.
     if (!out.counts.masters) { out.ok = false; out.warn = "немає жодного активного майстра — форма запису не запропонує часу"; }
   } catch (e) { out.ok = false; out.db = String(e && e.message || e); }
