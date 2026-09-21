@@ -1,0 +1,338 @@
+# Випуск оновлення — єдиний шлях, яким код потрапляє в салон.
+#
+# Пуш у main НІЧОГО не викочує. Викочує тільки цей прогін, і тільки після того, як власниця
+# натисне «✅ Випустити» в чаті салону. Вона не заводить акаунт GitHub, не читає діфи і не
+# знає слова «деплой»: у неї в чаті зʼявляється одне речення і дві кнопки.
+#
+# Воркер і сайт їдуть ОДНИМ прогоном. Інакше 90% коду (admin.html — це вся CRM) публікувалося б
+# повз дозвіл, як було раніше, коли Pages збирався прямо з гілки main.
+#
+# Чесно про межі: це НЕ захист від розробника, який захотів нашкодити — код, що викочується,
+# може видати собі що завгодно. Це облік, пауза і кнопка «назад». Див. worker/HANDOVER.md.
+#
+# ЗАПУСК:
+#   gh workflow run release.yml -f note="Зарплата за жовтень рахувалася не так — полагодив"
+# Налаштування один раз — worker/HANDOVER.md, розділ «Як розробник випускає оновлення».
+
+name: Випуск оновлення
+
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "Що зміниться — реченням, яке ПРОЧИТАЄ ВЛАСНИЦЯ (не заголовок коміта)"
+        required: true
+      migrated:
+        description: "Міграцію бази вже накотили руками?"
+        type: boolean
+        default: false
+      emergency:
+        description: "Терміново, без запиту дозволу — тільки коли салон стоїть"
+        type: boolean
+        default: false
+      reason:
+        description: "Причина терміновості (обовʼязково при галочці вище)"
+        required: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  WORKER_URL: ${{ vars.WORKER_URL }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # github-pages — вимога actions/deploy-pages. Секрети Cloudflare і DEPLOY_TOKEN лежать
+    # на рівні репозиторію: Environment-секрети тут захистили б від того, хто й так адміністратор
+    # цього репозиторію, тобто ні від кого.
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    outputs:
+      prev_sha: ${{ steps.what.outputs.prev_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Чи все налаштовано
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACC: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DT: ${{ secrets.DEPLOY_TOKEN }}
+          EMERGENCY: ${{ inputs.emergency }}
+          REASON: ${{ inputs.reason }}
+          NOTE: ${{ inputs.note }}
+        run: |
+          set -eu
+          [ -n "$CF" ] && [ -n "$ACC" ] || { echo "::error::Немає CLOUDFLARE_API_TOKEN або CLOUDFLARE_ACCOUNT_ID"; exit 1; }
+          [ -n "$DT" ] || { echo "::error::Немає секрету DEPLOY_TOKEN"; exit 1; }
+          [ -n "${WORKER_URL:-}" ] || { echo "::error::Немає змінної WORKER_URL (Settings → Variables)"; exit 1; }
+          [ "${#NOTE}" -ge 10 ] || { echo "::error::Опис для власниці закороткий — напишіть речення, а не слово"; exit 1; }
+          if [ "$EMERGENCY" = "true" ] && [ "${#REASON}" -lt 20 ]; then
+            echo "::error::Терміновий випуск без причини не буває — заповніть reason (мін. 20 символів)"
+            exit 1
+          fi
+
+      # Поки сайт публікується з гілки, кожен пуш у main міняє CRM повз дозвіл власниці,
+      # і весь цей механізм — театр. Тому падаємо, а не попереджаємо.
+      - name: Чи публікується сайт цим прогоном
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          bt=$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq .build_type 2>/dev/null || echo none)
+          if [ "$bt" != "workflow" ]; then
+            echo "::error::Сайт публікується з гілки ($bt), тобто CRM їде повз дозвіл. Виконайте: gh api -X PUT repos/${GITHUB_REPOSITORY}/pages -f build_type=workflow"
+            exit 1
+          fi
+
+      - name: Синтаксис воркера
+        run: node --check worker/src/index.js
+
+      - name: Що саме їде
+        id: what
+        env:
+          DT: ${{ secrets.DEPLOY_TOKEN }}
+          MIGRATED: ${{ inputs.migrated }}
+        run: |
+          set -eu
+          prev=$(curl -fsS -H "Authorization: Bearer $DT" "$WORKER_URL/release/last" \
+                 | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);process.stdout.write((j.last&&j.last.sha)||"")}catch(e){}})')
+          echo "prev_sha=$prev" >> "$GITHUB_OUTPUT"
+          if [ -z "$prev" ]; then
+            echo "Перший випуск — порівнювати нема з чим."
+            echo "mig=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(git diff --name-only "$prev" "$GITHUB_SHA" || true)
+          echo "Зміни від попереднього випуску:"
+          echo "$files"
+          if echo "$files" | grep -qE '^worker/(migrations/|schema\.sql)'; then
+            echo "mig=1" >> "$GITHUB_OUTPUT"
+            if [ "$MIGRATED" != "true" ]; then
+              echo "::error::У цьому оновленні змінюється база. Накотіть міграцію руками і запустіть ще раз із галочкою «Міграцію вже накотили»."
+              exit 1
+            fi
+          else
+            echo "mig=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Запитати дозволу власниці
+        env:
+          DT: ${{ secrets.DEPLOY_TOKEN }}
+          NOTE: ${{ inputs.note }}
+          WHO: ${{ github.actor }}
+          PREV: ${{ steps.what.outputs.prev_sha }}
+          MIG: ${{ steps.what.outputs.mig }}
+          EMERGENCY: ${{ inputs.emergency }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          set -eu
+          node -e '
+            const e = process.env;
+            process.stdout.write(JSON.stringify({
+              n: +e.GITHUB_RUN_NUMBER,
+              sha: e.GITHUB_SHA,
+              prev_sha: e.PREV || "",
+              note: e.EMERGENCY === "true" ? (e.NOTE + " [терміново: " + e.REASON + "]") : e.NOTE,
+              who: e.WHO,
+              run_url: e.GITHUB_SERVER_URL + "/" + e.GITHUB_REPOSITORY + "/actions/runs/" + e.GITHUB_RUN_ID,
+              had_migration: e.MIG === "1",
+              auto: e.EMERGENCY === "true",
+            }));
+          ' > ask.json
+          curl -fsS -X POST -H "Authorization: Bearer $DT" -H "Content-Type: application/json" \
+            --data-binary @ask.json "$WORKER_URL/release/ask"
+          rm -f ask.json
+
+      - name: Чекати на кнопку в чаті салону
+        env:
+          DT: ${{ secrets.DEPLOY_TOKEN }}
+        run: |
+          set -eu
+          for _ in $(seq 1 240); do
+            st=$(curl -fsS -H "Authorization: Bearer $DT" "$WORKER_URL/release/state?n=$GITHUB_RUN_NUMBER" \
+                 | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).state||"")}catch(e){}})')
+            case "$st" in
+              ok) echo "Дозволено."; exit 0 ;;
+              no) echo "::error::Власниця відклала оновлення — нічого не поїхало."; exit 1 ;;
+              expired) echo "::error::Запит згас без відповіді — нічого не поїхало."; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "::error::Не дочекались відповіді."
+          exit 1
+
+      - name: Поставити штамп збірки
+        id: stamp
+        run: |
+          set -eu
+          v="r${GITHUB_RUN_NUMBER}-$(echo "$GITHUB_SHA" | cut -c1-7)"
+          echo "v=$v" >> "$GITHUB_OUTPUT"
+          STAMP="$v" node -e '
+            const fs = require("fs"), f = "worker/src/index.js";
+            const s = fs.readFileSync(f, "utf8"), a = "const BUILD = \"dev\";";
+            if (s.split(a).length - 1 !== 1) { console.error("не знайшов рядок BUILD"); process.exit(1); }
+            fs.writeFileSync(f, s.replace(a, "const BUILD = \"" + process.env.STAMP + "\";"));
+          '
+          grep -n 'const BUILD' worker/src/index.js
+
+      - uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: 'deploy --env="" --message "випуск ${{ github.run_number }}"'
+
+      # Перевіряємо ЗБІГ ШТАМПА, а не «ok:true»: публічний /health віддає ok беззастережно,
+      # а збіг штампа доводить і що поїхав саме цей код, і що модуль узагалі завантажився.
+      # У публічний лог друкуємо лише рядок версії — репозиторій відкритий.
+      - name: Перевірити, що поїхав саме цей код
+        env:
+          WANT: ${{ steps.stamp.outputs.v }}
+        run: |
+          set -eu
+          sleep 6
+          got=""
+          for _ in 1 2 3 4 5; do
+            got=$(curl -fsS "$WORKER_URL/health" \
+                  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).build||"")}catch(e){}})' || true)
+            [ "$got" = "$WANT" ] && break
+            sleep 4
+          done
+          echo "очікували $WANT, отримали $got"
+          [ "$got" = "$WANT" ] || { echo "::error::Воркер не відповідає новим штампом"; exit 1; }
+
+      - name: Зібрати сайт
+        run: |
+          set -eu
+          rm -rf _site
+          mkdir _site
+          rsync -a --exclude '.git' --exclude '_site' --exclude 'worker' --exclude '.github' \
+                   --exclude 'photo' --exclude 'node_modules' --exclude 'Archive' ./ _site/
+          ls _site | head -30
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: pages
+        uses: actions/deploy-pages@v4
+
+      - name: Записати випуск
+        env:
+          DT: ${{ secrets.DEPLOY_TOKEN }}
+          WANT: ${{ steps.stamp.outputs.v }}
+        run: |
+          curl -fsS -X POST -H "Authorization: Bearer $DT" -H "Content-Type: application/json" \
+            -d "{\"n\":$GITHUB_RUN_NUMBER,\"ok\":true,\"build\":\"$WANT\"}" \
+            "$WORKER_URL/release/done" || true
+
+      - name: Сказати, що не поїхало
+        if: failure()
+        env:
+          DT: ${{ secrets.DEPLOY_TOKEN }}
+        run: |
+          curl -fsS -X POST -H "Authorization: Bearer $DT" -H "Content-Type: application/json" \
+            -d "{\"n\":$GITHUB_RUN_NUMBER,\"ok\":false,\"problem\":\"прогін $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}" \
+            "$WORKER_URL/release/done" || true
+
+  # 45 хвилин, поки в чаті світиться «↩️ Повернути як було». Кнопка нічого не викочує сама —
+  # вона ставить прапорець у базі, а відкат робить цей job, бо доступ до Cloudflare є тільки
+  # тут. Воркер не має і не матиме токена GitHub чи Cloudflare: напрямок довіри односторонній.
+  #
+  # Відкат = викотити ПОПЕРЕДНІЙ КОМІТ цілком, а не wrangler rollback: Cloudflare тримає лише
+  # десять останніх версій, а коміт нікуди не дінеться.
+  watch:
+    needs: release
+    if: success() && needs.release.outputs.prev_sha != ''
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Чекати, чи не натиснуть «повернути як було»
+        id: watch
+        env:
+          DT: ${{ secrets.DEPLOY_TOKEN }}
+        run: |
+          set -eu
+          for _ in $(seq 1 135); do
+            st=$(curl -fsS -H "Authorization: Bearer $DT" "$WORKER_URL/release/state?n=$GITHUB_RUN_NUMBER" \
+                 | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).state||"")}catch(e){}})')
+            if [ "$st" = "rollback" ]; then
+              echo "back=yes" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "back=no" >> "$GITHUB_OUTPUT"
+          echo "Ніхто не повертав — випуск лишається."
+
+      - uses: actions/checkout@v4
+        if: steps.watch.outputs.back == 'yes'
+        with:
+          ref: ${{ needs.release.outputs.prev_sha }}
+          fetch-depth: 0
+
+      - name: Поставити штамп відкату
+        if: steps.watch.outputs.back == 'yes'
+        id: stamp
+        env:
+          PREV: ${{ needs.release.outputs.prev_sha }}
+        run: |
+          set -eu
+          v="r${GITHUB_RUN_NUMBER}back-$(echo "$PREV" | cut -c1-7)"
+          echo "v=$v" >> "$GITHUB_OUTPUT"
+          STAMP="$v" node -e '
+            const fs = require("fs"), f = "worker/src/index.js";
+            const s = fs.readFileSync(f, "utf8"), a = "const BUILD = \"dev\";";
+            if (s.split(a).length - 1 !== 1) { console.error("не знайшов рядок BUILD"); process.exit(1); }
+            fs.writeFileSync(f, s.replace(a, "const BUILD = \"" + process.env.STAMP + "\";"));
+          '
+
+      - uses: cloudflare/wrangler-action@v4
+        if: steps.watch.outputs.back == 'yes'
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: 'deploy --env="" --message "відкат випуску ${{ github.run_number }}"'
+
+      - name: Зібрати попередній сайт
+        if: steps.watch.outputs.back == 'yes'
+        run: |
+          set -eu
+          rm -rf _site
+          mkdir _site
+          rsync -a --exclude '.git' --exclude '_site' --exclude 'worker' --exclude '.github' \
+                   --exclude 'photo' --exclude 'node_modules' --exclude 'Archive' ./ _site/
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.watch.outputs.back == 'yes'
+        with:
+          path: _site
+
+      - uses: actions/deploy-pages@v4
+        if: steps.watch.outputs.back == 'yes'
+
+      - name: Записати відкат
+        if: steps.watch.outputs.back == 'yes'
+        env:
+          DT: ${{ secrets.DEPLOY_TOKEN }}
+        run: |
+          curl -fsS -X POST -H "Authorization: Bearer $DT" -H "Content-Type: application/json" \
+            -d "{\"n\":$GITHUB_RUN_NUMBER,\"rolled_back\":true}" \
+            "$WORKER_URL/release/done" || true

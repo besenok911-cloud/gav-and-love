@@ -176,6 +176,9 @@ CREATE TABLE IF NOT EXISTS "tg_sessions" (
 -- відкриває доступ розробнику.
 CREATE TABLE IF NOT EXISTS support_log (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL DEFAULT 1, at TEXT NOT NULL, who TEXT NOT NULL, act TEXT NOT NULL);
 
+-- Журнал випусків коду: дозвіл власниці, запис і вказівник для відкату. Див. release.yml.
+CREATE TABLE IF NOT EXISTS releases (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL DEFAULT 1, n INTEGER NOT NULL, sha TEXT NOT NULL, prev_sha TEXT, build TEXT, note TEXT NOT NULL, who TEXT, run_url TEXT, had_migration INTEGER DEFAULT 0, state TEXT NOT NULL, at TEXT NOT NULL, decided_by TEXT, decided_at TEXT);
+
 -- ============================== індекси ==============================
 
 CREATE INDEX IF NOT EXISTS idx_bookings_company_client  ON bookings   (company_id, client_id);
@@ -198,6 +201,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_company         ON sessions   (company_i
 CREATE INDEX IF NOT EXISTS idx_site_media_company       ON site_media (company_id, cms_key);
 CREATE INDEX IF NOT EXISTS idx_site_media_unref ON site_media(unref_at);
 CREATE INDEX IF NOT EXISTS idx_support_log_at ON support_log(at);
+CREATE INDEX IF NOT EXISTS idx_releases_n ON releases(n);
 CREATE INDEX IF NOT EXISTS idx_users_company            ON users      (company_id);
 
 -- ============================== перший рядок ==============================

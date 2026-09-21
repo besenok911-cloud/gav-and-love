@@ -24,6 +24,11 @@
    else now owns misbehaves, the first question is which version it is on, and there is no other way
    to ask. Reported by GET /health. */
 const VERSION = "2026-09-21";
+/* Штамп конкретної збірки. Рядок нижче переписує release.yml перед викочуванням — sed-ом по
+   ЦЬОМУ файлу, а не через змінну оточення: VERSION живе в модульній області, де env ще не існує,
+   і спроба прочитати env тут поклала б воркер на кожному запиті (node --check такого не бачить).
+   По ньому ж workflow перевіряє, що поїхав саме той код, який мав. "dev" = зібрано з ноутбука. */
+const BUILD = "dev";
 
 const BUSINESS = {
   tz: "Europe/Kyiv",
@@ -86,7 +91,7 @@ export default {
       // database — an uptime monitor hitting this every minute should cost nothing.
       if (url.pathname === "/health" && request.method === "GET") {
         if (!env.PLATFORM_TOKEN || bearer(request) !== env.PLATFORM_TOKEN) {
-          return json({ ok: true, version: VERSION }, cors);
+          return json({ ok: true, version: VERSION, build: BUILD }, cors);
         }
         return json(await health(env), cors);
       }
@@ -254,6 +259,26 @@ export default {
       if (url.pathname === "/admin/health" && request.method === "GET") {
         await requireAdmin(request, env);
         return json(await health(env), cors);
+      }
+      // Машинні ручки для release.yml. Окремий секрет DEPLOY_TOKEN, а не PLATFORM_TOKEN:
+      // той відкриває нічні дампи з телефонами і хешами паролів, і в GitHub йому не місце.
+      if (url.pathname === "/release/ask" && request.method === "POST") {
+        return json(await releaseAsk(request, env), cors);
+      }
+      if (url.pathname === "/release/state" && request.method === "GET") {
+        return json(await releaseState(request, url, env), cors);
+      }
+      if (url.pathname === "/release/last" && request.method === "GET") {
+        return json(await releaseLast(request, env), cors);
+      }
+      if (url.pathname === "/release/done" && request.method === "POST") {
+        return json(await releaseDone(request, env), cors);
+      }
+      // Історія випусків для CRM. НЕ поле в supportState(): /admin/support стоїть у білому
+      // списку підтримки, і все, що там лежить, підтримка бачить.
+      if (url.pathname === "/admin/releases" && request.method === "GET") {
+        await requireAdmin(request, env);
+        return json(await releaseList(env), cors);
       }
       if (url.pathname === "/admin/support" && request.method === "GET") {
         await requireAdmin(request, env);
@@ -839,6 +864,124 @@ async function supportClose(request, env) {
   try { await supportLog(env, "власниця", "закрила доступ"); } catch (e) { }
   await sendTelegram(env, "🔒 <b>Доступ для підтримки закрито.</b>").catch(() => { });
   return await supportState(env);
+}
+/* ------------------------------- Випуски (оновлення коду) -------------------------------
+   Роль support НЕ вміє викочувати код і не навчиться: якби сесія, якій ми свідомо не дали
+   телефонів клієнтів, могла замінити код, що ці телефони віддає, білий список скасовувався б
+   одним запитом. Тому викочує GitHub Actions, а власниця тримає три речі, які роль дати не може:
+   ДОЗВІЛ (кнопка в чаті салону), ЗАПИС (таблиця releases) і ВІДКАТ (кнопка «повернути як було»).
+
+   Напрямок довіри односторонній: GitHub стукає сюди, воркер у GitHub — ніколи. Тому тут немає
+   і не буде токена GitHub чи Cloudflare: воркер уміє лише відповісти «дозволено» або «ні».
+
+   Канал — телеграм, а не CRM. По-перше, власниця вже тисне ✅/❌ на бронях у тому самому чаті.
+   По-друге, кнопка в CRM жила б у admin.html — тобто у файлі, який оновлення і замінює: рівно
+   тоді, коли треба відкотитись, кнопки б не було. */
+const REL_ASK_MIN = 60;     // скільки живе запит без відповіді
+const REL_BACK_MIN = 45;    // скільки світиться кнопка «повернути як було»
+function requireDeploy(request, env) {
+  if (!env.DEPLOY_TOKEN || bearer(request) !== env.DEPLOY_TOKEN) {
+    const e = new Error("Доступ лише для викочування"); e.status = 401; throw e;
+  }
+  return true;
+}
+// Опис від розробника йде в HTML-повідомлення, тому екранується наявною tgEsc (нижче у файлі):
+// одна кутова дужка в тексті інакше зламала б усе повідомлення разом із кнопками.
+const relRow = (env, nn) => env.DB.prepare(`SELECT * FROM releases WHERE n=? ORDER BY id DESC LIMIT 1`).bind(nn).first();
+async function releaseAsk(request, env) {
+  requireDeploy(request, env);
+  const b = await request.json();
+  const nn = +b.n, note = String(b.note || "").trim();
+  if (!nn || note.length < 10) return { ok: false, error: "потрібні n і note (мін. 10 символів)" };
+  const now = new Date().toISOString();
+  await env.DB.prepare(`DELETE FROM releases WHERE n=?`).bind(nn).run();
+  await env.DB.prepare(
+    `INSERT INTO releases (company_id,n,sha,prev_sha,note,who,run_url,had_migration,state,at) VALUES (${env.CID},?,?,?,?,?,?,?,?,?)`
+  ).bind(nn, String(b.sha || ""), String(b.prev_sha || ""), note, String(b.who || ""), String(b.run_url || ""), b.had_migration ? 1 : 0, b.auto ? "ok" : "pending", now).run();
+  if (b.auto) return { ok: true, n: nn, state: "ok" };
+  await tgSendTo(env, env.TELEGRAM_CHAT_ID,
+    `🔔 <b>Оновлення №${nn}</b>\n${tgEsc(b.who || "Підтримка")} просить дозволу випустити.\n\n<b>Що зміниться:</b> ${tgEsc(note)}\n` +
+    (b.had_migration ? "\n⚠️ У цьому оновленні змінюється сама база.\n" : "") +
+    `\nЯкщо зараз незручно — тисніть «Не зараз», нічого не поїде.`,
+    kb([[{ text: "✅ Випустити", callback_data: `rel:ok:${nn}` }, { text: "🕘 Не зараз", callback_data: `rel:no:${nn}` }]]));
+  return { ok: true, n: nn, state: "pending" };
+}
+async function releaseState(request, url, env) {
+  requireDeploy(request, env);
+  const nn = +url.searchParams.get("n");
+  const r = await relRow(env, nn);
+  if (!r) return { ok: false, error: "not found" };
+  // Мовчання означає «ні». Автосхвалення через N хвилин перетворило б дозвіл на таймер.
+  if (r.state === "pending" && new Date(r.at).getTime() + REL_ASK_MIN * 60e3 < Date.now()) {
+    await env.DB.prepare(`UPDATE releases SET state='expired' WHERE id=?`).bind(r.id).run();
+    await tgSendTo(env, env.TELEGRAM_CHAT_ID, `🕘 Запит на оновлення №${nn} згас — нічого не поїхало.`);
+    return { ok: true, state: "expired" };
+  }
+  return { ok: true, state: r.state, prev_sha: r.prev_sha || "", decided_by: r.decided_by || "" };
+}
+async function releaseLast(request, env) {
+  requireDeploy(request, env);
+  const r = await env.DB.prepare(`SELECT n,sha,build FROM releases WHERE state IN ('live','rolled_back') ORDER BY id DESC LIMIT 1`).first();
+  return { ok: true, last: r || null };
+}
+async function releaseDone(request, env) {
+  requireDeploy(request, env);
+  const b = await request.json();
+  const nn = +b.n, r = await relRow(env, nn);
+  if (!r) return { ok: false, error: "not found" };
+  if (b.rolled_back) {
+    await env.DB.prepare(`UPDATE releases SET state='rolled_back' WHERE id=?`).bind(r.id).run();
+    await tgSendTo(env, env.TELEGRAM_CHAT_ID, `↩️ <b>Повернули як було.</b>\nЯкщо CRM відкрита — перезавантажте сторінку (Ctrl+Shift+R).`);
+    return { ok: true, state: "rolled_back" };
+  }
+  if (!b.ok) {
+    await env.DB.prepare(`UPDATE releases SET state='failed' WHERE id=?`).bind(r.id).run();
+    await tgSendTo(env, env.TELEGRAM_CHAT_ID, `⚠️ Оновлення №${nn} не встановилось — усе лишилось як було.\n${tgEsc(b.problem || "")}`);
+    return { ok: true, state: "failed" };
+  }
+  await env.DB.prepare(`UPDATE releases SET state='live', build=? WHERE id=?`).bind(String(b.build || ""), r.id).run();
+  await tgSendTo(env, env.TELEGRAM_CHAT_ID,
+    `✅ <b>Оновлення №${nn} встановлено.</b>\n${tgEsc(r.note)}\n` +
+    (r.had_migration ? `\n⚠️ У цьому оновленні змінювалась сама база. Кнопка поверне програму, але записи й клієнтів, що зʼявилися після цієї хвилини, це не чіпає.\n` : "") +
+    `\nЯкщо щось поводиться не так — натисніть, і повернемо як було. Кнопка діє ${REL_BACK_MIN} хвилин.`,
+    kb([[{ text: "↩️ Повернути як було", callback_data: `rel:back:${nn}` }]]));
+  return { ok: true, state: "live" };
+}
+async function releaseList(env) {
+  try {
+    const { results } = await env.DB.prepare(`SELECT n,note,who,state,at,decided_by,decided_at,had_migration FROM releases ORDER BY id DESC LIMIT 30`).all();
+    return { ok: true, releases: results || [] };
+  } catch (e) { return { ok: true, releases: [] }; }
+}
+/* Кнопки випуску в чаті салону. Повертає true, якщо це була саме така кнопка. */
+async function releaseButton(env, cq, chat) {
+  const m = /^rel:(ok|no|back):(\d+)$/.exec(cq.data || "");
+  if (!m) return false;
+  const ans = (text) => tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id, text });
+  // Кнопки випуску живуть тільки в чаті салону. У приватному чаті клієнта їм робити нічого.
+  if (String(chat) !== String(env.TELEGRAM_CHAT_ID || "")) { await ans("Ця кнопка не для цього чату"); return true; }
+  const nn = +m[2], r = await relRow(env, nn);
+  if (!r) { await ans("Оновлення не знайдено"); return true; }
+  const who = [cq.from && cq.from.first_name, cq.from && cq.from.last_name].filter(Boolean).join(" ") || (cq.from && cq.from.username) || "у чаті салону";
+  const clear = () => tgApi(env, "editMessageReplyMarkup", { chat_id: chat, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] } });
+  const now = new Date().toISOString();
+  if (m[1] === "back") {
+    if (r.state !== "live") { await ans("Це оновлення вже не можна повернути"); await clear(); return true; }
+    // Кнопка сама нічого не викочує — вона лише ставить прапорець. Викочує GitHub, який усі
+    // ці хвилини чекає й дивиться сюди. Воркер не має і не матиме доступу до Cloudflare.
+    await env.DB.prepare(`UPDATE releases SET state='rollback', decided_by=?, decided_at=? WHERE id=?`).bind(who, now, r.id).run();
+    await clear();
+    await ans("Повертаємо…");
+    await tgSendTo(env, env.TELEGRAM_CHAT_ID, `↩️ <b>Повертаємо оновлення №${nn}.</b> Програма — приблизно за хвилину.`);
+    return true;
+  }
+  if (r.state !== "pending") { await ans("Цей запит уже не активний"); await clear(); return true; }
+  const st = m[1] === "ok" ? "ok" : "no";
+  await env.DB.prepare(`UPDATE releases SET state=?, decided_by=?, decided_at=? WHERE id=?`).bind(st, who, now, r.id).run();
+  await clear();
+  await ans(st === "ok" ? "Дякую, встановлюємо…" : "Гаразд, не зараз");
+  if (st === "no") await tgSendTo(env, env.TELEGRAM_CHAT_ID, `🕘 Оновлення №${nn} відкладено — нічого не поїхало.`);
+  return true;
 }
 async function requireOwner(request, env) {
   const s = await requireAdmin(request, env);
@@ -2233,14 +2376,14 @@ const backupBucket = env => (env && env.BACKUPS && typeof env.BACKUPS.put === "f
 
 const EXPECTED_TABLES = ["bookings", "clients", "pets", "pet_photos", "masters", "services", "expenses",
   "reviews", "users", "sessions", "client_sessions", "client_otp", "settings", "tg_sessions",
-  "site_media", "companies", "support_log"];
+  "site_media", "companies", "support_log", "releases"];
 
 /* Enough to diagnose someone else's installation without opening their data. Deliberately has no
    client names, phones or notes in it: supporting a salon should not require reading its clients.
    Behind the operator's token, because the shape of a business is information too. */
 async function health(env) {
   const out = {
-    ok: true, version: VERSION, at: new Date().toISOString(),
+    ok: true, version: VERSION, build: BUILD, at: new Date().toISOString(),
     site: env.SITE_URL || "", origin: env.ALLOW_ORIGIN || "",
     calendar: calOn(env),
     telegram: !!(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID),
@@ -2699,6 +2842,8 @@ async function handleTgUpdate(env, u) {
       await sendCabinetLink(env, chat, c.id);
       return;
     }
+    // Перед розбором кнопок броні: нижче невідомий callback_data мовчки ігнорується.
+    if (await releaseButton(env, cq, chat)) return;
     const m = /^(ok|cancel|mv):(\d+)$/.exec(cq.data);
     if (!m) return;
     const b = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE id=?`).bind(+m[2]).first();

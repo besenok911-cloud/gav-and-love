@@ -908,6 +908,10 @@
     </div>
 
     <p class="modal-err" id="supErr"></p>
+    <h3 style="margin:18px 0 8px;font-size:.95rem">Встановлені оновлення</h3>
+    <p class="muted" style="font-size:.8rem;margin:0 0 8px">Оновлення програми приходять окремо — кнопкою в чаті салону. Тут видно, що і коли встановили.</p>
+    <div id="sup-rel" style="max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:12px"></div>
+
     <h3 style="margin:18px 0 8px;font-size:.95rem">Що робила підтримка</h3>
     <div id="sup-log" style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:12px"></div>
     <div class="sheet-act"><span style="flex:1"></span><button class="btn ghost sm" id="sup-close-modal" style="border-color:var(--line);color:var(--ink-soft)">Закрити</button></div>
@@ -1165,6 +1169,7 @@
     // Прайс переїжджає між списками, і рядок «бачить, але не змінює» має за ним встигати.
     $("#sup-readonly").textContent="Бачить, але не змінює: "+((supState&&supState.prices)?"":"прайс, ")+"графік майстрів, стан системи.";
     $("#supErr").textContent=open?"Доступ відкрито до "+supWhen(supState.until)+". Закрити можна в будь-який момент — кнопкою в жовтій смузі вгорі.":"";
+    renderReleases();
     var log=(supState&&supState.log)||[];
     $("#sup-log").innerHTML=log.length?log.map(function(r){
       return '<div style="display:flex;gap:10px;padding:.5em .8em;border-bottom:1px solid var(--line);font-size:.85rem">'+
@@ -1173,6 +1178,25 @@
         '<span style="flex:1">'+esc(r.act)+'</span></div>';}).join(""):
       '<p class="nodata" style="padding:14px">Підтримка ще нічого не робила.</p>';
   }
+  /* Історія випусків приходить ОКРЕМОЮ ручкою, а не полем у /admin/support: той стоїть у
+     білому списку підтримки, і все, що в ньому лежить, підтримка бачить. */
+  // Модалку малюють двічі поспіль (refreshSupBar і наступний renderSupModal), тож без спільної
+  // обіцянки другий виклик бачив уже не-null порожній список і перетирав ним відповідь першого.
+  var relList=null,relFetch=null;
+  var REL_L={live:"встановлено",rolled_back:"повернули як було",no:"відкладено",expired:"згасло без відповіді",failed:"не встановилось",pending:"чекає на вашу кнопку",ok:"встановлюється…",rollback:"повертаємо…"};
+  async function renderReleases(){
+    if(relList===null){
+      if(!relFetch)relFetch=api("/admin/releases").then(function(x){return (x&&x.releases)||[];}).catch(function(){return [];});
+      relList=await relFetch;
+    }
+    var el=$("#sup-rel");if(!el)return;
+    el.innerHTML=relList.length?relList.map(function(r){
+      return '<div style="display:flex;gap:10px;padding:.5em .8em;border-bottom:1px solid var(--line);font-size:.85rem">'+
+        '<span class="muted" style="flex:0 0 96px">'+esc(supWhen(r.decided_at||r.at))+'</span>'+
+        '<span style="flex:1">'+esc(r.note||'')+(r.had_migration?' <span class="muted">· зачіпало базу</span>':'')+'</span>'+
+        '<span class="muted" style="flex:0 0 auto">'+esc(REL_L[r.state]||r.state)+'</span></div>';}).join(""):
+      '<p class="nodata" style="padding:14px">Оновлень ще не встановлювали.</p>';
+  }
   async function supSet(path,body){
     try{
       var d=await api(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})});
@@ -1180,7 +1204,7 @@
       supState=d;renderSupModal();refreshSupBar();
     }catch(e){$("#supErr").textContent="Помилка з'єднання";}
   }
-  $("#supBtn").addEventListener("click",async function(){$("#supModal").classList.add("open");await refreshSupBar();renderSupModal();});
+  $("#supBtn").addEventListener("click",async function(){$("#supModal").classList.add("open");relList=null;relFetch=null;await refreshSupBar();renderSupModal();});
   $("#sup-close-modal").addEventListener("click",function(){$("#supModal").classList.remove("open");});
   $("#supModal").addEventListener("click",function(e){if(e.target===$("#supModal"))$("#supModal").classList.remove("open");});
   $("#sup-go").addEventListener("click",function(){supSet("/admin/support-open",{hours:+$("#sup-hours").value,prices:$("#sup-prices").checked?1:0});});
