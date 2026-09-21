@@ -1,3 +1,9 @@
+-- ІСТОРІЯ. Цю міграцію накотили на живу базу 21.09.2026, коли планували тримати кілька
+-- салонів в одній базі. Від того задуму відмовилися того ж дня: кожен салон продається як
+-- окреме рішення зі своїм воркером і своєю базою. Колонки company_id лишилися (див. schema.sql).
+-- ДЛЯ НОВОГО САЛОНУ ЦЕЙ ФАЙЛ НЕ ПОТРІБЕН І НЕ СПРАЦЮЄ: він не ідемпотентний і робить
+-- ALTER TABLE по таблицях, яких у порожній базі ще немає. Розгортання — з worker/schema.sql.
+
 -- Multitenancy, step 1: every row learns which salon it belongs to.
 --
 -- Deliberately backward compatible: company_id defaults to 1 everywhere, and GAV&LOVE IS company 1,

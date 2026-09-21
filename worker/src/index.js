@@ -13,9 +13,11 @@
  *   TELEGRAM_BOT_TOKEN  bot token
  *   TELEGRAM_CHAT_ID    chat id to notify
  *   ALLOW_ORIGIN        allowed site origin (e.g. https://besenok911-cloud.github.io)
- *   PLATFORM_TOKEN      operator-only: create companies and set their credentials (/platform/*)
- *   SECRETS_KEY         base64 of 32 random bytes; encrypts per-company bot tokens and keys.
- *                       A company with none of its own falls back to the secrets above.
+ *   ADMIN_TOKEN         emergency owner password for the CRM (a password, not a bearer token)
+ *   PLATFORM_TOKEN      operator-only: download the nightly dumps (/admin/backup-*)
+ *
+ * One worker serves one salon: its own D1, its own buckets, its own secrets. SECRETS_KEY is gone
+ * with the per-company credential store it used to encrypt.
  */
 
 const BUSINESS = {
@@ -46,25 +48,39 @@ const REQUEST_SERVICES = new Set(["Міні-готель", "Денний сад�
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    let company = null;
-    if (env.DB) {                                   // from here on env.DB can only see one salon
-      company = await resolveCompany(request, url, env);
-      if (company === "unknown") {
-        return json({ ok: false, error: "Невідомий салон" },
-          { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,OPTIONS" }, 404);
-      }
-      const cid = (company && company.id) || DEFAULT_COMPANY_ID;
-      env = Object.assign({}, env, { CID: cid, DBRAW: env.DB, DB: tenantDb(env.DB, cid) });
-      if (company) env = await companyEnv(env, company);   // its bot, its calendar, its site
-    }
-    // built after the salon is known: each one allows its own site, not the first salon's
+    // CORS is built before anything can fail, so that an error below still reaches the browser as
+    // an error rather than as "network failure" with no body.
     const cors = {
-      "Access-Control-Allow-Origin": (company && company.site_origin) || env.ALLOW_ORIGIN || "*",
+      "Access-Control-Allow-Origin": env.ALLOW_ORIGIN || "*",
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Company",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
     };
     if (request.method === "OPTIONS") return new Response(null, { headers: cors });
     try {
+      // Before anything touches the database. Yesterday's dump lives in R2, and the moment you
+      // most want it is the moment D1 is not answering.
+      // The dump holds every client's name and phone, password hashes and live session tokens.
+      // That is the operator's business, not the salon's, so it sits behind its own secret and
+      // has no button anywhere in the CRM.
+      if (url.pathname === "/admin/backup-run" && request.method === "POST") {
+        requirePlatform(request, env);
+        let body = {}; try { body = await request.json(); } catch (e) { }
+        return json(await runBackup(env, !!(body && body.monthly)), cors);
+      }
+      if (url.pathname === "/admin/backup-list" && request.method === "GET") {
+        requirePlatform(request, env);
+        return json(await backupList(env), cors);
+      }
+      if (url.pathname === "/admin/backup-get" && request.method === "GET") {
+        requirePlatform(request, env);
+        const obj = await backupFetch(env, url.searchParams.get("key"));
+        if (!obj) return json({ ok: false, error: "not found" }, cors, 404);
+        return new Response(obj.body, { headers: { ...cors, "Content-Type": "application/sql; charset=utf-8", "Cache-Control": "no-store" } });
+      }
+      if (env.DB) {
+        const salon = await loadSalon(env);          // throws rather than guessing which salon this is
+        env = Object.assign({}, env, { CID: salon.id, DBRAW: env.DB });
+      }
       if (url.pathname === "/slots" && request.method === "GET") {
         return json(await getSlots(url, env), cors);
       }
@@ -236,40 +252,6 @@ export default {
       if (url.pathname === "/admin/site-image" && request.method === "POST") {
         return json(await siteImageUpload(request, env), cors);
       }
-      // ---- Platform (the operator, not a salon): companies and their credentials ----
-      if (url.pathname.startsWith("/platform/") && request.method !== "OPTIONS") {
-        requirePlatform(request, env);
-        if (url.pathname === "/platform/companies" && request.method === "GET") {
-          const r = await (env.DBRAW || env.DB).prepare(
-            `SELECT id,slug,name,active,created_at,site_url,site_origin,tg_bot,
-                    (calendar_id<>'') AS has_calendar, (sa_private_key<>'') AS has_key,
-                    (tg_bot_token<>'') AS has_bot FROM companies ORDER BY id`).all();
-          return json({ ok: true, companies: (r && r.results) || [], encrypted: !!env.SECRETS_KEY }, cors);
-        }
-        if (url.pathname === "/platform/company-save" && request.method === "POST") {
-          return json(await companySave(request, env), cors);
-        }
-        if (url.pathname === "/platform/company-secrets" && request.method === "POST") {
-          return json(await companySecrets(request, env), cors);
-        }
-        return json({ ok: false, error: "not found" }, cors, 404);
-      }
-      // These read the WHOLE database, every salon in it — operator only, never a salon owner.
-      if (url.pathname === "/admin/backup-run" && request.method === "POST") {
-        requirePlatform(request, env);
-        let body = {}; try { body = await request.json(); } catch (e) { }
-        return json(await runBackup(env, !!(body && body.monthly)), cors);
-      }
-      if (url.pathname === "/admin/backup-list" && request.method === "GET") {
-        requirePlatform(request, env);
-        return json(await backupList(env), cors);
-      }
-      if (url.pathname === "/admin/backup-get" && request.method === "GET") {
-        requirePlatform(request, env);
-        const obj = await backupFetch(env, url.searchParams.get("key"));
-        if (!obj) return json({ ok: false, error: "not found" }, cors, 404);
-        return new Response(obj.body, { headers: { ...cors, "Content-Type": "application/sql; charset=utf-8", "Cache-Control": "no-store" } });
-      }
       if (url.pathname === "/admin/send-digest" && request.method === "POST") {
         await requireAdmin(request, env);
         return json(await runDailyDigest(env, true), cors);
@@ -284,242 +266,50 @@ export default {
   async scheduled(event, env, ctx) {
     const cron = (event && event.cron) || "";
     ctx.waitUntil((async () => {
-      // one company's failure must not stop the others, so each is awaited on its own
-      const companies = await activeCompanies(env);
-      for (const row of companies) {
-        const co = await loadCompany(env, row.id);
-        let e = Object.assign({}, env, { CID: row.id, DBRAW: env.DB, DB: tenantDb(env.DB, row.id) });
-        e = await companyEnv(e, co);
-        if (cron.startsWith("*/30")) { await runClientReminders(e, "soon").catch(() => { }); continue; }
-        await runDailyDigest(e).catch(() => { });
-        await runClientReminders(e, "day").catch(() => { });
-      }
-      if (cron.startsWith("*/30")) return;
-      await siteMediaSweep(env).catch(() => { });     // platform-wide janitors, not per company
-      await runBackup(env).catch(() => { });
+      const e = Object.assign({}, env, { CID: DEFAULT_COMPANY_ID, DBRAW: env.DB });
+      if (cron.startsWith("*/30")) { await runClientReminders(e, "soon").catch(() => { }); return; }
+      await runDailyDigest(e).catch(() => { });
+      await runClientReminders(e, "day").catch(() => { });
+      await siteMediaSweep(e).catch(() => { });
+      await runBackup(e).catch(() => { });
     })());
   },
 };
 
-/* ---------- Tenant isolation ----------------------------------------------------------------
-   One database holds every salon. A query naming a tenant table without naming company_id would
-   quietly read — or overwrite — another salon's rows, and across 158 queries that cannot be left to
-   discipline. So env.DB is wrapped once per request and every query passes through here:
-
-     · already names company_id → passed through (written by hand, trusted)
-     · a shape this can prove   → the filter is injected, company id as a literal
-     · anything else            → refused, loudly, before it reaches the database
-
-   The guard sees the SQL after template interpolation, which is why `${sets.join(",")}` and friends
-   need no special handling. Checked against all 158 real queries and a real SQLite built from the
-   migrated schema: 148 are scoped automatically, 10 are written by hand, none get through unscoped.
-   Platform-wide work (the backup, the media sweep, resolving which company a request belongs to)
-   uses env.DBRAW deliberately. */
-const DEFAULT_COMPANY_ID = 1;                 // GAV&LOVE — everything that existed before companies did
-const TENANT_TABLES = ["bookings", "clients", "pets", "pet_photos", "masters", "services", "expenses",
-  "reviews", "users", "sessions", "client_sessions", "client_otp", "settings", "tg_sessions", "site_media"];
-const TEN_T = TENANT_TABLES.join("|");
-const TEN_ONE = new RegExp("\\b(?:from|into|update|join)\\s+\"?(" + TEN_T + ")\"?\\b", "i");
-const TEN_ALL = new RegExp("\\b(?:from|into|update|join)\\s+\"?(" + TEN_T + ")\"?\\b", "gi");
-const TEN_TAIL = /\b(group\s+by|order\s+by|limit|returning)\b/i;
-const TEN_KW = /^(where|group|order|limit|set|values|on|using|left|right|inner|outer|cross|natural|join|do|select|as)$/i;
-
-function scopeSql(sql, cid) {
-  const flat = String(sql).replace(/\s+/g, " ").trim();
-  if (!TEN_ONE.test(flat)) return flat;                 // companies, sqlite_master, PRAGMA — not tenant data
-  // Only the OUTER statement counts: company_id inside a subquery says nothing about the rows the
-  // statement itself returns. Waving those through is exactly how the master cabinet leaked.
-  const outer = /^insert\b/i.test(flat) ? flat : flat.replace(/\(([^()]|\([^()]*\))*\)/g, "( )");
-  if (/\bcompany_id\b/i.test(outer)) return flat;       // hand-written and already scoped
-  const refuse = why => { const e = new Error("Запит без company_id (" + why + "): " + flat.slice(0, 120)); e.status = 500; throw e; };
-
-  if ((flat.match(TEN_ALL) || []).length !== 1) refuse("кілька таблиць");
-  if (/\bjoin\b/i.test(flat)) refuse("join");
-  if (/\(\s*select\b/i.test(flat)) refuse("підзапит");
-
-  const table = TEN_ONE.exec(flat)[1];
-  const am = new RegExp("\\b(?:from|into|update|join)\\s+\"?" + table + "\"?\\s+(?:as\\s+)?([a-z_][a-z0-9_]*)", "i").exec(flat);
-  const col = ((am && !TEN_KW.test(am[1])) ? am[1] : table) + ".company_id";
-
-  if (/^insert\b/i.test(flat)) {
-    if (/\bon\s+conflict\b/i.test(flat)) refuse("on conflict");
-    if (/\bselect\b/i.test(flat)) refuse("insert…select");
-    const m = /^(insert(?:\s+or\s+[a-z]+)?\s+into\s+"?[a-z_]+"?\s*)\(([^)]*)\)\s*values\s*\((.*)\)\s*;?$/i.exec(flat);
-    if (!m) refuse("нерозпізнаний insert");
-    if (/\)\s*,\s*\(/.test(m[3])) refuse("кілька рядків одразу");
-    return m[1] + "(" + m[2] + ",company_id) VALUES (" + m[3] + "," + cid + ")";
-  }
-  if (!/^(select|update|delete)\b/i.test(flat)) refuse("нерозпізнаний запит");
-
-  const wi = flat.search(/\bwhere\b/i);
-  if (wi < 0) {                                          // no WHERE at all — the dangerous one
-    const t = flat.search(TEN_TAIL), cut = t < 0 ? flat.length : t;
-    return (flat.slice(0, cut).trim() + " WHERE " + col + "=" + cid + " " + flat.slice(cut)).trim();
-  }
-  const after = flat.slice(wi + 5), t = after.search(TEN_TAIL);
-  const cond = (t < 0 ? after : after.slice(0, t)).trim();
-  const rest = t < 0 ? "" : " " + after.slice(t).trim();
-  // the original condition is wrapped: without that, `a OR b AND company_id=1` lets a row escape
-  return (flat.slice(0, wi) + "WHERE (" + cond + ") AND " + col + "=" + cid + rest).trim();
-}
-const tenantDb = (db, cid) => ({
-  prepare: sql => db.prepare(scopeSql(sql, cid)),
-  batch: list => db.batch(list),
-  exec: sql => db.exec(sql),
-});
-// Which salon is this request for? A staff or client session knows; a public request says so with
-// ?c=<slug>; everything else is the original company, which is what every existing link resolves to.
-async function resolveCompany(request, url, env) {
-  if (!env.DB) return null;
-  const raw = env.DB;                                 // runs before the guard is armed, by design
+/* ---------- The salon ------------------------------------------------------------------------
+   One installation, one salon. The company row survives as the salon's own card — its name, the
+   address of its site, its working hours — and its id still stamps every row, so a database can be
+   read by a tool that expects it and nothing had to be rebuilt to get here. What is gone is the
+   machinery that served SEVERAL salons from one worker: choosing which one a request belongs to,
+   keeping their credentials apart, and the guard that rewrote every query to name company_id.
+   With one salon that guard protected nobody while refusing any query it could not parse. */
+const DEFAULT_COMPANY_ID = 1;
+/* The salon this installation belongs to. Today it answers one question — which id stamps the
+   rows — and the companies row exists mostly so the database stays readable by anything that
+   expects it. The row also holds a name and working hours, but nothing reads those yet: the hours
+   are still the BUSINESS constant at the top of this file.
+   A missing row is a salon that has not filled it in, which is fine. A database that cannot be
+   read is not fine, and used to be answered by quietly carrying on as company 1 — with company 1's
+   secrets. */
+async function loadSalon(env) {
   try {
-    const tok = bearer(request);
-    if (tok) {
-      const s = await raw.prepare(`SELECT c.* FROM companies c JOIN sessions s ON s.company_id=c.id WHERE s.token=?`).bind(tok).first();
-      if (s && s.id) return s;
-      const c = await raw.prepare(`SELECT co.* FROM companies co JOIN client_sessions cs ON cs.company_id=co.id WHERE cs.token=?`).bind(tok).first();
-      if (c && c.id) return c;
-    }
-    const w = /^\/tg\/webhook\/(\d+)$/.exec(url.pathname);        // the bot says which salon it is
-    if (w) {
-      const co = await raw.prepare(`SELECT * FROM companies WHERE id=? AND active=1`).bind(+w[1]).first();
-      return co && co.id ? co : "unknown";
-    }
-    const slug = url.searchParams.get("c") || request.headers.get("X-Company") || "";
-    if (slug) {
-      const co = await raw.prepare(`SELECT * FROM companies WHERE slug=? AND active=1`).bind(slug).first();
-      if (co && co.id) return co;
-      return "unknown";                                          // a typo must not serve another salon
-    }
-    return await raw.prepare(`SELECT * FROM companies WHERE id=?`).bind(DEFAULT_COMPANY_ID).first();
-  } catch (e) { }
-  return null;
+    await env.DB.prepare(`SELECT id FROM companies WHERE id=?`).bind(DEFAULT_COMPANY_ID).first();
+    return { id: DEFAULT_COMPANY_ID };
+  } catch (e) {
+    const err = new Error("Не вдалося прочитати дані салону"); err.status = 503; throw err;
+  }
 }
-/* ---------- Per-company credentials ----------------------------------------------------------
-   A salon brings its own Telegram bot, its own Google calendar and its own site, so these cannot
-   stay worker-wide secrets. They live on the company row; the two that are genuinely secret — the
-   bot token and the service-account private key — are stored encrypted (AES-GCM) under SECRETS_KEY,
-   which exists only in wrangler secrets. Consequences worth knowing: the nightly dump carries
-   ciphertext rather than working credentials, and restoring that dump onto a worker with a different
-   SECRETS_KEY gives a database whose bot and calendar are silently dead until they are set again.
-   A company with nothing set falls back to the worker's own secrets — which is exactly company 1
-   today, so nothing changes for GAV&LOVE. */
-// The platform operator is not a salon owner: this token is separate from every ADMIN_TOKEN.
+/* The operator's key. It guards the nightly dumps, which cover the whole database — every client's
+   name and phone, password hashes, live session tokens. It is deliberately NOT the salon owner's
+   password: when the salon is handed over, the owner gets the CRM, and whoever keeps the backups
+   keeps this secret. Credentials themselves are ordinary worker secrets again (wrangler secret put),
+   because one worker now serves one salon. */
 function requirePlatform(request, env) {
   const tok = bearer(request);
   if (!env.PLATFORM_TOKEN || tok !== env.PLATFORM_TOKEN) {
     const e = new Error("Доступ лише для платформи"); e.status = 401; throw e;
   }
   return true;
-}
-const COMPANY_FIELDS = ["slug", "name", "active", "site_url", "site_origin", "tz", "open_min", "close_min",
-  "slot_step_min", "buffer_min", "min_lead_min", "max_ahead_days", "digest_hour", "phone_prefix", "lang",
-  "theme", "features", "labels", "rules", "plan", "limits", "tg_bot"];
-async function companySave(request, env) {
-  const b = await request.json().catch(() => null);
-  if (!b || typeof b !== "object") { const e = new Error("bad request"); e.status = 400; throw e; }
-  const DB = env.DBRAW || env.DB;
-  if (b.id) {
-    const sets = [], vals = [];
-    for (const f of COMPANY_FIELDS) if (b[f] != null) { sets.push(f + "=?"); vals.push(b[f]); }
-    if (!sets.length) return { ok: false, error: "нічого змінювати" };
-    vals.push(Number(b.id));
-    await DB.prepare(`UPDATE companies SET ${sets.join(",")} WHERE id=?`).bind(...vals).run();
-    return { ok: true, id: Number(b.id) };
-  }
-  const slug = String(b.slug || "").trim();
-  if (!/^[a-z0-9-]{2,40}$/.test(slug)) return { ok: false, error: "slug: лише a-z, 0-9 і дефіс" };
-  if (!String(b.name || "").trim()) return { ok: false, error: "потрібна назва" };
-  const dup = await DB.prepare(`SELECT id FROM companies WHERE slug=?`).bind(slug).first();
-  if (dup) return { ok: false, error: "такий slug вже є" };
-  const r = await DB.prepare(
-    `INSERT INTO companies (slug,name,active,created_at,site_url,site_origin) VALUES (?,?,1,?,?,?)`
-  ).bind(slug, String(b.name).trim(), new Date().toISOString(), b.site_url || "", b.site_origin || "").run();
-  return { ok: true, id: r.meta && r.meta.last_row_id, slug };
-}
-// Values go in, never come back out: the response only says which ones are now set.
-async function companySecrets(request, env) {
-  const b = await request.json().catch(() => null);
-  const id = Number(b && b.id);
-  if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "id required" };
-  const DB = env.DBRAW || env.DB;
-  const co = await DB.prepare(`SELECT id FROM companies WHERE id=?`).bind(id).first();
-  if (!co) return { ok: false, error: "немає такої компанії" };
-  const plain = { calendar_id: 1, sa_email: 1, tg_chat_id: 1, tg_bot: 1 };   // identifiers, not secrets
-  const secretGiven = ["sa_private_key", "tg_bot_token"].some(f => b[f] != null && String(b[f]));
-  if (secretGiven && !(await secretKey(env))) {
-    return { ok: false, error: "SECRETS_KEY не заданий або не 32 байти — секрет не збережено у відкритому вигляді" };
-  }
-  const sets = [], vals = [], touched = [];
-  for (const f of ["calendar_id", "sa_email", "sa_private_key", "tg_bot_token", "tg_chat_id", "tg_bot"]) {
-    if (b[f] == null) continue;
-    const v = String(b[f]);
-    sets.push(f + "=?");
-    vals.push(plain[f] ? v : (v ? await encSecret(env, v) : ""));
-    touched.push(f);
-  }
-  if (!sets.length) return { ok: false, error: "нічого зберігати" };
-  vals.push(id);
-  await DB.prepare(`UPDATE companies SET ${sets.join(",")} WHERE id=?`).bind(...vals).run();
-  return { ok: true, id, saved: touched, encrypted: !!env.SECRETS_KEY };
-}
-async function secretKey(env) {
-  if (!env.SECRETS_KEY) return null;
-  try {
-    const raw = Uint8Array.from(atob(env.SECRETS_KEY), c => c.charCodeAt(0));
-    if (raw.length !== 32) return null;
-    return await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
-  } catch (e) { return null; }
-}
-async function encSecret(env, plain) {
-  const k = await secretKey(env);
-  if (!k || !plain) return String(plain || "");     // no key configured → stored as given, and said so
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const body = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, k, new TextEncoder().encode(String(plain))));
-  const all = new Uint8Array(iv.length + body.length); all.set(iv); all.set(body, iv.length);
-  let s = ""; for (let i = 0; i < all.length; i++) s += String.fromCharCode(all[i]);
-  return "v1:" + btoa(s);
-}
-async function decSecret(env, stored) {
-  const s = String(stored || "");
-  if (!s) return "";
-  if (!s.startsWith("v1:")) return s;               // plain value (an id, or one seeded by hand)
-  const k = await secretKey(env);
-  if (!k) return "";
-  try {
-    const all = Uint8Array.from(atob(s.slice(3)), c => c.charCodeAt(0));
-    return new TextDecoder().decode(await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: all.slice(0, 12) }, k, all.slice(12)));
-  } catch (e) { return ""; }
-}
-// The company's own credentials win; anything it leaves empty falls back to the worker's secrets.
-async function companyEnv(env, co) {
-  if (!co) return env;
-  const over = { COMPANY: co, CID: co.id };
-  // Falling back to the worker's secrets is the migration path for company 1 and nobody else: for any
-  // other salon it would mean its bookings ringing GAV&LOVE's Telegram and landing in its calendar.
-  const inherits = co.id === DEFAULT_COMPANY_ID;
-  const put = async (k, v) => { const d = await decSecret(env, v); if (d) over[k] = d; else if (!inherits) over[k] = ""; };
-  await put("CALENDAR_ID", co.calendar_id);
-  await put("SA_EMAIL", co.sa_email);
-  await put("SA_PRIVATE_KEY", co.sa_private_key);
-  await put("TELEGRAM_BOT_TOKEN", co.tg_bot_token);
-  await put("TELEGRAM_CHAT_ID", co.tg_chat_id);
-  if (co.site_url) over.SITE_URL = co.site_url;
-  if (co.site_origin) over.ALLOW_ORIGIN = co.site_origin;
-  return Object.assign({}, env, over);
-}
-async function loadCompany(env, cid) {
-  try { return await (env.DBRAW || env.DB).prepare(`SELECT * FROM companies WHERE id=?`).bind(cid).first(); }
-  catch (e) { return null; }
-}
-async function activeCompanies(env) {
-  if (!env.DB) return [{ id: DEFAULT_COMPANY_ID }];
-  try {
-    const r = await env.DB.prepare(`SELECT id FROM companies WHERE active=1 ORDER BY id`).all();
-    if (r && r.results && r.results.length) return r.results;
-  } catch (e) { }
-  return [{ id: DEFAULT_COMPANY_ID }];
 }
 const json = (obj, cors, status = 200) =>
   new Response(JSON.stringify(obj), {
@@ -2193,7 +1983,7 @@ function sqlLit(v) {
   return "'" + String(v).replace(/'/g, "''") + "'";
 }
 async function dumpDatabase(env) {
-  const DB = env.DBRAW || env.DB;                  // a backup covers every salon, not the caller's
+  const DB = env.DBRAW || env.DB;
   const tables = (((await DB.prepare(
     `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name`
   ).all()).results) || []).map(r => r.name);

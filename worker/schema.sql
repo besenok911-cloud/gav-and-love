@@ -1,22 +1,24 @@
 -- Схема бази CRM. Знята з живої gavlove-crm 21.09.2026 і є ЄДИНИМ джерелом правди.
 --
--- Навіщо цей файл. Ночний дамп містить лише DELETE/INSERT — без жодного CREATE TABLE.
--- Тобто дамп НЕ підніме порожню базу: спершу треба накотити цю схему, і тільки потім дані.
--- Той самий файл — перший крок розгортання нового салону.
+-- Навіщо цей файл. Це перший крок розгортання нового салону:
 --
 --   npx wrangler d1 create <ім'я>
 --   npx wrangler d1 execute <ім'я> --remote --file worker/schema.sql
---   npx wrangler d1 execute <ім'я> --remote --file daily-YYYY-MM-DD.sql   # якщо відновлюємо
 --
--- Колонка company_id лишається в усіх таблицях: обгортка запитів (scopeSql) підставляє її
--- беззастережно, тому база без неї впаде на першому ж запиті. У кожного салону свій
--- екземпляр, і в ньому він сам — компанія 1.
+-- Відновлення з бекапу цього файлу не потребує: ночний дамп від 21.09.2026 самодостатній —
+-- він починається з власних CREATE TABLE. Старіші дампи (до 21.09) містять лише дані,
+-- тож для них спершу накотіть цю схему.
+--
+-- ПРО company_id. Колонка лишилася в усіх 15 таблицях із даними салону і завжди дорівнює 1:
+-- один воркер обслуговує один салон. Раніше значення підставляла обгортка запитів, тепер її
+-- немає — його дає `NOT NULL DEFAULT 1` у самих визначеннях таблиць. ЦЕЙ DEFAULT ПРИБИРАТИ НЕ МОЖНА:
+-- жоден INSERT у воркері company_id не називає, і перший же запис клієнта впаде на NOT NULL.
 
 -- ============================== таблиці ==============================
 
 CREATE TABLE IF NOT EXISTS companies (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  slug           TEXT NOT NULL UNIQUE,          -- used by public requests: /catalog?c=gavlove
+  slug           TEXT NOT NULL UNIQUE,          -- короткое имя салона; ни на что не влияет
   name           TEXT NOT NULL,
   active         INTEGER DEFAULT 1,
   created_at     TEXT,
@@ -189,7 +191,7 @@ CREATE INDEX IF NOT EXISTS idx_site_media_unref ON site_media(unref_at);
 CREATE INDEX IF NOT EXISTS idx_users_company            ON users      (company_id);
 
 -- ============================== перший рядок ==============================
--- Один салон на екземпляр, і він завжди id=1: resolveCompany без сесії та без ?c=
--- бере саме DEFAULT_COMPANY_ID. Назву й адреси сайту поміняти під конкретний салон.
+-- Один салон на екземпляр, і він завжди id=1. Назву поміняти під конкретний салон;
+-- адреси сайту воркер бере з ALLOW_ORIGIN і SITE_URL у wrangler.toml, а не звідси.
 INSERT OR IGNORE INTO companies (id, slug, name, active, created_at, site_url, site_origin)
 VALUES (1, 'salon', 'Салон', 1, datetime('now'), '', '');
