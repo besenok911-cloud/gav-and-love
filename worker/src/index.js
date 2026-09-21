@@ -1,5 +1,5 @@
 /**
- * Little Paw by Hanna — booking Worker
+ * GAV&LOVE — booking Worker
  * Two-way Google Calendar sync via a Google service account.
  *
  *  GET  /slots?date=YYYY-MM-DD&service=<name>  -> { slots: ["10:00","10:30",...] }
