@@ -92,7 +92,7 @@ export default {
       }
       if (env.DB) {
         const salon = await loadSalon(env);          // throws rather than guessing which salon this is
-        env = Object.assign({}, env, { CID: salon.id, DBRAW: env.DB });
+        env = Object.assign({}, env, { CID: salon.id, SALON: salon.name, DBRAW: env.DB });
       }
       if (url.pathname === "/slots" && request.method === "GET") {
         return json(await getSlots(url, env), cors);
@@ -279,7 +279,8 @@ export default {
   async scheduled(event, env, ctx) {
     const cron = (event && event.cron) || "";
     ctx.waitUntil((async () => {
-      const e = Object.assign({}, env, { CID: DEFAULT_COMPANY_ID, DBRAW: env.DB });
+      const salon = await loadSalon(env).catch(() => ({ id: DEFAULT_COMPANY_ID, name: "" }));
+      const e = Object.assign({}, env, { CID: salon.id, SALON: salon.name, DBRAW: env.DB });
       if (cron.startsWith("*/30")) { await runClientReminders(e, "soon").catch(() => { }); return; }
       await runDailyDigest(e).catch(() => { });
       await runClientReminders(e, "day").catch(() => { });
@@ -306,8 +307,8 @@ const DEFAULT_COMPANY_ID = 1;
    secrets. */
 async function loadSalon(env) {
   try {
-    await env.DB.prepare(`SELECT id FROM companies WHERE id=?`).bind(DEFAULT_COMPANY_ID).first();
-    return { id: DEFAULT_COMPANY_ID };
+    const co = await env.DB.prepare(`SELECT id, name FROM companies WHERE id=?`).bind(DEFAULT_COMPANY_ID).first();
+    return { id: DEFAULT_COMPANY_ID, name: (co && co.name) || "" };
   } catch (e) {
     const err = new Error("Не вдалося прочитати дані салону"); err.status = 503; throw err;
   }
@@ -1983,6 +1984,12 @@ async function siteSave(request, env) {
    swept by the same nightly run. The dump holds client names, phones and password hashes — the bucket
    is private, there is no public route to it, and it belongs to whoever owns the data. */
 const BACKUP_DAILY_KEEP = 30, BACKUP_MONTHLY_KEEP = 12;
+/* The salon's name, for the messages that reach its clients. It lives in the companies row, not in
+   this file: a bot that greets someone else's customers by the wrong salon's name is the kind of
+   thing nobody reports and everybody notices. schema.sql seeds a name, so the fallback is a
+   formality. */
+const salonName = env => (env && env.SALON) || "Салон";
+
 const backupBucket = env => (env && env.BACKUPS && typeof env.BACKUPS.put === "function") ? env.BACKUPS : null;
 
 const EXPECTED_TABLES = ["bookings", "clients", "pets", "pet_photos", "masters", "services", "expenses",
@@ -2061,7 +2068,7 @@ async function dumpDatabase(env) {
   const ifNotExists = sql => String(sql).trim()
     .replace(/^CREATE TABLE\s+(?!IF NOT EXISTS)/i, "CREATE TABLE IF NOT EXISTS ")
     .replace(/^CREATE (UNIQUE )?INDEX\s+(?!IF NOT EXISTS)/i, (m, u) => "CREATE " + (u || "") + "INDEX IF NOT EXISTS ");
-  const out = ["-- GAV&LOVE CRM · " + new Date().toISOString(),
+  const out = ["-- " + salonName(env) + " CRM · " + new Date().toISOString(),
     "-- restore into an empty database: npx wrangler d1 execute <db> --remote --file <this file>",
     "-- this file is self-contained: schema first, then the rows.",
     "PRAGMA defer_foreign_keys = true;", ""];
@@ -2311,7 +2318,7 @@ async function notifyClientManual(request, env) {
   if (body.booking_id) { const b = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE id=?`).bind(+body.booking_id).first(); if (b) { chat = await clientChatFor(env, b); name = b.name || ""; } }
   else if (body.client_id) { const c = await env.DB.prepare(`SELECT name,tg_chat_id FROM clients WHERE id=?`).bind(+body.client_id).first(); if (c) { chat = c.tg_chat_id || null; name = c.name || ""; } }
   if (!chat) return { ok: false, error: "Клієнт ще не підключив Telegram-бот — повідомлення нікуди надіслати" };
-  const r = await tgSendTo(env, chat, `💬 <b>GAV&amp;LOVE</b>\n${tgEsc(text)}`);
+  const r = await tgSendTo(env, chat, `💬 <b>${tgEsc(salonName(env))}</b>\n${tgEsc(text)}`);
   if (!r || !r.ok) return { ok: false, error: "Telegram не прийняв повідомлення: " + ((r && r.description) || "помилка") };
   try { await sendTelegram(env, `✉️ <b>${tgEsc(who.name || "CRM")}</b> написав(ла) клієнту ${tgEsc(name)}:\n<i>${tgEsc(text)}</i>`); } catch (e) { }
   return { ok: true };
@@ -2326,7 +2333,7 @@ async function notifyBroadcast(request, env) {
   const seen = new Set(); let sent = 0, failed = 0;
   for (const c of rows) {
     if (seen.has(String(c.tg_chat_id))) continue; seen.add(String(c.tg_chat_id));
-    const r = await tgSendTo(env, c.tg_chat_id, `📣 <b>GAV&amp;LOVE</b>\n${tgEsc(text)}`);
+    const r = await tgSendTo(env, c.tg_chat_id, `📣 <b>${tgEsc(salonName(env))}</b>\n${tgEsc(text)}`);
     if (r && r.ok) sent++; else failed++;
     if ((sent + failed) % 20 === 0) await new Promise(res => setTimeout(res, 1100));
   }
@@ -2377,7 +2384,7 @@ async function runClientReminders(env, kind, force) {
     if (!chat) { unlinked++; continue; }
     const text = kind === "day"
       ? `🔔 <b>Нагадуємо про візит завтра</b>\n${visitText(b)}\n\nПідтвердіть, будь ласка, що ви будете:`
-      : `⏰ <b>Вже скоро!</b>\nЧекаємо вас ${visitText(b)}\n\nДо зустрічі в GAV&amp;LOVE 🐾`;
+      : `⏰ <b>Вже скоро!</b>\nЧекаємо вас ${visitText(b)}\n\nДо зустрічі в ${tgEsc(salonName(env))} 🐾`;
     const r = await tgSendTo(env, chat, text, kind === "day" ? visitButtons(b) : undefined);
     if (r && r.ok) { sent++; await env.DB.prepare(`UPDATE bookings SET ${kind === "day" ? "remind_day_sent" : "remind_hour_sent"}=1 WHERE id=?`).bind(b.id).run(); }
   }
@@ -2552,10 +2559,10 @@ async function handleTgUpdate(env, u) {
       await tgSendTo(env, chat, `Вітаємо знову, ${tgEsc(c.name || "")} 🐾${await nextVisitsText(env, c.id)}`, BOOK_BTN);
       return;
     }
-    await askPhone(env, chat, wantCab ? "cab" : "", "Вітаємо в GAV&amp;LOVE 🐾\nЩоб отримувати нагадування, записатися або відкрити кабінет, поділіться номером телефону:");
+    await askPhone(env, chat, wantCab ? "cab" : "", `Вітаємо в ${tgEsc(salonName(env))} 🐾\nЩоб отримувати нагадування, записатися або відкрити кабінет, поділіться номером телефону:`);
     return;
   }
-  await tgSendTo(env, chat, "Я нагадую про візити в GAV&amp;LOVE і можу записати вас на грумінг — натисніть кнопку або /book.", BOOK_BTN);
+  await tgSendTo(env, chat, `Я нагадую про візити в ${tgEsc(salonName(env))} і можу записати вас на грумінг — натисніть кнопку або /book.`, BOOK_BTN);
 }
 /* ---- Booking dialogue in the bot (/book): pet → service → breed/weight → date → time → confirm ---- */
 // Per-chat dialogue state lives in tg_sessions (Telegram itself is stateless). Expires after 45 min.
