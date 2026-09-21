@@ -249,6 +249,22 @@ export default {
       if (url.pathname === "/admin/master-delete" && request.method === "POST") {
         return json(await masterDelete(request, env), cors);
       }
+      // Те саме, що /health під ключем оператора, але під звичайним логіном CRM. Монітор аптайму
+      // стукає в /health і бази не чіпає — сюди ходить людина, і тільки залогінена.
+      if (url.pathname === "/admin/health" && request.method === "GET") {
+        await requireAdmin(request, env);
+        return json(await health(env), cors);
+      }
+      if (url.pathname === "/admin/support" && request.method === "GET") {
+        await requireAdmin(request, env);
+        return json(await supportState(env), cors);
+      }
+      if (url.pathname === "/admin/support-open" && request.method === "POST") {
+        return json(await supportOpen(request, env), cors);
+      }
+      if (url.pathname === "/admin/support-close" && request.method === "POST") {
+        return json(await supportClose(request, env), cors);
+      }
       if (url.pathname === "/admin/settings" && request.method === "GET") {
         return json(await adminSettings(request, env), cors);
       }
@@ -723,8 +739,106 @@ async function sessionUser(env, token) {
    and cannot be revoked by logging out — only by rotating the secret. */
 async function requireAdmin(request, env) {
   const s = await sessionUser(env, bearer(request));
-  if (!s || (s.role !== "owner" && s.role !== "admin")) { const e = new Error("unauthorized"); e.status = 401; throw e; }
+  if (!s) { const e = new Error("unauthorized"); e.status = 401; throw e; }
+  if (s.role === "support") return await supportGate(request, env, s);
+  if (s.role !== "owner" && s.role !== "admin") { const e = new Error("unauthorized"); e.status = 401; throw e; }
   return s;
+}
+/* ------------------------------- Підтримка (розробник) -------------------------------
+   Розробник після передачі має ІМЕННИЙ акаунт з роллю "support" — у журналі стоїть його
+   ім'я, а не «підтримка». Акаунт мертвий доти, доки власниця не відкриє доступ кнопкою в
+   CRM; строк зберігається в settings.support_until і перевіряється на КОЖНОМУ запиті, бо
+   sessionUser читає базу щоразу і кешу немає. Тому «забрати доступ» діє миттєво, а строк
+   сесії (30 діб) тут ні на що не впливає.
+
+   Рішення приймається в ОДНОМУ місці — тут, усередині requireAdmin. Це білий список: усе,
+   чого в ньому немає, для підтримки закрите, включно з тим, що допишуть у воркер через рік.
+   Гілки owner/admin не змінені жодним символом.
+
+   Чого в списку свідомо немає:
+   - записи, клієнти, улюбленці — тридцять з гаком імен і телефонів, і для роботи вони не
+     потрібні жодного разу;
+   - розсилки клієнтам — надіслане не відкликається;
+   - фото улюбленців — посилання /photo/<id>/<token> публічні, кешуються на рік і не
+     ротуються: побачене один раз працює вічно;
+   - відгуки — adminReviews робить SELECT *, а в таблиці reviews є телефон;
+   - master-save — разом з ним зникає ціла купа проблем: access_code (код кабінету майстра,
+     по якому /master/data віддає імена й телефони за 120 днів і сесію не питає), tier
+     (фактично ціна майстра) і правка графіка наосліп, без списку записів на цей день;
+   - service-delete — незворотно, відкату для прайсу немає. */
+const SUPPORT_PATHS = {
+  "GET /admin/support": 1,
+  "GET /admin/health": 1,
+  "GET /admin/settings": 1,
+  "POST /admin/settings-save": 1,
+  "GET /admin/services": 1,
+  "GET /admin/masters": 1,          // тільки читання, і без access_code — див. adminMasters
+  "POST /admin/site-save": 1,
+  "POST /admin/site-image": 1,
+};
+// Прайс — це гроші, тому окремим прапорцем при видачі, а не назавжди.
+const SUPPORT_PATHS_PRICES = { "POST /admin/service-save": 1 };
+const SUPPORT_ACT = {
+  "POST /admin/settings-save": "змінив налаштування салону",
+  "POST /admin/site-save": "змінив тексти або розділи сайту",
+  "POST /admin/site-image": "замінив фото на сайті",
+  "POST /admin/service-save": "змінив послугу або ціну",
+};
+async function supportGate(request, env, s) {
+  const st = await loadSettings(env);
+  const until = st.support_until || "";
+  if (!until || until <= new Date().toISOString()) {
+    const e = new Error("Доступ для підтримки закритий. Власниця відкриває його кнопкою в CRM."); e.status = 403; throw e;
+  }
+  const key = request.method + " " + new URL(request.url).pathname;
+  if (!(SUPPORT_PATHS[key] || (st.support_prices === "1" && SUPPORT_PATHS_PRICES[key]))) {
+    const e = new Error("Підтримка не має права на цю дію"); e.status = 403; throw e;
+  }
+  // Журнал пишеться ДО дії і без try/catch: доступ підтримки без запису — це те, від чого
+  // ми й ідемо. Немає куди писати — немає й дії.
+  if (request.method === "POST") await supportLog(env, s.name || "підтримка", SUPPORT_ACT[key] || key);
+  return s;
+}
+async function supportLog(env, who, act) {
+  await env.DB.prepare(`INSERT INTO support_log (company_id,at,who,act) VALUES (${env.CID},?,?,?)`)
+    .bind(new Date().toISOString(), String(who).slice(0, 60), String(act).slice(0, 200)).run();
+}
+async function setSetting(env, key, value) {
+  await env.DB.prepare(`INSERT INTO settings (company_id,key,value) VALUES (${env.CID},?,?) ON CONFLICT(company_id,key) DO UPDATE SET value=?`)
+    .bind(key, String(value), String(value)).run();
+}
+async function supportState(env) {
+  const st = await loadSettings(env);
+  const until = st.support_until || "";
+  let log = [];
+  try { const { results } = await env.DB.prepare(`SELECT at,who,act FROM support_log ORDER BY id DESC LIMIT 50`).all(); log = results || []; } catch (e) { }
+  return { ok: true, open: !!until && until > new Date().toISOString(), until, prices: st.support_prices === "1", log };
+}
+function fmtKyiv(iso) {
+  try { return new Date(iso).toLocaleString("uk-UA", { timeZone: BUSINESS.tz, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); }
+  catch (e) { return iso; }
+}
+async function supportOpen(request, env) {
+  await requireOwner(request, env);
+  const b = await request.json().catch(() => ({}));
+  const hours = Math.max(1, Math.min(72, Number(b && b.hours) || 8));
+  const until = new Date(Date.now() + hours * 3600e3).toISOString();
+  await setSetting(env, "support_until", until);
+  await setSetting(env, "support_prices", b && b.prices ? "1" : "0");
+  await supportLog(env, "власниця", "відкрила доступ до " + fmtKyiv(until) + (b && b.prices ? ", з правом правити послуги і ціни" : ""));
+  await sendTelegram(env, `🔧 <b>Доступ для підтримки відкрито</b> до ${fmtKyiv(until)}.${b && b.prices ? "\nДозволено правити послуги і ціни." : ""}\nЗакрити можна будь-коли кнопкою в CRM.`).catch(() => { });
+  return await supportState(env);
+}
+async function supportClose(request, env) {
+  await requireOwner(request, env);
+  await setSetting(env, "support_until", "");
+  await setSetting(env, "support_prices", "0");
+  // Строк уже перевіряється на кожному запиті, тож це не для відкликання, а щоб наступного
+  // разу підтримка заходила паролем, а не старою вкладкою.
+  try { await env.DB.prepare(`DELETE FROM sessions WHERE role='support'`).run(); } catch (e) { }
+  try { await supportLog(env, "власниця", "закрила доступ"); } catch (e) { }
+  await sendTelegram(env, "🔒 <b>Доступ для підтримки закрито.</b>").catch(() => { });
+  return await supportState(env);
 }
 async function requireOwner(request, env) {
   const s = await requireAdmin(request, env);
@@ -788,11 +902,20 @@ async function userSave(request, env) {
   const b = await request.json();
   const username = String(b.username || "").trim().toLowerCase();
   if (b.id) {
+    const cur = await env.DB.prepare(`SELECT role,active FROM users WHERE id=?`).bind(b.id).first();
     const sets = [], vals = [];
     for (const f of ["name", "role", "master_id", "active"]) if (b[f] != null) { sets.push(`${f}=?`); vals.push(b[f]); }
     if (b.username != null) { sets.push("username=?"); vals.push(username); }
     if (sets.length) { vals.push(b.id); await env.DB.prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).bind(...vals).run(); }
     if (b.password) { const salt = randHex(16), hash = await pbkdf2(String(b.password), salt); await env.DB.prepare(`UPDATE users SET pass_hash=?, pass_salt=?, must_change=1 WHERE id=?`).bind(hash, salt, b.id).run(); }
+    /* Роль і доступ живуть у ЗНІМКУ сесії: sessionUser читає sessions і в users більше не
+       заглядає. Тому зняти галочку «активний» або понизити роль було недостатньо — людина
+       працювала б у CRM ще до 30 діб, доки не протухне сесія. Тепер зміна ролі, доступу або
+       пароля завершує всі її сесії, і наступний крок — вхід заново. */
+    const kill = !!b.password || (cur && (
+      (b.role != null && String(b.role) !== String(cur.role)) ||
+      (b.active != null && (b.active ? 1 : 0) !== (cur.active ? 1 : 0))));
+    if (kill) { try { await env.DB.prepare(`DELETE FROM sessions WHERE user_id=?`).bind(b.id).run(); } catch (e) { } }
     return { ok: true, id: b.id };
   }
   if (!username) return { ok: false, error: "Вкажіть логін" };
@@ -1519,7 +1642,14 @@ async function adminMasters(request, env) {
   const auth = await requireAdmin(request, env);
   const { results } = await env.DB.prepare(`SELECT * FROM masters ORDER BY sort, id`).all();
   let masters = results || [];
-  if (auth.role !== "owner") masters = masters.map(m => { const c = { ...m }; delete c.salary_type; delete c.salary_value; delete c.salary_base; return c; }); // salaries are owner-only
+  if (auth.role !== "owner") masters = masters.map(m => {
+    const c = { ...m }; delete c.salary_type; delete c.salary_value; delete c.salary_base;  // salaries are owner-only
+    // Код кабінету — канал до клієнтів в обхід сесій: masterByCode шукає рядок по ньому і в
+    // sessions не заглядає, а /master/data потім віддає імена, телефони і клички за 120 днів.
+    // Строку він не має і не ротується, тож побачений один раз закривається лише зміною коду.
+    if (auth.role === "support") delete c.access_code;
+    return c;
+  });
   return { ok: true, masters };
 }
 const MASTER_FIELDS = ["name", "active", "work_start", "work_end", "days_off", "vacations", "sort", "salary_type", "salary_value", "salary_base", "break_start", "break_end", "access_code", "tier"];
@@ -1972,7 +2102,10 @@ async function expenseDelete(request, env) {
 /* ----------------------------- Settings & reminders ----------------------------- */
 async function loadSettings(env) {
   const def = { reminders_enabled: "1", repeat_weeks: "6", loyalty_enabled: "1", loyalty_every: "6", loyalty_reward: "Знижка 50% на наступний комплекс",
-    client_reminders_enabled: "1", remind_hours_before: "2", tg_bot: "" };
+    client_reminders_enabled: "1", remind_hours_before: "2", tg_bot: "",
+    // Вимикач підтримки. У списку settingsSave його немає і бути не повинно: змінюють його
+    // тільки /admin/support-open та /admin/support-close, і обидві — лише для власниці.
+    support_until: "", support_prices: "0" };
   if (!env.DB) return def;
   try {
     const { results } = await env.DB.prepare(`SELECT key, value FROM settings`).all();
@@ -2100,7 +2233,7 @@ const backupBucket = env => (env && env.BACKUPS && typeof env.BACKUPS.put === "f
 
 const EXPECTED_TABLES = ["bookings", "clients", "pets", "pet_photos", "masters", "services", "expenses",
   "reviews", "users", "sessions", "client_sessions", "client_otp", "settings", "tg_sessions",
-  "site_media", "companies"];
+  "site_media", "companies", "support_log"];
 
 /* Enough to diagnose someone else's installation without opening their data. Deliberately has no
    client names, phones or notes in it: supporting a salon should not require reading its clients.

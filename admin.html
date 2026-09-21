@@ -620,11 +620,19 @@
   <button class="btn ghost sm" id="themeBtn" title="Світла / темна тема" aria-pressed="false"><svg class="ic ic-moon"><use href="#ic-moon"/></svg><svg class="ic ic-sun"><use href="#ic-sun"/></svg><span class="lbl">Тема</span></button>
   <a class="btn ghost sm" id="siteBtn" href="index.html" target="_blank" rel="noopener" hidden title="Відкрити сайт у новій вкладці"><svg class="ic"><use href="#ic-globe"/></svg><span class="lbl">Сайт</span></a>
   <button class="btn ghost sm" id="usersBtn" hidden title="Доступи та акаунти"><svg class="ic"><use href="#ic-users"/></svg><span class="lbl">Доступи</span></button>
+  <button class="btn ghost sm" id="supBtn" hidden title="Доступ для підтримки"><svg class="ic"><use href="#ic-key"/></svg><span class="lbl">Підтримка</span></button>
   <button class="btn ghost sm" id="pwBtn" hidden title="Змінити пароль"><svg class="ic"><use href="#ic-key"/></svg></button>
   <button class="btn ghost sm" id="remindBtn" hidden title="Нагадування та лояльність"><svg class="ic"><use href="#ic-bell"/></svg></button>
   <button class="btn ghost sm" id="refreshBtn" hidden title="Оновити дані"><svg class="ic"><use href="#ic-refresh"/></svg><span class="lbl">Оновити</span></button>
   <button class="btn ghost sm" id="logoutBtn" hidden title="Вийти">Вийти</button>
 </header>
+
+<!-- Поки доступ для підтримки відкритий, це видно всім, хто в CRM. Кнопка «закрити» тут же:
+     шукати її в модалці в той момент, коли вона знадобилась, — зайвий крок. -->
+<div id="supBar" hidden style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:.6em 1.1em;background:#fff4d6;color:#6b4a00;border-bottom:1px solid #e8cf92;font-size:.88rem;font-weight:600">
+  <span id="supBarTxt"></span>
+  <button class="btn ghost sm" id="supBarClose" hidden style="border-color:#c9a23a;color:#6b4a00">Закрити доступ зараз</button>
+</div>
 
 <div class="login" id="loginCard">
   <h2>Вхід у CRM</h2>
@@ -852,11 +860,57 @@
 <div class="modal" id="usersModal">
   <div class="sheet" style="width:min(760px,100%)">
     <h2>👥 Доступи та акаунти</h2>
-    <p class="muted" style="font-size:.86rem;margin:0 0 14px">Створюйте акаунти для співробітників і задавайте ролі. <b>Власник</b> — усе. <b>Адміністратор</b> — усе, крім фінансів та акаунтів. <b>Майстер</b> — лише свій кабінет.</p>
+    <p class="muted" style="font-size:.86rem;margin:0 0 14px">Створюйте акаунти для співробітників і задавайте ролі. <b>Власник</b> — усе. <b>Адміністратор</b> — усе, крім фінансів та акаунтів. <b>Майстер</b> — лише свій кабінет. <b>Підтримка</b> — розробник: сайт і налаштування, і лише поки ви самі відкрили доступ кнопкою «Підтримка» у шапці.</p>
     <div id="um-list"></div>
     <div style="margin-top:14px"><button class="btn" id="um-add">+ Додати акаунт</button></div>
     <p class="modal-err" id="umErr"></p>
     <div class="sheet-act"><span style="flex:1"></span><button class="btn ghost sm" id="um-close" style="border-color:var(--line);color:var(--ink-soft)">Закрити</button></div>
+  </div>
+</div>
+
+<!-- Доступ для підтримки (лише власниця) -->
+<div class="modal" id="supModal">
+  <div class="sheet" style="width:min(680px,100%)">
+    <h2>🔧 Доступ для підтримки</h2>
+    <p class="muted" style="font-size:.86rem;margin:0 0 14px">Поки доступ закритий, розробник у CRM <b>нічого</b> не бачить і не може — навіть якщо знає свій пароль.</p>
+
+    <div style="display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));margin-bottom:14px">
+      <div style="border:1px solid var(--line);border-radius:12px;padding:12px">
+        <p style="margin:0 0 6px;font-weight:800;color:#1c7a3e">Зможе змінювати</p>
+        <ul style="margin:0;padding-left:18px;font-size:.86rem;line-height:1.7">
+          <li>тексти, фото і розділи сайту</li>
+          <li>налаштування салону та нагадувань</li>
+          <li id="sup-li-prices" hidden>послуги і ціни</li>
+        </ul>
+        <p class="muted" id="sup-readonly" style="font-size:.8rem;margin:8px 0 0"></p>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:12px;padding:12px">
+        <p style="margin:0 0 6px;font-weight:800;color:var(--cancelled)">Не побачить</p>
+        <ul style="margin:0;padding-left:18px;font-size:.86rem;line-height:1.7;text-decoration:line-through;opacity:.85">
+          <li>жодного клієнта, телефону чи запису</li>
+          <li>фото ваших тварин</li>
+          <li>відгуки</li>
+          <li>гроші та акаунти</li>
+        </ul>
+        <p style="font-size:.86rem;margin:8px 0 0;font-weight:800">І не зможе написати жодному вашому клієнту.</p>
+      </div>
+    </div>
+
+    <div id="sup-open">
+      <div class="fld" style="margin-bottom:8px"><label>На скільки відкрити</label>
+        <select id="sup-hours"><option value="2">2 години</option><option value="8" selected>8 годин</option><option value="24">1 доба</option><option value="72">3 доби</option></select>
+      </div>
+      <label style="display:flex;gap:8px;align-items:flex-start;font-size:.88rem;margin-bottom:12px;cursor:pointer">
+        <input type="checkbox" id="sup-prices" style="margin-top:3px">
+        <span>Дозволити також правити <b>послуги і ціни</b><br><span class="muted" style="font-size:.8rem">Вмикайте, тільки якщо просили полагодити саме прайс. Видалити послугу підтримка не може ніколи.</span></span>
+      </label>
+      <button class="btn" id="sup-go">Відкрити доступ</button>
+    </div>
+
+    <p class="modal-err" id="supErr"></p>
+    <h3 style="margin:18px 0 8px;font-size:.95rem">Що робила підтримка</h3>
+    <div id="sup-log" style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:12px"></div>
+    <div class="sheet-act"><span style="flex:1"></span><button class="btn ghost sm" id="sup-close-modal" style="border-color:var(--line);color:var(--ink-soft)">Закрити</button></div>
   </div>
 </div>
 
@@ -929,7 +983,17 @@
   function localISO(d){var m=d.getMonth()+1,day=d.getDate();return d.getFullYear()+"-"+(m<10?"0":"")+m+"-"+(day<10?"0":"")+day;}
 
   async function api(path,opts){opts=opts||{};opts.headers=Object.assign({"Authorization":"Bearer "+token},opts.headers||{});
-    var r=await fetch(API+path,opts); if(r.status===401)throw{code:401}; return r.json();}
+    var r=await fetch(API+path,opts);
+    /* Мертва сесія — це не локальна помилка однієї кнопки, а кінець роботи: далі не спрацює
+       нічого. Раніше на 401 реагували окремі виклики, а решта мовчала, і людина тицяла в кнопки
+       без жодної відповіді. Для підтримки це штатна ситуація: власниця закрила доступ — сесію
+       знищено — наступний же клік має чесно сказати про це, а не зникнути. */
+    if(r.status===401){if(token){logoutLocal();showLogin("Сесія завершилась, увійдіть знову.");}throw{code:401};}
+    var d=await r.json();
+    // 403 — це «вам не можна», а не «сесія померла». Раніше частина викликів мовчки ковтала
+    // таку відповідь, і кнопка просто не працювала без жодного слова на екрані.
+    if(r.status===403&&d&&d.error)toast(d.error,true);
+    return d;}
 
   // populate staff + breed selects
   (function(){
@@ -990,12 +1054,23 @@
   function showLogin(msg){document.body.classList.remove("crm-logged");
     $("#siteBtn").hidden=true;$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;
-    $("#whoami").hidden=true;$("#usersBtn").hidden=true;$("#pwBtn").hidden=true;$("#loginErr").textContent=msg||"";}
+    $("#whoami").hidden=true;$("#usersBtn").hidden=true;$("#supBtn").hidden=true;$("#supBar").hidden=true;$("#pwBtn").hidden=true;$("#loginErr").textContent=msg||"";}
   function showApp(){document.body.classList.add("crm-logged");
     $("#siteBtn").hidden=false;$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;$("#remindBtn").hidden=false;
     $("#pwBtn").hidden=false;applyRole();setView(view);}
-  var ROLE_L={owner:"Власник",admin:"Адміністратор",master:"Майстер"};
+  var ROLE_L={owner:"Власник",admin:"Адміністратор",master:"Майстер",support:"Підтримка"};
   function isOwner(){return userRole==="owner";}
+  function isSupport(){return userRole==="support";}
+  /* Що бачить підтримка. Права дає воркер (білий список у requireAdmin), а це лише екран:
+     показувати вкладку, де кнопка «Зберегти» однаково віддасть 403, — знущання з людини.
+     Тому «Послуги» зʼявляються, лише якщо власниця окремо дозволила правити прайс. */
+  function supportViews(){return (supState&&supState.prices)?{services:1,site:1}:{site:1};}
+  function applySupportViews(){
+    if(!isSupport())return;
+    var allow=supportViews();
+    [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.style.display=allow[b.dataset.view]?"":"none";});
+    if(!allow[view])setView("site");
+  }
   function applyRole(){
     // header identity + owner-only controls
     $("#whoami").hidden=false;$("#whoami").textContent=(userName||"")+" · "+(ROLE_L[userRole]||userRole);
@@ -1003,8 +1078,17 @@
     // Фінанси — owner only
     var finBtn=document.querySelector('.tabbtn[data-view="finance"]');if(finBtn)finBtn.style.display=isOwner()?"":"none";
     if(!isOwner()&&view==="finance")view="dash";
+    $("#supBtn").hidden=!isOwner();
+    if(isSupport()){
+      applySupportViews();
+      // Список записів підтримці закритий, тож «Оновити» нічого не оновлює. «Нагадування» —
+      // це налаштування, а вони дозволені, тому кнопка лишається.
+      $("#refreshBtn").hidden=true;
+      if(!supportViews()[view])view="site";
+    }
+    refreshSupBar();
   }
-  function setView(v){if(v==="finance"&&!isOwner())v="dash";view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");$("#reportsView").hidden=(v!=="reports");$("#servicesView").hidden=(v!=="services");$("#financeView").hidden=(v!=="finance");$("#reviewsView").hidden=(v!=="reviews");$("#siteView").hidden=(v!=="site");
+  function setView(v){if(v==="finance"&&!isOwner())v="dash";if(isSupport()&&!supportViews()[v])v="site";view=v;$("#dashView").hidden=(v!=="dash");$("#listView").hidden=(v!=="list");$("#calView").hidden=(v!=="cal");$("#clientsView").hidden=(v!=="clients");$("#reportsView").hidden=(v!=="reports");$("#servicesView").hidden=(v!=="services");$("#financeView").hidden=(v!=="finance");$("#reviewsView").hidden=(v!=="reviews");$("#siteView").hidden=(v!=="site");
     [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.classList.toggle("on",b.dataset.view===v);});
     if(v==="dash")renderDash(); else if(v==="cal")renderCal(); else if(v==="clients")renderClients(); else if(v==="reports")renderReports(); else if(v==="services")renderServices(); else if(v==="finance")renderFinance(); else if(v==="reviews")renderReviews(); else if(v==="site")renderSite(); else render();}
   [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.addEventListener("click",function(){setView(b.dataset.view);});});
@@ -1032,7 +1116,14 @@
   }
   async function afterLogin(){
     loadLiveDur();                      // тривалість послуг для сітки — з живого каталогу
-    try{all=(await api("/admin/list")).bookings||[];await loadClientsPets();showApp();renderPills();
+    /* Пароль підтримки сам по собі не відчиняє нічого: доки власниця не натиснула кнопку,
+       кожна ручка віддає 403. Пускати людину в порожню CRM, де не працює жодна кнопка, —
+       гірше, ніж сказати прямо на екрані входу. */
+    if(isSupport()){
+      try{supState=await api("/admin/support");}catch(e){supState=null;}
+      if(!supState||!supState.open){logoutLocal();showLogin("Доступ для підтримки зараз закритий. Попросіть власницю відкрити його в CRM.");return;}
+    }
+    try{all=isSupport()?[]:((await api("/admin/list")).bookings||[]);await loadClientsPets();showApp();renderPills();
       if(mustChange)setTimeout(function(){openPwModal(true);},350);
     }catch(e){logoutLocal();showLogin("Сесія недійсна. Увійдіть знову.");}
   }
@@ -1047,8 +1138,54 @@
   $("#tokenInput").addEventListener("keydown",function(e){if(e.key==="Enter")doLogin($("#userInput").value.trim(),$("#tokenInput").value);});
   $("#userInput").addEventListener("keydown",function(e){if(e.key==="Enter")$("#tokenInput").focus();});
   $("#logoutBtn").addEventListener("click",function(){var t=token;logoutLocal();$("#tokenInput").value="";$("#userInput").value="";showLogin("");try{fetch(API+"/auth/logout",{method:"POST",headers:{"Authorization":"Bearer "+t}});}catch(e){}});
-  async function reload(){try{var d=await api("/admin/list");all=d.bookings||[];await loadClientsPets();renderPills();setView(view);}catch(e){if(e.code===401)showLogin("Сесія завершилась, увійдіть знову.");}}
+  async function reload(){try{if(!isSupport()){var d=await api("/admin/list");all=d.bookings||[];}await loadClientsPets();renderPills();setView(view);refreshSupBar();}catch(e){if(e.code===401)showLogin("Сесія завершилась, увійдіть знову.");}}
   $("#refreshBtn").addEventListener("click",reload);
+
+  /* ---------- доступ для підтримки ---------- */
+  var supState=null;
+  function supWhen(iso){try{return new Date(iso).toLocaleString("uk-UA",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});}catch(e){return iso;}}
+  async function refreshSupBar(){
+    if(!token||userRole==="master"){$("#supBar").hidden=true;return;}
+    try{supState=await api("/admin/support");}catch(e){return;}
+    var open=supState&&supState.open;
+    $("#supBar").hidden=!open;
+    if(open){
+      $("#supBarTxt").textContent=(isSupport()?"🔧 Ваш доступ відкрито до ":"🔧 Доступ для підтримки відкрито до ")+supWhen(supState.until)+
+        (supState.prices?" · дозволено правити послуги і ціни":"");
+      $("#supBarClose").hidden=!isOwner();
+    }
+    applySupportViews();
+    if(!$("#supModal").classList.contains("open"))return;
+    renderSupModal();
+  }
+  function renderSupModal(){
+    var open=supState&&supState.open;
+    $("#sup-open").hidden=!!open;
+    $("#sup-li-prices").hidden=!(supState&&supState.prices);
+    // Прайс переїжджає між списками, і рядок «бачить, але не змінює» має за ним встигати.
+    $("#sup-readonly").textContent="Бачить, але не змінює: "+((supState&&supState.prices)?"":"прайс, ")+"графік майстрів, стан системи.";
+    $("#supErr").textContent=open?"Доступ відкрито до "+supWhen(supState.until)+". Закрити можна в будь-який момент — кнопкою в жовтій смузі вгорі.":"";
+    var log=(supState&&supState.log)||[];
+    $("#sup-log").innerHTML=log.length?log.map(function(r){
+      return '<div style="display:flex;gap:10px;padding:.5em .8em;border-bottom:1px solid var(--line);font-size:.85rem">'+
+        '<span class="muted" style="flex:0 0 96px">'+esc(supWhen(r.at))+'</span>'+
+        '<span style="flex:0 0 auto;font-weight:700">'+esc(r.who)+'</span>'+
+        '<span style="flex:1">'+esc(r.act)+'</span></div>';}).join(""):
+      '<p class="nodata" style="padding:14px">Підтримка ще нічого не робила.</p>';
+  }
+  async function supSet(path,body){
+    try{
+      var d=await api(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})});
+      if(!d||!d.ok){$("#supErr").textContent=(d&&d.error)||"Не вдалося";return;}
+      supState=d;renderSupModal();refreshSupBar();
+    }catch(e){$("#supErr").textContent="Помилка з'єднання";}
+  }
+  $("#supBtn").addEventListener("click",async function(){$("#supModal").classList.add("open");await refreshSupBar();renderSupModal();});
+  $("#sup-close-modal").addEventListener("click",function(){$("#supModal").classList.remove("open");});
+  $("#supModal").addEventListener("click",function(e){if(e.target===$("#supModal"))$("#supModal").classList.remove("open");});
+  $("#sup-go").addEventListener("click",function(){supSet("/admin/support-open",{hours:+$("#sup-hours").value,prices:$("#sup-prices").checked?1:0});});
+  // Закрити доступ ніколи не буває помилкою, тому без «ви впевнені?».
+  $("#supBarClose").addEventListener("click",function(){supSet("/admin/support-close",{});});
 
   /* ---------- dashboard ---------- */
   function bars(map,order,labelFn){
@@ -2417,7 +2554,7 @@
       return '<div class="um-row" data-id="'+(u.id||0)+'" style="border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;display:flex;flex-wrap:wrap;gap:9px;align-items:center">'+
         '<input class="um-username" value="'+esc(u.username||"")+'" placeholder="логін" autocapitalize="off" style="font-weight:800;'+ib+';max-width:120px">'+
         '<input class="um-name" value="'+esc(u.name||"")+'" placeholder="Імʼя" style="'+ib+';max-width:140px">'+
-        '<select class="um-role" style="'+ib+'"><option value="owner"'+(u.role==="owner"?" selected":"")+'>Власник</option><option value="admin"'+(u.role==="admin"?" selected":"")+'>Адміністратор</option><option value="master"'+(u.role==="master"?" selected":"")+'>Майстер</option></select>'+
+        '<select class="um-role" style="'+ib+'"><option value="owner"'+(u.role==="owner"?" selected":"")+'>Власник</option><option value="admin"'+(u.role==="admin"?" selected":"")+'>Адміністратор</option><option value="master"'+(u.role==="master"?" selected":"")+'>Майстер</option><option value="support"'+(u.role==="support"?" selected":"")+'>Підтримка</option></select>'+
         '<select class="um-master" style="'+ib+'">'+mopts(u.master_id)+'</select>'+
         '<label style="font-size:.82rem;font-weight:700;display:flex;gap:5px;align-items:center"><input type="checkbox" class="um-active"'+(u.active?" checked":"")+' style="width:auto">Активний</label>'+
         '<span style="flex:1"></span>'+

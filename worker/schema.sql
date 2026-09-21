@@ -172,6 +172,10 @@ CREATE TABLE IF NOT EXISTS "tg_sessions" (
   PRIMARY KEY (company_id, chat_id)
 );
 
+-- Журнал дій підтримки. Порожній у нового салону і заповнюється, лише коли власниця
+-- відкриває доступ розробнику.
+CREATE TABLE IF NOT EXISTS support_log (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL DEFAULT 1, at TEXT NOT NULL, who TEXT NOT NULL, act TEXT NOT NULL);
+
 -- ============================== індекси ==============================
 
 CREATE INDEX IF NOT EXISTS idx_bookings_company_client  ON bookings   (company_id, client_id);
@@ -193,6 +197,7 @@ CREATE INDEX IF NOT EXISTS idx_services_company         ON services   (company_i
 CREATE INDEX IF NOT EXISTS idx_sessions_company         ON sessions   (company_id);
 CREATE INDEX IF NOT EXISTS idx_site_media_company       ON site_media (company_id, cms_key);
 CREATE INDEX IF NOT EXISTS idx_site_media_unref ON site_media(unref_at);
+CREATE INDEX IF NOT EXISTS idx_support_log_at ON support_log(at);
 CREATE INDEX IF NOT EXISTS idx_users_company            ON users      (company_id);
 
 -- ============================== перший рядок ==============================
