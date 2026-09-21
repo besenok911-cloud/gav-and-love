@@ -944,3 +944,83 @@ section[id],[id="booking"]{scroll-margin-top:84px}
   .trust-item:nth-child(even){padding-left:0}
   .section{padding:clamp(58px,13vw,88px) 0}
 }
+
+/* ============================================================
+   V4 — мова інстаграму бренду: пласке поле кольору + вирізаний
+   суб'єкт, без градієнтів, тіней і заокруглень на фото.
+   Кольори взяті піпеткою з постів: #361e96 і #dddddd.
+   ============================================================ */
+:root{
+  --violet:#361e96;          /* саме цей фіолет у постах — він і є фірмовий */
+  --violet-d:#2b1878;
+  --violet-2:#5b43c9;
+  --violet-ink:#361e96;      /* більше не окремий тон: фіолет один */
+  --stone:#dddddd;           /* нейтральне поле з тих самих постів */
+  --violet-deep:#2a1676;
+}
+
+/* ---- поле кольору в героєві: жорсткий стоп, а не градієнт ---- */
+/* 981, not 901: .hero-inner stays one column until 980px (див. блок max-width:980px вище),
+   і поле кольору, увімкнене раніше, лягало просто під заголовок. Стоп рахуємо від центру,
+   а не у відсотках, інакше він надрізає .scroll-hint, що завжди стоїть на 50% + 12px. */
+@media (min-width:981px){
+  .hero-decor{background:linear-gradient(90deg,transparent 0 calc(50% + 16px),var(--violet) calc(50% + 16px))}
+  .hero-photo::before{background:rgba(255,255,255,.12);border:0}
+  .hero-photo-frame{background:var(--stone)}
+}
+@media (max-width:980px){
+  .hero-photo-frame{background:var(--violet)}
+}
+
+/* ---- галерея = сітка інстаграму: квадрат, впритул, без хрому ---- */
+.gallery-grid{gap:0}
+.g-item{border-radius:0;box-shadow:none;background:var(--stone)}
+.g-item:hover{box-shadow:none;transform:none}
+.g-item:hover img{transform:scale(1.04)}
+.g-badge,.g-badge-play,.g-badge-ba{border-radius:0;background:rgba(26,16,56,.78);
+  top:0;left:0;padding:.45em .7em;font-size:.66rem;letter-spacing:.06em;text-transform:uppercase}
+.g-ba{border-radius:0}
+.gallery-filters{margin-bottom:22px}
+
+/* ---- команда: фото на фірмовому полі, картка без хрому ---- */
+.team-card{background:none;border:0;padding:0;box-shadow:none}
+.team-card:hover{transform:none;box-shadow:none}
+.team-photo{background:var(--violet);border-radius:0;aspect-ratio:1}
+.team-card:hover .team-photo img{transform:scale(1.04)}
+.team-body{padding:16px 0 0}
+.team{background:var(--bg)}
+
+/* ---- темні секції стають полем фірмового кольору, а не майже-чорним ---- */
+.why-inner{background:var(--violet);border-radius:0}
+.booking{background:var(--violet)}
+.booking .script,.why-inner .script,.booking .section-head h2 .script{color:#e9c978}
+.booking .section-head h2 .script::after{background:rgba(233,201,120,.5)}
+.why-list span{color:#d8d2f3}
+.booking .section-sub{color:#d8d2f3}
+
+/* ---- інтер'єр: ті самі жорсткі краї, тільки з проміжками ---- */
+.interior-grid figure{border-radius:0;box-shadow:none;background:var(--stone)}
+.interior-grid{gap:10px}
+
+/* ---- фото-плейсхолдери всюди — нейтральний камінь, не бузковий ---- */
+.about-photo,.hotel-photos img,.lb-stage img{background:var(--stone)}   /* .hero-photo-frame має власну пару вище */
+.about-photo{border-radius:0;box-shadow:none}
+.hotel-photos img{border-radius:0}
+
+/* ---- дія: фірмовий фіолет ---- */
+.btn-primary{background:var(--violet);border-color:var(--violet)}
+.btn-primary:hover{background:var(--violet-d)}
+.price-tab.is-active,.price-tab.is-active:hover,.gfilter.is-active{background:var(--violet);border-color:var(--violet)}
+:focus-visible{outline-color:rgba(54,30,150,.6)}
+
+/* ---- V4 добірка: жорсткі краї там, де поле кольору ---- */
+.booking-form{border-radius:4px}
+.bstep,.bstep-head,.bf-done{border-radius:4px}
+.booking-form input,.booking-form select,.booking-form textarea,.seg-btn{border-radius:4px}
+.note-gift,.hotel-rules,.cloud,.qa,.job-card,.price-table-wrap,.price-tabs{border-radius:6px}
+.price-tab,.gfilter,.btn{border-radius:999px}      /* пігулка лишається тільки в дії */
+.lb-stage img,.lb-stage video{border-radius:0}
+.seg-btn:not(.is-active) .i{fill:var(--violet)}   /* обраний сегмент уже фіолетовий — там іконка біла, по currentColor */
+
+/* смуга довіри та біжучий рядок тримають ту саму сувору лінію */
+.proof{background:var(--bg-2);border-color:var(--line)}
