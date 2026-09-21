@@ -869,9 +869,11 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 .trust-item:hover{transform:none}
 .trust-item:hover .i-lg{transform:none}
 
-/* ---- 6. повітря ---- */
-.section{padding:clamp(76px,10vw,152px) 0}
-.section-head{margin-bottom:clamp(40px,5.4vw,70px)}
+/* ---- 6. повітря, але не прірва ----
+   10vw давало 193px між секціями на ноутбуці й 288px на 1440 — сторінка читалась
+   як низка окремих екранів. Тримаємо ритм ближче до 6vw. */
+.section{padding:clamp(54px,6.4vw,96px) 0}
+.section-head{margin-bottom:clamp(28px,3.4vw,44px)}
 .hero-lead{line-height:1.72}
 .section-sub{line-height:1.7}
 
@@ -942,7 +944,7 @@ section[id],[id="booking"]{scroll-margin-top:84px}
 @media (max-width:520px){
   .trust-inner{grid-template-columns:1fr}
   .trust-item:nth-child(even){padding-left:0}
-  .section{padding:clamp(58px,13vw,88px) 0}
+  .section{padding:clamp(44px,10vw,64px) 0}
 }
 
 /* ============================================================
