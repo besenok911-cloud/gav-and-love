@@ -303,11 +303,15 @@
     return all.filter(r => { const l = normBreed(r[0]); return l && (b.includes(l) || l.includes(b)); })
       .sort((x, y) => Math.abs(normBreed(x[0]).length - b.length) - Math.abs(normBreed(y[0]).length - b.length)); // closest label first
   }
-  function pickBreedRow(rows, breed, weight) {
+  // widx — номер колонки з вагою; -1 означає, що ваги в цьому прайсі немає.
+  // Назва (порода) при цьому завжди перша колонка — і в ролях, і без них.
+  function pickBreedRow(rows, breed, weight, widx) {
+    if (widx == null) widx = 1;
     const bm = breedRows(rows, breed); if (!bm.length) return null;
     if (bm.length === 1) return bm[0];
+    if (widx < 0) return bm[0];
     const w = normW(weight);
-    return (w && bm.find(r => normW(r[1]) === w)) || bm.find(r => !String(r[1] || "").trim()) || null;
+    return (w && bm.find(r => normW(r[widx]) === w)) || bm.find(r => !String(r[widx] || "").trim()) || null;
   }
   function iconForSvc(s) {
     const n = (s.name || "").toLowerCase();
@@ -338,11 +342,19 @@
   function priceHint(s, breed, weight) {
     if (!s) return "";
     if (s.price_type === "breed") {
-      const rows = s.rows || [], last = r => r[r.length - 1];
+      const rows = s.rows || [], cols = priceCols(s), tier = staffTier();
+      const last = r => (cols.length ? rowPriceFor(s, r, tier) : r[r.length - 1]);
       if (breed) {
         const bm = breedRows(rows, breed);
         if (bm.length) {
-          const row = pickBreedRow(rows, breed, weight), p = row ? last(row) : null;
+          const row = pickBreedRow(rows, breed, weight, wIdx(s));
+          // Два рівні і майстра ще не обрано — показуємо обидві ціни з їхніми назвами.
+          // Діапазон «1000–1100» ховає сам факт рівнів, і клієнт читає більшу цифру як націнку.
+          if (row && cols.length > 1 && !tier) {
+            const parts = cols.map(c => `${esc(c.head)} <b>${esc(row[c.idx] || "—")} ₴</b>`).join(" · ");
+            return `Орієнтовна ціна: ${parts}`;
+          }
+          const p = row ? last(row) : null;
           if (p != null && /^\d+$/.test(String(p).trim())) return `Орієнтовна ціна: <b>${esc(p)} ₴</b>`;
           const nums = bm.map(r => numOf(last(r))).filter(n => n != null);
           if (nums.length) { const mn = Math.min.apply(null, nums), mx = Math.max.apply(null, nums); return mn === mx ? `Орієнтовна ціна: <b>${mn} ₴</b>` : `Ціна для «${esc(breed)}»: <b>${mn}–${mx} ₴</b> — залежить від ваги`; }
@@ -588,9 +600,12 @@
     if (staffSel) staffSel.innerHTML = '<option value="">Будь-який майстер</option>' +
       (CFG.staff || []).map(s => `<option>${s}</option>`).join("");
   })();
+  let MASTER_TIERS = {};   // ім'я майстра → ключ цінового рівня, якщо салон їх використовує
   // live master roster (reflects schedule/active state from the CRM)
   if (staffSel && CONFIG.bookingEndpoint) {
     fetch(`${CONFIG.bookingEndpoint}/masters`).then(r => r.json()).then(d => {
+      MASTER_TIERS = (d && d.tiers) || {};      // салон без рівнів надішле порожнє, і нічого не зміниться
+      try { updatePriceHint(); } catch (e) { }   // ростер приїжджає асинхронно, підказка вже могла намалюватися
       if (d && d.masters && d.masters.length)
         staffSel.innerHTML = '<option value="">Будь-який майстер</option>' + d.masters.map(s => `<option>${s}</option>`).join("");
     }).catch(() => { });
@@ -640,7 +655,9 @@
     slotsField.hidden = false; slotsBox.innerHTML = ""; slotsHint.textContent = "завантаження…";
     const my = ++slotsToken;
     try {
-      const r = await fetch(`${CONFIG.bookingEndpoint}/slots?date=${dateInput.value}&service=${encodeURIComponent(serviceSel.value)}&staff=${encodeURIComponent(staffSel ? staffSel.value : "")}`);
+      const r = await fetch(`${CONFIG.bookingEndpoint}/slots?date=${dateInput.value}&service=${encodeURIComponent(serviceSel.value)}&staff=${encodeURIComponent(staffSel ? staffSel.value : "")}` +
+        // порода задає тривалість візиту, а рахує її сервер: параметра «скільки хвилин» тут немає
+        `&breed=${encodeURIComponent(breedSel && !breedSel.disabled ? breedSel.value : "")}&weight=${encodeURIComponent(weightSel ? weightSel.value : "")}`);
       const d = await r.json();
       if (my !== slotsToken) return;
       const slots = d.slots || [];
@@ -785,7 +802,7 @@
     if (isBreedSvc(s)) {
       const isCat = s.species === "cat", ph = isCat ? "Оберіть послугу…" : "Оберіть породу…";
       if (lbl) lbl.textContent = isCat ? "Послуга" : "Порода";
-      const breeds = distinctNE(s.rows.map(r => r[0])), cur = breedSel.value;
+      const breeds = distinctNE(s.rows.map(r => r[labelIdx(s)])), cur = breedSel.value;
       if (!isCat) breeds.sort((a, b) => a.localeCompare(b, "uk"));   // cat rows are named services, keep their order
       breedSel.innerHTML = `<option value="">${ph}</option>` + breeds.map(b => `<option>${esc(b)}</option>`).join("");
       if (cur && breeds.indexOf(cur) >= 0) breedSel.value = cur;
@@ -816,7 +833,8 @@
   }
   function syncWeightForBreed() {
     const s = svcByName(serviceSel.value); if (!isBreedSvc(s)) return;
-    const weights = distinctNE(s.rows.filter(r => r[0] === breedSel.value).map(r => r[1]))
+    const wi = wIdx(s);
+    const weights = wi < 0 ? [] : distinctNE(s.rows.filter(r => r[labelIdx(s)] === breedSel.value).map(r => r[wi]))
       .sort((x, y) => {                                   // by kilograms, not by alphabet: «до 10 кг» before «від 30 кг»
         const nx = kgNums(x)[0], ny = kgNums(y)[0];
         if (nx == null && ny == null) return 0;
@@ -845,9 +863,32 @@
     return out;
   };
   const parseAddonPrice = v => { const t = String(v == null ? "" : v).trim(); if (/%/.test(t)) { const n = numOf(t); return n != null ? { t: "pct", v: n } : { t: "m" }; } if (/^\+?\s*\d+$/.test(t)) return { t: "abs", v: +t.replace(/[^\d]/g, "") }; return { t: "m" }; };
+  /* Ролі колонок прайсу — те саме, що у воркері. Порожні ролі означають стару поведінку:
+     ціна в останній комірці, вага в другій. */
+  function svcRoles(s) { return Array.isArray(s && s.col_roles) ? s.col_roles.map(x => String(x == null ? "" : x)) : []; }
+  function roleAt(s, role) { const r = svcRoles(s); return r.findIndex(x => x.toLowerCase() === role); }
+  function priceCols(s) {
+    const out = []; svcRoles(s).forEach((r, i) => { const m = /^price(?::([a-z0-9_]{1,16}))?$/i.exec(r || ""); if (m) out.push({ key: (m[1] || "").toLowerCase(), idx: i, head: (s.columns || [])[i] || "Ціна" }); });
+    return out;
+  }
+  function labelIdx(s) { const i = roleAt(s, "label"); return i < 0 ? 0 : i; }
+  function wIdx(s) { const i = roleAt(s, "weight"); return i < 0 ? (svcRoles(s).length ? -1 : 1) : i; }
+  // Цена строки для выбранного мастера; уровень неизвестен — самая дешёвая, как и на сервере.
+  function rowPriceFor(s, row, tier) {
+    if (!row) return null;
+    const cols = priceCols(s);
+    if (!cols.length) return row[row.length - 1];
+    if (cols.length === 1) return row[cols[0].idx];
+    const hit = tier && cols.find(c => c.key === String(tier).toLowerCase());
+    if (hit) return row[hit.idx];
+    const nums = cols.map(c => numOf(row[c.idx])).filter(v => v != null);
+    return nums.length ? String(Math.min.apply(null, nums)) : null;
+  }
+  function staffTier() { return (MASTER_TIERS && staffSel && staffSel.value) ? (MASTER_TIERS[staffSel.value] || "") : ""; }
+
   function basePrice(s, breed, weight) {
     if (!s) return null;
-    if (s.price_type === "breed") { const row = pickBreedRow(s.rows, breed, weight), p = row ? row[row.length - 1] : null; return (p != null && /^\d+$/.test(String(p).trim())) ? +p : null; }
+    if (s.price_type === "breed") { const row = pickBreedRow(s.rows, breed, weight, wIdx(s)), p = rowPriceFor(s, row, staffTier()); return (p != null && /^\d+$/.test(String(p).trim())) ? +p : null; }
     if (s.price_type === "flat") return /^\d+$/.test(String(s.price).trim()) ? +s.price : null;
     return null;
   }
@@ -886,8 +927,12 @@
     if (cnt) { const n = addonsBox ? addonsBox.querySelectorAll("input:checked").length : 0; cnt.textContent = n ? `(обрано: ${n})` : "(необовʼязково)"; }
   }
   serviceSel && serviceSel.addEventListener("change", () => { syncBreedWeight(); renderAddons(); updatePriceHint(); });
-  breedSel && breedSel.addEventListener("change", () => { syncWeightForBreed(); updatePriceHint(); });
-  weightSel && weightSel.addEventListener("change", updatePriceHint);
+  // Порода тепер може задавати тривалість візиту, а від неї залежить сітка вільних годин,
+  // тож після вибору породи час треба перепитати. Рахує його сервер.
+  breedSel && breedSel.addEventListener("change", () => { syncWeightForBreed(); updatePriceHint(); refreshSlots(); });
+  weightSel && weightSel.addEventListener("change", () => { updatePriceHint(); refreshSlots(); });
+  // рівень майстра може міняти ціну, тож підказку треба перерахувати
+  staffSel && staffSel.addEventListener("change", updatePriceHint);
   addonsBox && addonsBox.addEventListener("change", updatePriceHint);
   function petSpecies() { const v = petHidden ? petHidden.value : ""; return v === "Кіт" ? "cat" : v === "Собака" ? "dog" : ""; }
   // Rebuild the service <select> for the chosen pet: cat → cat/both services, dog → dog/both.

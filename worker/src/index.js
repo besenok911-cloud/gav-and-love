@@ -1508,7 +1508,12 @@ async function petDelete(request, env) {
 /* ----------------------------- Masters (schedule) ----------------------------- */
 async function publicMasters(env) {
   const masters = await loadMasters(env);
-  return { ok: true, masters: masters.filter(m => m.active).map(m => m.name) };
+  const on = masters.filter(m => m.active);
+  const tiers = {};
+  on.forEach(m => { if (m.tier) tiers[m.name] = m.tier; });
+  // Список имён остаётся массивом строк — его читают форма записи и бот, ломать нельзя.
+  // Уровни едут отдельным полем, и его отсутствие для салона без рівнів ничего не меняет.
+  return { ok: true, masters: on.map(m => m.name), tiers };
 }
 async function adminMasters(request, env) {
   const auth = await requireAdmin(request, env);
