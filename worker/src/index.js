@@ -39,8 +39,6 @@ const SERVICE_DURATIONS = {
 const DEFAULT_DURATION = 120;
 // services that are NOT fixed time slots — sent as a request instead
 const REQUEST_SERVICES = new Set(["Міні-готель", "Денний садочок"]);
-// Майстри (roster) — keep in sync with data/config.js `staff`
-const STAFF = ["Дар'я", "Катерина", "Марія"];
 // DEFAULT_SERVICES (unified: booking + price) is defined at the bottom of the
 // file, built from DEFAULT_PRICES so the seed data lives in one place.
 
@@ -558,14 +556,46 @@ function wallToRFC(y, m, d, min, tz) {
   return `${y}-${pad(m)}-${pad(d)}T${hhmm(min)}:00${sign}${pad(Math.floor(ao / 60))}:${pad(ao % 60)}`;
 }
 
-/* A deployment without the Google secrets (the dev copy, a first run before the calendar is set up)
-   must still answer. Where the calendar is the source of busy time, "no calendar" means "no events
-   from there" — such an installation is NOT safe for real bookings, because two people could take
-   the same slot; it exists so the rest of the worker can be exercised. */
+/* Whether this installation keeps its schedule in Google. A salon that does is read from there;
+   one that does not is read from its own bookings table (dbBusy below). Both answers are real —
+   what used to be unsafe was the third case, "no calendar, therefore nothing is booked". */
 const calOn = env => !!(env && env.CALENDAR_ID && env.SA_EMAIL && env.SA_PRIVATE_KEY);
 async function calEvents(env, timeMin, timeMax) {
   if (!calOn(env)) return [];
   return await listEvents(env, await getAccessToken(env), timeMin, timeMax);
+}
+/* Busy time taken from our own bookings, in the shape listEvents returns.
+   Used ONLY where no calendar is configured. A salon that has one keeps it as the single source,
+   so nothing changes for an installation that works today; one without a calendar stops handing
+   out slots it has already sold. Requests are left out on purpose: they are the rows that never
+   reach the calendar either, so both sources describe the same set of appointments. */
+async function dbBusy(env, iso, exclude) {
+  if (!env.DB) return [];
+  // Anything with a real time on the clock counts, request or not: a request that the salon has
+  // since confirmed keeps is_request=1 forever, and skipping those would hand the hour out twice.
+  // no_show is excluded because the calendar drops its event too, so both sources say the same.
+  // No try/catch on purpose: a swallowed error here would answer "the whole day is free", which is
+  // the one answer that must never be a guess.
+  const dur = new Map((await loadServices(env)).map(x => [x.name, x.duration]));
+  const { results } = await env.DB.prepare(
+    `SELECT id, time, service, staff FROM bookings
+      WHERE date=? AND time<>'' AND COALESCE(status,'new') NOT IN ('cancelled', 'no_show')`
+  ).bind(iso).all();
+  const { y, m, d } = parseDate(iso);
+  return (results || []).map(b => {
+    if (exclude && b.id === exclude) return null;
+    const t = /^(\d{1,2}):(\d{2})$/.exec(b.time || "");
+    if (!t) return null;
+    const mins = dur.get(b.service) || SERVICE_DURATIONS[b.service] || DEFAULT_DURATION;
+    const start = wallToUTC(y, m, d, (+t[1]) * 60 + (+t[2]), BUSINESS.tz).getTime();
+    // A booking nobody is assigned to still occupies the salon, so it blocks every master rather
+    // than none. Calendar events never carry this flag, so a salon on Google is unaffected.
+    return { id: "db:" + b.id, start, end: start + mins * 60000, staff: b.staff || "", blockAll: !b.staff };
+  }).filter(Boolean);
+}
+// The single answer to "what is already taken that day".
+async function busyEvents(env, iso, timeMin, timeMax, exclude) {
+  return calOn(env) ? await calEvents(env, timeMin, timeMax) : await dbBusy(env, iso, exclude);
 }
 /* ----------------------------- Google auth ----------------------------- */
 async function getAccessToken(env) {
@@ -614,21 +644,6 @@ async function importPrivateKey(pem) {
 }
 
 /* ----------------------------- Calendar ----------------------------- */
-async function freeBusy(env, token, timeMin, timeMax) {
-  const res = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      timeMin: timeMin.toISOString(), timeMax: timeMax.toISOString(),
-      timeZone: BUSINESS.tz, items: [{ id: env.CALENDAR_ID }],
-    }),
-  });
-  const data = await res.json();
-  const cal = data.calendars && data.calendars[env.CALENDAR_ID];
-  if (!cal) throw new Error("freeBusy failed: " + JSON.stringify(data));
-  return (cal.busy || []).map(b => [new Date(b.start).getTime(), new Date(b.end).getTime()]);
-}
-
 function parseDate(s) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || "");
   if (!m) throw new Error("bad date");
@@ -656,28 +671,18 @@ function overlappingAt(events, start, end) {
   const buf = BUSINESS.bufferMin * 60000;
   return events.filter(ev => start < ev.end + buf && end + buf > ev.start);
 }
-// Is a slot free for the given staff? "" (any) → free while capacity remains.
-function slotFree(events, start, end, staff) {
-  const ov = overlappingAt(events, start, end);
-  if (staff) return !ov.some(ev => ev.staff === staff);
-  return ov.length < STAFF.length;               // any master: capacity of the roster
-}
-// Pick a free master for an "any" booking, or null if none.
-function pickFreeStaff(events, start, end) {
-  const ov = overlappingAt(events, start, end);
-  const busy = new Set(ov.map(ev => ev.staff).filter(Boolean));
-  return STAFF.find(s => !busy.has(s)) || null;
-}
 
 /* ----------------------------- Masters & schedule ----------------------------- */
 function hmToMin(t) { const m = /^(\d{1,2}):(\d{2})$/.exec(t || ""); return m ? (+m[1]) * 60 + (+m[2]) : null; }
 function parseVac(s) { try { const a = JSON.parse(s || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
-const DEFAULT_MASTERS = () => STAFF.map(n => ({ name: n, active: 1, startMin: 600, endMin: 1200, daysOff: [], vacations: [] }));
+/* An empty roster used to fall back to a hard-coded one. For a salon that is not GAV&LOVE that
+   meant strangers in its booking form and, worse, three times its real capacity. Empty now means
+   empty: no masters, no slots, and the salon fills its own list before it opens. */
 async function loadMasters(env) {
-  if (!env.DB) return DEFAULT_MASTERS();
+  if (!env.DB) return [];
   try {
     const { results } = await env.DB.prepare(`SELECT * FROM masters ORDER BY sort, id`).all();
-    if (!results || !results.length) return DEFAULT_MASTERS();
+    if (!results || !results.length) return [];
     return results.map(r => ({
       name: r.name, active: r.active ? 1 : 0,
       startMin: hmToMin(r.work_start) || 600, endMin: hmToMin(r.work_end) || 1200,
@@ -685,7 +690,12 @@ async function loadMasters(env) {
       daysOff: String(r.days_off || "").split(",").map(x => x.trim()).filter(x => x !== "").map(Number),
       vacations: parseVac(r.vacations),
     }));
-  } catch (e) { return DEFAULT_MASTERS(); }
+  } catch (e) {
+    // An empty roster and an unreachable database are different facts. Returning [] for both made
+    // a D1 blip look like "no free times today": the visitor is told a lie and leaves.
+    const err = new Error("Не вдалося прочитати список майстрів");
+    err.status = 503; throw err;
+  }
 }
 // Does this master work on the given date? dow = JS getDay() (0=Sun..6=Sat).
 function masterWorks(mst, iso, dow) {
@@ -715,10 +725,11 @@ async function getSlots(url, env) {
 
   const dayStart = wallToUTC(y, m, d, 0, BUSINESS.tz);
   const dayEnd = wallToUTC(y, m, d, 24 * 60, BUSINESS.tz);
-  let events = await calEvents(env, dayStart, dayEnd);
-  const excl = Number(url.searchParams.get("exclude"));   // booking being rescheduled: its own event must not block the picker
-  if (Number.isInteger(excl) && excl > 0 && env.DB) {
-    const row = await env.DB.prepare(`SELECT event_id FROM bookings WHERE id=?`).bind(excl).first();
+  const excl = Number(url.searchParams.get("exclude"));   // booking being rescheduled: its own time must not block the picker
+  const exclId = (Number.isInteger(excl) && excl > 0) ? excl : 0;
+  let events = await busyEvents(env, iso, dayStart, dayEnd, exclId);
+  if (exclId && env.DB && calOn(env)) {
+    const row = await env.DB.prepare(`SELECT event_id FROM bookings WHERE id=?`).bind(exclId).first();
     if (row && row.event_id) events = events.filter(ev => ev.id !== row.event_id);
   }
 
@@ -734,7 +745,7 @@ async function getSlots(url, env) {
     // available if some working master's window covers [t,t+dur] and they're free
     const avail = working.some(mst =>
       t >= mst.startMin && t + duration <= mst.endMin && !inBreak(mst, t, t + duration) &&
-      !overlappingAt(events, start, end).some(ev => ev.staff === mst.name));
+      !overlappingAt(events, start, end).some(ev => ev.blockAll || ev.staff === mst.name));
     if (avail) slots.push(hhmm(t));
   }
   return { ok: true, slots };
@@ -764,12 +775,12 @@ async function book(body, env, source) {
 
     const start = wallToUTC(y, m, d, startMin, BUSINESS.tz);
     const end = new Date(start.getTime() + duration * 60000);
-    const events = await calEvents(env,
+    const events = await busyEvents(env, date,
       new Date(start.getTime() - BUSINESS.bufferMin * 60000),
-      new Date(end.getTime() + BUSINESS.bufferMin * 60000));
+      new Date(end.getTime() + BUSINESS.bufferMin * 60000), 0);
     const isFree = mst => startMin >= mst.startMin && startMin + duration <= mst.endMin &&
       !inBreak(mst, startMin, startMin + duration) && masterWorks(mst, date, dow) &&
-      !overlappingAt(events, start.getTime(), end.getTime()).some(ev => ev.staff === mst.name);
+      !overlappingAt(events, start.getTime(), end.getTime()).some(ev => ev.blockAll || ev.staff === mst.name);
     if (staff) {
       const mst = masters.find(x => x.name === staff);
       if (!mst || !isFree(mst)) return { ok: false, error: "На жаль, цей час уже зайнятий у майстра. Оберіть інший." };
@@ -890,10 +901,11 @@ async function sessionUser(env, token) {
   return s;
 }
 // Owner or admin (CRM staff). ADMIN_TOKEN is the emergency owner login.
+/* ADMIN_TOKEN is the emergency owner PASSWORD (authLogin below) and nothing else. It used to be
+   accepted as a bearer here too, which made it a key that issues no session, appears in no list
+   and cannot be revoked by logging out — only by rotating the secret. */
 async function requireAdmin(request, env) {
-  const tok = bearer(request);
-  if (env.ADMIN_TOKEN && tok === env.ADMIN_TOKEN) return { role: "owner", user_id: 0, name: "Власник" };
-  const s = await sessionUser(env, tok);
+  const s = await sessionUser(env, bearer(request));
   if (!s || (s.role !== "owner" && s.role !== "admin")) { const e = new Error("unauthorized"); e.status = 401; throw e; }
   return s;
 }
@@ -923,9 +935,7 @@ async function issueSession(env, u) {
   return { ok: true, token, role: u.role, name, username: u.username || "", must_change: u.must_change ? 1 : 0 };
 }
 async function authMe(request, env) {
-  const tok = bearer(request);
-  if (env.ADMIN_TOKEN && tok === env.ADMIN_TOKEN) return { ok: true, role: "owner", name: "Власник", username: "owner", must_change: 0 };
-  const s = await sessionUser(env, tok);
+  const s = await sessionUser(env, bearer(request));
   if (!s) { const e = new Error("unauthorized"); e.status = 401; throw e; }
   let mc = 0; if (s.user_id) { const u = await env.DB.prepare(`SELECT must_change,username FROM users WHERE id=?`).bind(s.user_id).first(); mc = u && u.must_change ? 1 : 0; }
   return { ok: true, role: s.role, name: s.name, master_id: s.master_id, must_change: mc };
@@ -1261,7 +1271,7 @@ async function clientMove(request, env) {
   const date = String(body.date || ""), time = String(body.time || "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return { ok: false, error: "Оберіть дату й час" };
   if (date < isoInTz(new Date(), BUSINESS.tz)) return { ok: false, error: "Ця дата вже минула" };
-  let staff = null; try { staff = await freeMasterAt(env, { date, time, service: b.service, prefer: b.staff, excludeEventId: b.event_id }); } catch (e) { staff = null; }
+  let staff = null; try { staff = await freeMasterAt(env, { date, time, service: b.service, prefer: b.staff, excludeEventId: b.event_id, excludeId: b.id }); } catch (e) { staff = null; }
   if (!staff) return { ok: false, error: "На жаль, цей час уже зайнятий. Оберіть інший." };
   await env.DB.prepare(`UPDATE bookings SET date=?, time=?, staff=?, remind_day_sent=0, remind_hour_sent=0 WHERE id=?`).bind(date, time, staff, b.id).run();
   try { await syncCalendar(env, b.id); } catch (e) { }
@@ -1907,12 +1917,14 @@ async function seedServices(env) {
   }
 }
 async function loadServices(env) {
-  if (!env.DB) return svcDefaults().map(s => migrateBreedService(svcRow(s)));
+  if (!env.DB) return [];
   try {
     let r = await env.DB.prepare(`SELECT * FROM services ORDER BY sort, id`).all();
-    if (!r.results || !r.results.length) { await seedServices(env); r = await env.DB.prepare(`SELECT * FROM services ORDER BY sort, id`).all(); }
+    // Deliberately no seeding here. /catalog is public, so one crawler hit used to WRITE the
+    // GAV&LOVE price list into a new salon's table as its own. A new salon fills its price list in
+    // the CRM; seedServices below is kept for the deployment script and is called from nowhere yet.
     return (r.results || []).map(row => migrateBreedService(svcRow(row)));
-  } catch (e) { return svcDefaults().map(s => migrateBreedService(svcRow(s))); }
+  } catch (e) { const err = new Error("Не вдалося прочитати перелік послуг"); err.status = 503; throw err; }
 }
 async function serviceInfo(env, name) { return (await loadServices(env)).find(s => s.name === name) || null; }
 async function serviceDuration(env, name) { const s = await serviceInfo(env, name); return (s && s.duration) ? s.duration : (SERVICE_DURATIONS[name] || DEFAULT_DURATION); }
@@ -2469,7 +2481,9 @@ async function notifyBroadcast(request, env) {
   return { ok: true, sent, failed, total: seen.size };
 }
 // Free master for a date-time (same rule as book()): prefer `prefer`, else the first free one; null = nobody.
-async function freeMasterAt(env, { date, time, service, prefer, excludeEventId }) {
+// Used when a booking is moved — from the client cabinet and from the bot. It is the third place
+// that decides "is this hour taken", and it has to answer from the same source as the other two.
+async function freeMasterAt(env, { date, time, service, prefer, excludeEventId, excludeId }) {
   const { y, m, d } = parseDate(date);
   const tm = /^(\d{2}):(\d{2})$/.exec(time || ""); if (!tm) return null;
   const startMin = (+tm[1]) * 60 + (+tm[2]);
@@ -2478,11 +2492,13 @@ async function freeMasterAt(env, { date, time, service, prefer, excludeEventId }
   const masters = await loadMasters(env);
   const start = wallToUTC(y, m, d, startMin, BUSINESS.tz), end = new Date(start.getTime() + duration * 60000);
   if (start.getTime() < Date.now() + BUSINESS.minLeadMin * 60000 || start.getTime() > Date.now() + BUSINESS.maxAheadDays * 86400000) return null; // same bounds as the slot picker
-  const events = (await calEvents(env, new Date(start.getTime() - BUSINESS.bufferMin * 60000), new Date(end.getTime() + BUSINESS.bufferMin * 60000)))
+  const events = (await busyEvents(env, date,
+      new Date(start.getTime() - BUSINESS.bufferMin * 60000),
+      new Date(end.getTime() + BUSINESS.bufferMin * 60000), excludeId || 0))
     .filter(ev => !excludeEventId || ev.id !== excludeEventId);   // the booking's own event is not a conflict
   const isFree = mst => startMin >= mst.startMin && startMin + duration <= mst.endMin &&
     !inBreak(mst, startMin, startMin + duration) && masterWorks(mst, date, dow) &&
-    !overlappingAt(events, start.getTime(), end.getTime()).some(ev => ev.staff === mst.name);
+    !overlappingAt(events, start.getTime(), end.getTime()).some(ev => ev.blockAll || ev.staff === mst.name);
   const p = prefer ? masters.find(x => x.name === prefer) : null;
   if (p && isFree(p)) return p.name;
   const f = masters.find(isFree);
@@ -2834,7 +2850,7 @@ async function moveApply(env, chat, st) {
   const owner = b ? await clientChatFor(env, b) : null;
   if (!b || String(owner) !== String(chat) || !["new", "confirmed"].includes(b.status) || b.is_request || !b.time) { await tgClearState(env, chat); await tgSendTo(env, chat, "Цей запис уже не можна перенести — напишіть нам, будь ласка."); return; }
   let staff = null;
-  try { staff = await freeMasterAt(env, { date: st.date, time: st.time, service: b.service, prefer: b.staff, excludeEventId: b.event_id }); } catch (e) { staff = null; }
+  try { staff = await freeMasterAt(env, { date: st.date, time: st.time, service: b.service, prefer: b.staff, excludeEventId: b.event_id, excludeId: b.id }); } catch (e) { staff = null; }
   if (!staff) { await tgSendTo(env, chat, "На жаль, цей час щойно зайняли. Оберіть інший, будь ласка.", kb([[{ text: "🕐 Інший час", callback_data: "b:back:time" }], [{ text: "✖ Залишити як є", callback_data: "b:x" }]])); return; }
   await env.DB.prepare(`UPDATE bookings SET date=?, time=?, staff=?, remind_day_sent=0, remind_hour_sent=0 WHERE id=?`).bind(st.date, st.time, staff, b.id).run();
   try { await syncCalendar(env, b.id); } catch (e) { }
