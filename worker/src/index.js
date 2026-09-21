@@ -20,6 +20,11 @@
  * with the per-company credential store it used to encrypt.
  */
 
+/* Which build is running. Bump it with any change that goes out to a salon: when a salon someone
+   else now owns misbehaves, the first question is which version it is on, and there is no other way
+   to ask. Reported by GET /health. */
+const VERSION = "2026-09-21";
+
 const BUSINESS = {
   tz: "Europe/Kyiv",
   openMin: 10 * 60,          // 10:00
@@ -76,6 +81,14 @@ export default {
         const obj = await backupFetch(env, url.searchParams.get("key"));
         if (!obj) return json({ ok: false, error: "not found" }, cors, 404);
         return new Response(obj.body, { headers: { ...cors, "Content-Type": "application/sql; charset=utf-8", "Cache-Control": "no-store" } });
+      }
+      // Without the operator's token: the build and nothing else, and it does not touch the
+      // database — an uptime monitor hitting this every minute should cost nothing.
+      if (url.pathname === "/health" && request.method === "GET") {
+        if (!env.PLATFORM_TOKEN || bearer(request) !== env.PLATFORM_TOKEN) {
+          return json({ ok: true, version: VERSION }, cors);
+        }
+        return json(await health(env), cors);
       }
       if (env.DB) {
         const salon = await loadSalon(env);          // throws rather than guessing which salon this is
@@ -1971,6 +1984,56 @@ async function siteSave(request, env) {
    is private, there is no public route to it, and it belongs to whoever owns the data. */
 const BACKUP_DAILY_KEEP = 30, BACKUP_MONTHLY_KEEP = 12;
 const backupBucket = env => (env && env.BACKUPS && typeof env.BACKUPS.put === "function") ? env.BACKUPS : null;
+
+const EXPECTED_TABLES = ["bookings", "clients", "pets", "pet_photos", "masters", "services", "expenses",
+  "reviews", "users", "sessions", "client_sessions", "client_otp", "settings", "tg_sessions",
+  "site_media", "companies"];
+
+/* Enough to diagnose someone else's installation without opening their data. Deliberately has no
+   client names, phones or notes in it: supporting a salon should not require reading its clients.
+   Behind the operator's token, because the shape of a business is information too. */
+async function health(env) {
+  const out = {
+    ok: true, version: VERSION, at: new Date().toISOString(),
+    site: env.SITE_URL || "", origin: env.ALLOW_ORIGIN || "",
+    calendar: calOn(env),
+    telegram: !!(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID),
+    backups: !!backupBucket(env),
+    admin_password_set: !!env.ADMIN_TOKEN,
+  };
+  const DB = env.DBRAW || env.DB;
+  if (!DB) { out.ok = false; out.db = "немає прив'язки до бази"; return out; }
+  try {
+    const t = ((await DB.prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'`
+    ).all()).results || []).map(r => r.name);
+    out.tables = t.length;
+    const missing = EXPECTED_TABLES.filter(x => !t.includes(x));
+    if (missing.length) { out.ok = false; out.missing_tables = missing; }
+    const one = async (sql) => { try { return (await DB.prepare(sql).first()).n; } catch (e) { return null; } };
+    const today = isoInTz(new Date(), BUSINESS.tz);
+    out.counts = {
+      bookings: await one(`SELECT COUNT(*) AS n FROM bookings`),
+      clients: await one(`SELECT COUNT(*) AS n FROM clients`),
+      masters: await one(`SELECT COUNT(*) AS n FROM masters WHERE active=1`),
+      services: await one(`SELECT COUNT(*) AS n FROM services WHERE active=1`),
+      users: await one(`SELECT COUNT(*) AS n FROM users WHERE active=1`),
+    };
+    out.upcoming = await one(`SELECT COUNT(*) AS n FROM bookings WHERE date>='${today}' AND COALESCE(status,'new') NOT IN ('cancelled','no_show')`);
+    out.booked_last_24h = await one(`SELECT COUNT(*) AS n FROM bookings WHERE created_at > datetime('now','-1 day')`);
+    // An installation that cannot take a booking is the thing worth shouting about.
+    if (!out.counts.masters) { out.ok = false; out.warn = "немає жодного активного майстра — форма запису не запропонує часу"; }
+  } catch (e) { out.ok = false; out.db = String(e && e.message || e); }
+  try {
+    const b = backupBucket(env);
+    if (b) {
+      const o = await b.get("latest.json");
+      out.last_backup = o ? JSON.parse(await o.text()) : null;
+      if (!o) { out.ok = false; out.warn = (out.warn ? out.warn + "; " : "") + "жодного бекапу ще не було"; }
+    }
+  } catch (e) { out.last_backup = "помилка: " + String(e && e.message || e); }
+  return out;
+}
 function sqlLit(v) {
   if (v === null || v === undefined) return "NULL";
   if (typeof v === "number") return Number.isFinite(v) ? String(v) : "NULL";
