@@ -9,6 +9,11 @@
 -- він починається з власних CREATE TABLE. Старіші дампи (до 21.09) містять лише дані,
 -- тож для них спершу накотіть цю схему.
 --
+-- ПРО ПРАЙС. Колонка services.col_roles описує, що означає кожна колонка таблиці цін
+-- (label / weight / price / price:<рівень> / duration / info). Порожня — читається як раніше:
+-- ціна в останній комірці, вага в другій. masters.tier зберігає ключ цінового рівня майстра,
+-- bookings.duration — фактичні хвилини візиту. Деталі — worker/migrations/0002_column_roles.sql.
+--
 -- ПРО company_id. Колонка лишилася в усіх 15 таблицях із даними салону і завжди дорівнює 1:
 -- один воркер обслуговує один салон. Раніше значення підставляла обгортка запитів, тепер її
 -- немає — його дає `NOT NULL DEFAULT 1` у самих визначеннях таблиць. ЦЕЙ DEFAULT ПРИБИРАТИ НЕ МОЖНА:
@@ -77,11 +82,11 @@ CREATE TABLE IF NOT EXISTS "masters" (
   work_start TEXT DEFAULT '10:00', work_end TEXT DEFAULT '20:00',
   days_off TEXT DEFAULT '', vacations TEXT DEFAULT '', sort INTEGER DEFAULT 0,
   salary_type TEXT, salary_value REAL, break_start TEXT, break_end TEXT,
-  salary_base REAL, access_code TEXT,
+  salary_base REAL, access_code TEXT, tier TEXT,
   UNIQUE (company_id, name)
 );
 
-CREATE TABLE IF NOT EXISTS services (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, species TEXT, duration INTEGER DEFAULT 0, is_request INTEGER DEFAULT 0, bookable INTEGER DEFAULT 1, active INTEGER DEFAULT 1, sort INTEGER DEFAULT 0, price_type TEXT DEFAULT 'flat', price TEXT, unit TEXT DEFAULT '', note TEXT, columns TEXT, rows TEXT, company_id INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS services (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, species TEXT, duration INTEGER DEFAULT 0, is_request INTEGER DEFAULT 0, bookable INTEGER DEFAULT 1, active INTEGER DEFAULT 1, sort INTEGER DEFAULT 0, price_type TEXT DEFAULT 'flat', price TEXT, unit TEXT DEFAULT '', note TEXT, columns TEXT, rows TEXT, company_id INTEGER NOT NULL DEFAULT 1, col_roles TEXT);
 
 CREATE TABLE IF NOT EXISTS "settings" (
   company_id INTEGER NOT NULL DEFAULT 1,
@@ -136,7 +141,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   is_request INTEGER DEFAULT 0,
   event_link TEXT,
   status TEXT DEFAULT 'new'
-, source TEXT DEFAULT 'site', event_id TEXT, price REAL, staff TEXT DEFAULT '', weight TEXT DEFAULT '', client_id INTEGER, pet_id INTEGER, pet_name TEXT DEFAULT '', pay_method TEXT, tg_code TEXT, remind_day_sent INTEGER DEFAULT 0, remind_hour_sent INTEGER DEFAULT 0, company_id INTEGER NOT NULL DEFAULT 1);
+, source TEXT DEFAULT 'site', event_id TEXT, price REAL, staff TEXT DEFAULT '', weight TEXT DEFAULT '', client_id INTEGER, pet_id INTEGER, pet_name TEXT DEFAULT '', pay_method TEXT, tg_code TEXT, remind_day_sent INTEGER DEFAULT 0, remind_hour_sent INTEGER DEFAULT 0, company_id INTEGER NOT NULL DEFAULT 1, duration INTEGER);
 
 CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, category TEXT, title TEXT, amount REAL, note TEXT, company_id INTEGER NOT NULL DEFAULT 1);
 

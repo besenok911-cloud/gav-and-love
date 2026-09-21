@@ -382,7 +382,7 @@ async function dbBusy(env, iso, exclude) {
   // the one answer that must never be a guess.
   const dur = new Map((await loadServices(env)).map(x => [x.name, x.duration]));
   const { results } = await env.DB.prepare(
-    `SELECT id, time, service, staff FROM bookings
+    `SELECT id, time, service, staff, duration FROM bookings
       WHERE date=? AND time<>'' AND COALESCE(status,'new') NOT IN ('cancelled', 'no_show')`
   ).bind(iso).all();
   const { y, m, d } = parseDate(iso);
@@ -390,7 +390,9 @@ async function dbBusy(env, iso, exclude) {
     if (exclude && b.id === exclude) return null;
     const t = /^(\d{1,2}):(\d{2})$/.exec(b.time || "");
     if (!t) return null;
-    const mins = dur.get(b.service) || SERVICE_DURATIONS[b.service] || DEFAULT_DURATION;
+    // Записанные минуты важнее сегодняшнего прайса: строку могли удалить, цену поправить
+    // задним числом, а сколько длился прошлый визит — это факт, а не вычисление.
+    const mins = b.duration || dur.get(b.service) || SERVICE_DURATIONS[b.service] || DEFAULT_DURATION;
     const start = wallToUTC(y, m, d, (+t[1]) * 60 + (+t[2]), BUSINESS.tz).getTime();
     // A booking nobody is assigned to still occupies the salon, so it blocks every master rather
     // than none. Calendar events never carry this flag, so a salon on Google is unaffected.
@@ -493,6 +495,7 @@ async function loadMasters(env) {
       breakStart: hmToMin(r.break_start), breakEnd: hmToMin(r.break_end),
       daysOff: String(r.days_off || "").split(",").map(x => x.trim()).filter(x => x !== "").map(Number),
       vacations: parseVac(r.vacations),
+      tier: r.tier || "",
     }));
   } catch (e) {
     // An empty roster and an unreachable database are different facts. Returning [] for both made
@@ -518,8 +521,19 @@ async function getSlots(url, env) {
   const { y, m, d } = parseDate(iso);
   const service = url.searchParams.get("service") || "";
   const reqStaff = url.searchParams.get("staff") || "";     // "" = будь-який майстер
-  const svc = (await loadServices(env)).find(s => s.name === service);
-  const duration = (svc && svc.duration) ? svc.duration : (SERVICE_DURATIONS[service] || DEFAULT_DURATION);
+  let breed = url.searchParams.get("breed") || "";
+  let weight = url.searchParams.get("weight") || "";
+  const excl = Number(url.searchParams.get("exclude"));   // booking being rescheduled: its own time must not block the picker
+  const exclId = (Number.isInteger(excl) && excl > 0) ? excl : 0;
+  // On a reschedule the booking itself knows the breed, so the client cabinet and the bot do not
+  // have to send it — and there is deliberately no "how many minutes" parameter for anyone to send.
+  if (exclId && !breed && env.DB) {
+    try {
+      const r = await env.DB.prepare(`SELECT breed, weight FROM bookings WHERE id=?`).bind(exclId).first();
+      if (r) { breed = r.breed || ""; weight = weight || r.weight || ""; }
+    } catch (e) { }
+  }
+  const duration = await bookingDuration(env, { service, breed, weight });
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 
   const masters = await loadMasters(env);
@@ -529,8 +543,6 @@ async function getSlots(url, env) {
 
   const dayStart = wallToUTC(y, m, d, 0, BUSINESS.tz);
   const dayEnd = wallToUTC(y, m, d, 24 * 60, BUSINESS.tz);
-  const excl = Number(url.searchParams.get("exclude"));   // booking being rescheduled: its own time must not block the picker
-  const exclId = (Number.isInteger(excl) && excl > 0) ? excl : 0;
   let events = await busyEvents(env, iso, dayStart, dayEnd, exclId);
   if (exclId && env.DB && calOn(env)) {
     const row = await env.DB.prepare(`SELECT event_id FROM bookings WHERE id=?`).bind(exclId).first();
@@ -567,14 +579,15 @@ async function book(body, env, source) {
   if (staff && !masters.some(mst => mst.name === staff)) staff = "";  // ignore unknown master
 
   const isRequest = (await serviceIsRequest(env, service)) || !time || waitlist;
-  let eventLink = null, eventId = null;
+  let eventLink = null, eventId = null, visitMin = null;
 
   if (!isRequest) {
     const { y, m, d } = parseDate(date);
     const tm = /^(\d{2}):(\d{2})$/.exec(time);
     if (!tm) return { ok: false, error: "bad time" };
     const startMin = (+tm[1]) * 60 + (+tm[2]);
-    const duration = await serviceDuration(env, service);
+    const duration = await bookingDuration(env, { service, breed, weight });
+    visitMin = duration;
     const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 
     const start = wallToUTC(y, m, d, startMin, BUSINESS.tz);
@@ -603,7 +616,7 @@ async function book(body, env, source) {
   }
 
   await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest, staff, waitlist, source });
-  const saved = (await saveBooking(env, { pet, pet_name, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff, source, waitlist, addons: (body && body.addons) })) || {};
+  const saved = (await saveBooking(env, { pet, pet_name, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff, source, waitlist, duration: visitMin, addons: (body && body.addons) })) || {};
   let tgLink = "";
   try {
     tgLink = await tgDeepLink(env, saved.tg_code);                       // "" until the bot is connected in the CRM
@@ -645,7 +658,7 @@ const calUrl = (env, id) =>
   `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.CALENDAR_ID)}/events` +
   (id ? "/" + encodeURIComponent(id) : "");
 async function calCreate(env, token, b) {
-  const dur = await serviceDuration(env, b.service);
+  const dur = await visitMinutes(env, b);
   const res = await fetch(calUrl(env), { method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(calEventBody(b, dur)) });
@@ -654,7 +667,7 @@ async function calCreate(env, token, b) {
   return ev;
 }
 async function calPatch(env, token, id, b) {
-  const dur = await serviceDuration(env, b.service);
+  const dur = await visitMinutes(env, b);
   const res = await fetch(calUrl(env, id), { method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(calEventBody(b, dur)) });
@@ -674,14 +687,14 @@ async function saveBooking(env, b) {
     const link = await linkClientPet(env, b);
     const tgCode = randHex(6);   // one-time deep-link code: t.me/<bot>?start=<code> links this client's Telegram
     const r = await env.DB.prepare(
-      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight,client_id,pet_id,pet_name,tg_code)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO bookings (created_at,pet,service,breed,name,phone,date,time,note,is_request,event_link,status,source,event_id,price,staff,weight,client_id,pet_id,pet_name,tg_code,duration)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       new Date().toISOString(), b.pet || "", b.service || "", b.breed || "",
       b.name || "", b.phone || "", b.date || "", b.time || "", b.note || "",
       b.isRequest ? 1 : 0, b.eventLink || null, b.waitlist ? "waitlist" : "new", b.source || "site", b.eventId || null,
       (b.price != null && b.price !== "") ? b.price : null, b.staff || "", b.weight || "",
-      link.client_id, link.pet_id, b.pet_name || "", tgCode
+      link.client_id, link.pet_id, b.pet_name || "", tgCode, (b.duration > 0 ? b.duration : null)
     ).run();
     return { id: r.meta && r.meta.last_row_id, tg_code: tgCode, client_id: link.client_id || null };
   } catch (e) { /* CRM logging must never break a booking */ }
@@ -823,7 +836,7 @@ async function staffScheduleProblem(env, b) {
   if (mst.daysOff.includes(dow)) return `${staff} ${dd} — вихідний`;
   const t = hmToMin(b.time);
   if (t != null) {
-    const dur = await serviceDuration(env, b.service);
+    const dur = await visitMinutes(env, b);
     const hm = x => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
     if (t < mst.startMin || t + dur > mst.endMin) return `${staff} працює ${hm(mst.startMin)}–${hm(mst.endMin)}, запис о ${b.time} (${dur} хв) не вкладається`;
     if (inBreak(mst, t, t + dur)) return `${staff}: ${b.time} припадає на обідню перерву (${hm(mst.breakStart)}–${hm(mst.breakEnd)})`;
@@ -1075,7 +1088,7 @@ async function clientMove(request, env) {
   const date = String(body.date || ""), time = String(body.time || "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return { ok: false, error: "Оберіть дату й час" };
   if (date < isoInTz(new Date(), BUSINESS.tz)) return { ok: false, error: "Ця дата вже минула" };
-  let staff = null; try { staff = await freeMasterAt(env, { date, time, service: b.service, prefer: b.staff, excludeEventId: b.event_id, excludeId: b.id }); } catch (e) { staff = null; }
+  let staff = null; try { staff = await freeMasterAt(env, { date, time, service: b.service, prefer: b.staff, excludeEventId: b.event_id, excludeId: b.id, breed: b.breed, weight: b.weight }); } catch (e) { staff = null; }
   if (!staff) return { ok: false, error: "На жаль, цей час уже зайнятий. Оберіть інший." };
   await env.DB.prepare(`UPDATE bookings SET date=?, time=?, staff=?, remind_day_sent=0, remind_hour_sent=0 WHERE id=?`).bind(date, time, staff, b.id).run();
   try { await syncCalendar(env, b.id); } catch (e) { }
@@ -1504,7 +1517,7 @@ async function adminMasters(request, env) {
   if (auth.role !== "owner") masters = masters.map(m => { const c = { ...m }; delete c.salary_type; delete c.salary_value; delete c.salary_base; return c; }); // salaries are owner-only
   return { ok: true, masters };
 }
-const MASTER_FIELDS = ["name", "active", "work_start", "work_end", "days_off", "vacations", "sort", "salary_type", "salary_value", "salary_base", "break_start", "break_end", "access_code"];
+const MASTER_FIELDS = ["name", "active", "work_start", "work_end", "days_off", "vacations", "sort", "salary_type", "salary_value", "salary_base", "break_start", "break_end", "access_code", "tier"];
 const MASTER_FIELDS_ADMIN = MASTER_FIELDS.filter(f => f !== "salary_type" && f !== "salary_value" && f !== "salary_base");
 async function masterSave(request, env) {
   const auth = await requireAdmin(request, env);
@@ -1688,6 +1701,7 @@ function svcRow(r) {
     active: r.active == null ? 1 : (r.active ? 1 : 0), sort: r.sort || 0,
     price_type: r.price_type || "flat", price: (r.price == null ? "" : String(r.price)), unit: r.unit || "₴",
     note: r.note || "", columns: jparse(r.columns, []), rows: jparse(r.rows, []),
+    col_roles: jparse(r.col_roles, []),
   };
 }
 // Split a legacy breed label into [breed, weight]: "Пудель 4–7 кг" → ["Пудель","4–7 кг"].
@@ -1700,6 +1714,7 @@ function splitBreedWeight(label) {
 // Breed services are stored as [Порода, Ціна] (legacy) or [Порода, Вага, Ціна].
 // Normalize on read to 3 columns so breed & weight are separate dimensions.
 function migrateBreedService(s) {
+  if (svcRoles(s).length) return s;            // роли сказали, что где — угадывать не надо
   if (s.price_type !== "breed") return s;
   if ((s.columns || []).length >= 3) return s;
   s.columns = ["Порода", "Вага", "Ціна, ₴"];
@@ -1707,12 +1722,12 @@ function migrateBreedService(s) {
   return s;
 }
 const svcDefaults = () => DEFAULT_SERVICES.map((s, i) => ({ id: null, sort: i, ...s }));
-const SVC_COLS = ["name", "species", "duration", "is_request", "bookable", "active", "sort", "price_type", "price", "unit", "note", "columns", "rows"];
+const SVC_COLS = ["name", "species", "duration", "is_request", "bookable", "active", "sort", "price_type", "price", "unit", "note", "columns", "rows", "col_roles"];
 function svcBind(s) {
   return [s.name || "", s.species || "both", +s.duration || 0, s.is_request ? 1 : 0,
     s.bookable == null ? 1 : (s.bookable ? 1 : 0), s.active == null ? 1 : (s.active ? 1 : 0), +s.sort || 0,
     s.price_type || "flat", (s.price == null ? "" : String(s.price)), s.unit || "₴", s.note || "",
-    JSON.stringify(s.columns || []), JSON.stringify(s.rows || [])];
+    JSON.stringify(s.columns || []), JSON.stringify(s.rows || []), JSON.stringify(s.col_roles || [])];
 }
 async function seedServices(env) {
   const d = svcDefaults();
@@ -1731,11 +1746,88 @@ async function loadServices(env) {
   } catch (e) { const err = new Error("Не вдалося прочитати перелік послуг"); err.status = 503; throw err; }
 }
 async function serviceInfo(env, name) { return (await loadServices(env)).find(s => s.name === name) || null; }
-async function serviceDuration(env, name) { const s = await serviceInfo(env, name); return (s && s.duration) ? s.duration : (SERVICE_DURATIONS[name] || DEFAULT_DURATION); }
+/* Сколько минут занимает конкретный визит. У сохранённой записи это записанный факт,
+   у ещё не сохранённой — расчёт по породе. Календарное событие и проверка расписания мастера
+   обязаны согласоваться с сеткой слотов, иначе день разъедется. */
+async function visitMinutes(env, b) {
+  if (b && b.duration > 0) return b.duration;
+  return await bookingDuration(env, { service: (b && b.service) || "", breed: (b && b.breed) || "", weight: (b && b.weight) || "" });
+}
+/* Сколько времени займёт этот визит. Порода важнее услуги: у бивера 1 г 45 хв, у чихуахуа
+   1 г 30 хв, и на этой разнице строится день салона, где мастер один. Откат всегда в сторону
+   длительности услуги, то есть большего значения: ошибка должна стоить пустого слота,
+   а не двух собак в одном кресле. Считает сервер — параметра «сколько минут» у клиента нет. */
+async function bookingDuration(env, { service, breed, weight }) {
+  const s = await serviceInfo(env, service);
+  if (s && breed && roleAt(svcRoles(s), "duration") >= 0) {
+    const mins = rowDuration(s, pickRowOf(s, breed, weight));
+    if (mins) return mins;
+  }
+  return (s && s.duration) ? s.duration : (SERVICE_DURATIONS[service] || DEFAULT_DURATION);
+}
 async function serviceIsRequest(env, name) { const s = await serviceInfo(env, name); return s ? !!s.is_request : REQUEST_SERVICES.has(name); }
 const numOf = v => { const m = /\d+/.exec(String(v == null ? "" : v)); return m ? +m[0] : null; };
 const normBreed = x => String(x || "").toLowerCase().replace(/[’'ʼ`]/g, "'").replace(/\s+/g, " ").trim();
 // Match a breed to a price row: exact (normalized), else substring either way.
+/* ---------- Роли колонок прайса ------------------------------------------------------------
+   Прайс — это таблица, и до сих пор код угадывал смысл её колонок по месту: цена в последней
+   ячейке, вес во второй. Второму салону это не подходит: у него в строке две цены (обычный
+   грумер и топ-грумер, разница от 0 до 500 ₴ и непропорциональная) и своё время на каждую
+   породу. Роли называют смысл вслух, по одной на колонку:
+
+     label · weight · price · price:<ключ уровня> · duration · info
+
+   Пустые роли означают «как было», и это ветка всех услуг, которые существуют сегодня. */
+const ROLE_PRICE = /^price(?::([a-z0-9_]{1,16}))?$/i;
+const svcRoles = s => (Array.isArray(s && s.col_roles) ? s.col_roles.map(x => String(x == null ? "" : x)) : []);
+const roleAt = (roles, role) => roles.findIndex(r => r.toLowerCase() === role);
+function priceColumns(roles) {
+  const out = [];
+  roles.forEach((r, i) => { const m = ROLE_PRICE.exec(r || ""); if (m) out.push({ key: (m[1] || "").toLowerCase(), idx: i }); });
+  return out;
+}
+const cellNum = v => { const m = /\d[\d\s]*/.exec(String(v == null ? "" : v).replace(/\u00a0/g, " ")); return m ? +m[0].replace(/\s/g, "") : null; };
+
+// Цена строки для мастера уровня tierKey.
+function rowPriceFor(s, row, tierKey) {
+  if (!row) return null;
+  const cols = priceColumns(svcRoles(s));
+  if (!cols.length) return rowPrice(row);                    // ролей нет — последняя ячейка, как сегодня
+  if (cols.length === 1) return row[cols[0].idx];
+  const hit = tierKey && cols.find(c => c.key === String(tierKey).toLowerCase());
+  if (hit) return row[hit.idx];
+  // Уровень неизвестен или настроен неверно — берём самую дешёвую ячейку. Ошибка настройки
+  // не должна приходить клиенту счётом побольше.
+  const nums = cols.map(c => cellNum(row[c.idx])).filter(v => v != null);
+  return nums.length ? String(Math.min(...nums)) : null;
+}
+
+/* "1 г 45 хв" → 105, "45 хв" → 45, "2 г" → 120, "90" → 90.
+   "1 год+" не число, а обещание — такие строки откатываются на длительность услуги.
+   Границы слова здесь не годятся: \b работает по латинице, а у нас кириллица. */
+function parseDurMin(v) {
+  const t = String(v == null ? "" : v).toLowerCase().trim();
+  if (!t || t.includes("+")) return null;
+  if (/^\d+$/.test(t)) return +t;
+  const h = /(\d+)\s*г/.exec(t), m = /(\d+)\s*хв/.exec(t);
+  if (!h && !m) return null;
+  const total = (h ? +h[1] * 60 : 0) + (m ? +m[1] : 0);
+  return total > 0 ? total : null;
+}
+
+// Длительность строки прайса, если она там объявлена.
+function rowDuration(s, row) {
+  const i = roleAt(svcRoles(s), "duration");
+  return (i < 0 || !row) ? null : parseDurMin(row[i]);
+}
+
+// Ключ ценового уровня мастера по его имени.
+function tierOfStaff(masters, staff) {
+  if (!staff) return null;
+  const m = (masters || []).find(x => x.name === staff);
+  return (m && m.tier) ? String(m.tier).toLowerCase() : null;
+}
+
 function matchBreedRow(rows, breed) {
   const b = normBreed(breed); if (!b) return null;
   let row = (rows || []).find(r => normBreed(r[0]) === b);
@@ -1744,7 +1836,11 @@ function matchBreedRow(rows, breed) {
 }
 const normW = x => String(x || "").toLowerCase().replace(/\s+/g, " ").replace(/грн|кг/g, "").trim();
 // Pick the price row for a breed (+optional weight). Rows are [breed, weight, price].
-function pickBreedRow(rows, breed, weight) {
+// Индекс колонки веса: по ролям, иначе исторические r[1].
+const weightIdx = s => { const i = roleAt(svcRoles(s), "weight"); return i < 0 ? (svcRoles(s).length ? -1 : 1) : i; };
+function pickRowOf(s, breed, weight) { return pickBreedRow(s.rows, breed, weight, weightIdx(s)); }
+function pickBreedRow(rows, breed, weight, widx) {
+  if (widx == null) widx = 1;
   const b = normBreed(breed); if (!b) return null;
   const all = rows || [];
   let bm = all.filter(r => normBreed(r[0]) === b);   // exact label wins ("Вичісування" must not resolve to "Мейн-кун (вичісування)")
@@ -1752,14 +1848,19 @@ function pickBreedRow(rows, breed, weight) {
     .sort((x, y) => Math.abs(normBreed(x[0]).length - b.length) - Math.abs(normBreed(y[0]).length - b.length)); // closest label first
   if (!bm.length) return null;
   if (bm.length === 1) return bm[0];
+  if (widx < 0) return bm[0];                                // колонки веса нет — первая подходящая
   const w = normW(weight);
-  return (w && bm.find(r => normW(r[1]) === w)) || bm.find(r => !String(r[1] || "").trim()) || null;
+  return (w && bm.find(r => normW(r[widx]) === w)) || bm.find(r => !String(r[widx] || "").trim()) || null;
 }
 const rowPrice = r => (r ? r[r.length - 1] : null);
 // Auto-price a booking from its service (only when unambiguous & numeric).
 async function priceForBooking(env, b) {
   const s = await serviceInfo(env, b.service); if (!s) return null;
-  if (s.price_type === "breed" && b.breed) { const p = rowPrice(pickBreedRow(s.rows, b.breed, b.weight)); if (p != null && /^\d+$/.test(String(p).trim())) return +p; }
+  if (s.price_type === "breed" && b.breed) {
+    const tier = tierOfStaff(await loadMasters(env), b.staff);
+    const p = rowPriceFor(s, pickRowOf(s, b.breed, b.weight), tier);
+    if (p != null && /^\d+$/.test(String(p).trim())) return +p;
+  }
   if (s.price_type === "flat" && /^\d+$/.test(String(s.price).trim())) return +s.price;
   return null;
 }
@@ -1807,7 +1908,7 @@ async function applyPricing(env, b) {
 async function publicCatalog(env) {
   const services = (await loadServices(env)).filter(s => s.active);
   const st = await loadSettings(env);
-  return { ok: true, services, notes: { gift: st.note_gift || DEFAULT_PRICES.note_gift, big: st.note_big || DEFAULT_PRICES.note_big } };
+  return { ok: true, services, notes: { gift: st.note_gift || "", big: st.note_big || "" } };
 }
 async function adminServices(request, env) { await requireAdmin(request, env); return { ok: true, services: await loadServices(env) }; }
 async function serviceSave(request, env) {
@@ -2347,11 +2448,11 @@ async function notifyBroadcast(request, env) {
 // Free master for a date-time (same rule as book()): prefer `prefer`, else the first free one; null = nobody.
 // Used when a booking is moved — from the client cabinet and from the bot. It is the third place
 // that decides "is this hour taken", and it has to answer from the same source as the other two.
-async function freeMasterAt(env, { date, time, service, prefer, excludeEventId, excludeId }) {
+async function freeMasterAt(env, { date, time, service, prefer, excludeEventId, excludeId, breed, weight }) {
   const { y, m, d } = parseDate(date);
   const tm = /^(\d{2}):(\d{2})$/.exec(time || ""); if (!tm) return null;
   const startMin = (+tm[1]) * 60 + (+tm[2]);
-  const duration = await serviceDuration(env, service);
+  const duration = await bookingDuration(env, { service, breed, weight });
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   const masters = await loadMasters(env);
   const start = wallToUTC(y, m, d, startMin, BUSINESS.tz), end = new Date(start.getTime() + duration * 60000);
@@ -2714,7 +2815,7 @@ async function moveApply(env, chat, st) {
   const owner = b ? await clientChatFor(env, b) : null;
   if (!b || String(owner) !== String(chat) || !["new", "confirmed"].includes(b.status) || b.is_request || !b.time) { await tgClearState(env, chat); await tgSendTo(env, chat, "Цей запис уже не можна перенести — напишіть нам, будь ласка."); return; }
   let staff = null;
-  try { staff = await freeMasterAt(env, { date: st.date, time: st.time, service: b.service, prefer: b.staff, excludeEventId: b.event_id, excludeId: b.id }); } catch (e) { staff = null; }
+  try { staff = await freeMasterAt(env, { date: st.date, time: st.time, service: b.service, prefer: b.staff, excludeEventId: b.event_id, excludeId: b.id, breed: b.breed, weight: b.weight }); } catch (e) { staff = null; }
   if (!staff) { await tgSendTo(env, chat, "На жаль, цей час щойно зайняли. Оберіть інший, будь ласка.", kb([[{ text: "🕐 Інший час", callback_data: "b:back:time" }], [{ text: "✖ Залишити як є", callback_data: "b:x" }]])); return; }
   await env.DB.prepare(`UPDATE bookings SET date=?, time=?, staff=?, remind_day_sent=0, remind_hour_sent=0 WHERE id=?`).bind(st.date, st.time, staff, b.id).run();
   try { await syncCalendar(env, b.id); } catch (e) { }
