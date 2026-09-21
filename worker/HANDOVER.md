@@ -65,9 +65,9 @@ gh workflow run release.yml -f note="Зарплата за жовтень рах
    `Account → Workers Scripts → Edit`, `Account → D1 → Edit`, `Account → Workers R2 Storage → Edit`,
    `Account → Account Settings → Read`. Тільки «Edit Cloudflare Workers» **не вистачить**:
    `wrangler.toml` біндить D1 і два бакети R2, і нерозвʼязний біндинг валить весь деплой.
-2. **GitHub → Settings → Secrets and variables → Actions.** Секрети `CLOUDFLARE_API_TOKEN`,
-   `CLOUDFLARE_ACCOUNT_ID`, `DEPLOY_TOKEN` (придумайте довгий рядок). Змінна
-   `WORKER_URL = https://gavlove-booking.besenok911.workers.dev`.
+2. **GitHub → Settings → Secrets and variables → Actions.** Секрети: `CLOUDFLARE_API_TOKEN` і
+   `DEPLOY_TOKEN` (придумайте довгий рядок). Змінні: `WORKER_URL` і `CLOUDFLARE_ACCOUNT_ID` —
+   id акаунта не секрет, без токена він нічого не відкриває.
 3. `npx wrangler secret put DEPLOY_TOKEN --env=""` — те саме значення, що в GitHub.
 4. `npx wrangler d1 execute gavlove-crm --remote --env="" --file migrations/0004_releases.sql`
 5. **Перемкнути сайт на збірку прогоном** (доки цього немає, `release.yml` свідомо падає):

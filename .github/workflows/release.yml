@@ -65,7 +65,7 @@ jobs:
       - name: Чи все налаштовано
         env:
           CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          ACC: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ACC: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           DT: ${{ secrets.DEPLOY_TOKEN }}
           EMERGENCY: ${{ inputs.emergency }}
           REASON: ${{ inputs.reason }}
@@ -78,6 +78,11 @@ jobs:
           [ "${#NOTE}" -ge 10 ] || { echo "::error::Опис для власниці закороткий — напишіть речення, а не слово"; exit 1; }
           if [ "$EMERGENCY" = "true" ] && [ "${#REASON}" -lt 20 ]; then
             echo "::error::Терміновий випуск без причини не буває — заповніть reason (мін. 20 символів)"
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $DT" "$WORKER_URL/release/last")
+          if [ "$code" != "200" ]; then
+            echo "::error::Воркер не приймає DEPLOY_TOKEN (відповів $code). Значення в GitHub і у воркері мають збігатися: npx wrangler secret put DEPLOY_TOKEN --env=\"\""
             exit 1
           fi
 
@@ -188,7 +193,7 @@ jobs:
       - uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: worker
           command: 'deploy --env="" --message "випуск ${{ github.run_number }}"'
 
@@ -307,7 +312,7 @@ jobs:
         if: steps.watch.outputs.back == 'yes'
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: worker
           command: 'deploy --env="" --message "відкат випуску ${{ github.run_number }}"'
 
