@@ -989,8 +989,12 @@ async function releaseState(request, url, env) {
 }
 async function releaseLast(request, env) {
   requireDeploy(request, env);
-  const r = await env.DB.prepare(`SELECT n,sha,build FROM releases WHERE state IN ('live','rolled_back') ORDER BY id DESC LIMIT 1`).first();
-  return { ok: true, last: r || null };
+  const r = await env.DB.prepare(`SELECT n,sha,prev_sha,state,build FROM releases WHERE state IN ('live','rolled_back') ORDER BY id DESC LIMIT 1`).first();
+  if (!r) return { ok: true, last: null };
+  // Після відкату на стенді працює prev_sha цього випуску, а не його sha. Інакше наступний випуск
+  // брав за «попередній» саме відкинутий код: і «що змінилось» рахувалось від нього, і ↩️ повертав його.
+  if (r.state === "rolled_back") return { ok: true, last: { n: r.n, sha: r.prev_sha || "", build: "", rolled_back: true } };
+  return { ok: true, last: { n: r.n, sha: r.sha, build: r.build } };
 }
 async function releaseDone(request, env) {
   requireDeploy(request, env);
