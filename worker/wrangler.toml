@@ -61,4 +61,7 @@ bucket_name = "gavlove-photos-dev"
 #   wrangler secret put CALENDAR_ID
 #   wrangler secret put TELEGRAM_BOT_TOKEN
 #   wrangler secret put TELEGRAM_CHAT_ID
-#   wrangler secret put ADMIN_TOKEN   # password for the admin panel
+#   wrangler secret put ADMIN_TOKEN   # emergency owner password (2h session)
+#   wrangler secret put PLATFORM_TOKEN
+#   wrangler secret put DEPLOY_TOKEN  # same value as the GitHub repo secret
+#   wrangler secret put BRIEF_CHAT_ID # developer's chat id for new-salon briefs

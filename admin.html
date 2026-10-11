@@ -2713,7 +2713,7 @@
   });
   $("#rm-send").addEventListener("click",async function(){
     $("#rmErr").style.color="var(--ink-soft)";$("#rmErr").textContent="Надсилаємо…";
-    try{var r=await api("/admin/send-digest",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    try{var r=await api("/admin/send-digest",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});if(!r||r.ok===false)throw r;
       $("#rmErr").style.color="var(--confirmed)";$("#rmErr").textContent="Готово! Записів на завтра: "+r.tomorrow+", на повторний візит: "+r.repeatDue+". Перевірте Telegram.";
     }catch(e){$("#rmErr").style.color="var(--cancelled)";$("#rmErr").textContent="Не вдалося надіслати.";}
   });

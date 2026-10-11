@@ -93,7 +93,7 @@ export default {
         if (!env.PLATFORM_TOKEN || bearer(request) !== env.PLATFORM_TOKEN) {
           return json({ ok: true, version: VERSION, build: BUILD }, cors);
         }
-        return json(await health(env), cors);
+        return json(await health(env, url.origin), cors);
       }
       if (env.DB) {
         const salon = await loadSalon(env);          // throws rather than guessing which salon this is
@@ -204,9 +204,6 @@ export default {
       if (url.pathname === "/admin/tg-setup" && request.method === "POST") {
         return json(await tgSetup(request, env), cors);          // owner: register webhook, remember bot username
       }
-      if (url.pathname === "/admin/tg-test" && request.method === "POST") {
-        return json(await tgTest(request, env), cors);           // owner: feed a synthetic update (QA)
-      }
       if (url.pathname === "/admin/notify-client" && request.method === "POST") return json(await notifyClientManual(request, env), cors);
       if (url.pathname === "/admin/notify-broadcast" && request.method === "POST") return json(await notifyBroadcast(request, env), cors);
       if (url.pathname === "/admin/send-client-reminders" && request.method === "POST") {
@@ -258,7 +255,7 @@ export default {
       // стукає в /health і бази не чіпає — сюди ходить людина, і тільки залогінена.
       if (url.pathname === "/admin/health" && request.method === "GET") {
         await requireAdmin(request, env);
-        return json(await health(env), cors);
+        return json(await health(env, url.origin), cors);
       }
       // Машинні ручки для release.yml. Окремий секрет DEPLOY_TOKEN, а не PLATFORM_TOKEN:
       // той відкриває нічні дампи з телефонами і хешами паролів, і в GitHub йому не місце.
@@ -317,7 +314,12 @@ export default {
       }
       return json({ ok: false, error: "not found" }, cors, 404);
     } catch (e) {
-      return json({ ok: false, error: String(e && e.message || e) }, cors, e && e.status || 500);
+      // 4xx — це відповідь людині («невірний пароль», «немає доступу»), а не поломка. У лог іде
+      // те, що впало саме: без цього wrangler tail показував лише «POST … - Ok».
+      const status = e && e.status || 500;
+      // Токен фото в шляху — це вічне посилання на фото улюбленця, у лог його не пишемо.
+      if (status >= 500) console.error(`${request.method} ${url.pathname.replace(/^(\/photo\/\d+\/)[^/]+/, "$1…")}: ${errText(e)}`);
+      return json({ ok: false, error: String(e && e.message || e) }, cors, status);
     }
   },
 
@@ -327,11 +329,12 @@ export default {
     ctx.waitUntil((async () => {
       const salon = await loadSalon(env).catch(() => ({ id: DEFAULT_COMPANY_ID, name: "" }));
       const e = Object.assign({}, env, { CID: salon.id, SALON: salon.name, DBRAW: env.DB });
-      if (cron.startsWith("*/30")) { await runClientReminders(e, "soon").catch(() => { }); return; }
-      await runDailyDigest(e).catch(() => { });
-      await runClientReminders(e, "day").catch(() => { });
-      await siteMediaSweep(e).catch(() => { });
-      await runBackup(e).catch(() => { });
+      const logged = what => err => console.error(`cron ${what}: ${errText(err)}`);
+      if (cron.startsWith("*/30")) { await runClientReminders(e, "soon").catch(logged("нагадування «скоро»")); return; }
+      await runDailyDigest(e).catch(logged("зведення"));
+      await runClientReminders(e, "day").catch(logged("нагадування напередодні"));
+      await siteMediaSweep(e).catch(logged("прибирання фото сайту"));
+      await runBackup(e).catch(logged("бекап"));
     })());
   },
 };
@@ -748,6 +751,8 @@ async function saveBooking(env, b) {
 
 /* ----------------------------- Auth: accounts, roles, sessions ----------------------------- */
 function bearer(request) { return (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim(); }
+// Для console.*: повідомлення і перші рядки стеку, щоб у wrangler tail було видно, де саме впало.
+function errText(e) { return String(e && (e.stack || e.message) || e).split("\n").slice(0, 4).join(" | ").slice(0, 600); }
 function bufToHex(buf) { return [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, "0")).join(""); }
 function hexToBuf(hex) { const a = new Uint8Array((hex || "").length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(hex.substr(i * 2, 2), 16); return a.buffer; }
 function randHex(n) { const b = new Uint8Array(n); crypto.getRandomValues(b); return bufToHex(b.buffer); }
@@ -1006,8 +1011,8 @@ async function releaseDone(request, env) {
   await tgSendTo(env, env.TELEGRAM_CHAT_ID,
     `✅ <b>Оновлення №${nn} встановлено.</b>\n${tgEsc(r.note)}\n` +
     (r.had_migration ? `\n⚠️ У цьому оновленні змінювалась сама база. Кнопка поверне програму, але записи й клієнтів, що зʼявилися після цієї хвилини, це не чіпає.\n` : "") +
-    `\nЯкщо щось поводиться не так — натисніть, і повернемо як було. Кнопка діє ${REL_BACK_MIN} хвилин.`,
-    kb([[{ text: "↩️ Повернути як було", callback_data: `rel:back:${nn}` }]]));
+    (r.prev_sha ? `\nЯкщо щось поводиться не так — натисніть, і повернемо як було. Кнопка діє ${REL_BACK_MIN} хвилин.` : ""),
+    r.prev_sha ? kb([[{ text: "↩️ Повернути як було", callback_data: `rel:back:${nn}` }]]) : undefined);
   return { ok: true, state: "live" };
 }
 async function releaseList(env) {
@@ -1023,6 +1028,9 @@ async function releaseButton(env, cq, chat) {
   const ans = (text) => tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id, text });
   // Кнопки випуску живуть тільки в чаті салону. У приватному чаті клієнта їм робити нічого.
   if (String(chat) !== String(env.TELEGRAM_CHAT_ID || "")) { await ans("Ця кнопка не для цього чату"); return true; }
+  // Перевіряємо людину, а не лише чат: у групі кнопку натиснув би будь-хто з учасників. Для
+  // особистого чату from.id збігається з chat id, для групи (від'ємний id) ніколи не збіжиться.
+  if (!cq.from || String(cq.from.id) !== String(env.TELEGRAM_CHAT_ID || "")) { await ans("Кнопка працює лише в особистому чаті власниці з ботом"); return true; }
   const nn = +m[2], r = await relRow(env, nn);
   if (!r) { await ans("Оновлення не знайдено"); return true; }
   const who = [cq.from && cq.from.first_name, cq.from && cq.from.last_name].filter(Boolean).join(" ") || (cq.from && cq.from.username) || "у чаті салону";
@@ -1054,7 +1062,7 @@ async function requireOwner(request, env) {
 async function authLogin(body, env) {
   const username = String(body && body.username || "").trim().toLowerCase();
   const password = String(body && body.password || "");
-  if (env.ADMIN_TOKEN && password === env.ADMIN_TOKEN) return issueSession(env, { id: 0, role: "owner", name: "Власник", username: "owner", must_change: 0 });
+  if (env.ADMIN_TOKEN && password === env.ADMIN_TOKEN) return issueSession(env, { id: 0, role: "owner", name: "Власник", username: "owner", must_change: 0 }, 2 * 36e5);
   if (!username || !password) { const e = new Error("Вкажіть логін і пароль"); e.status = 400; throw e; }
   const u = await env.DB.prepare(`SELECT * FROM users WHERE lower(username)=? AND active=1`).bind(username).first();
   if (!u || !u.pass_hash) { const e = new Error("Невірний логін або пароль"); e.status = 401; throw e; }
@@ -1062,11 +1070,13 @@ async function authLogin(body, env) {
   if (hash !== u.pass_hash) { const e = new Error("Невірний логін або пароль"); e.status = 401; throw e; }
   return issueSession(env, u);
 }
-async function issueSession(env, u) {
+// Аварійний вхід по ADMIN_TOKEN видає сесію на 2 години: зміна токена не вбиває вже видані сесії,
+// тож довга сесія з тимчасовим паролем пережила б передачу.
+async function issueSession(env, u, ttlMs) {
   const token = randHex(24);
   const now = new Date();
   const name = u.name || u.username || "";
-  const exp = new Date(now.getTime() + 30 * 864e5).toISOString();
+  const exp = new Date(now.getTime() + (ttlMs || 30 * 864e5)).toISOString();
   await env.DB.prepare(`INSERT INTO sessions (token,user_id,role,master_id,name,created_at,expires_at) VALUES (?,?,?,?,?,?,?)`)
     .bind(token, u.id || 0, u.role, u.master_id || null, name, now.toISOString(), exp).run();
   return { ok: true, token, role: u.role, name, username: u.username || "", must_change: u.must_change ? 1 : 0 };
@@ -1993,7 +2003,7 @@ async function reviewCreate(b, env) {
   await env.DB.prepare(
     `INSERT INTO reviews (created_at,name,phone,rating,text,master,client_id,published) VALUES (?,?,?,?,?,?,?,0)`   /* phone standardised by the caller */
   ).bind(new Date().toISOString(), name, String(b && b.phone || "").trim(), rating, text, String(b && b.master || "").trim(), clientId).run();
-  try { await sendTelegram(env, `🌟 Новий відгук (${rating}/5)${name ? " від " + name : ""}\n${text || "(без тексту)"}\nПідтвердьте показ у CRM → Відгуки.`); } catch (e) { }
+  try { await sendTelegram(env, `🌟 Новий відгук (${rating}/5)${name ? " від " + tgEsc(name) : ""}\n${text ? tgEsc(text) : "(без тексту)"}\nПідтвердьте показ у CRM → Відгуки.`); } catch (e) { }
   return { ok: true };
 }
 // public: approved reviews for the site
@@ -2446,7 +2456,7 @@ const EXPECTED_TABLES = ["bookings", "clients", "pets", "pet_photos", "masters",
 /* Enough to diagnose someone else's installation without opening their data. Deliberately has no
    client names, phones or notes in it: supporting a salon should not require reading its clients.
    Behind the operator's token, because the shape of a business is information too. */
-async function health(env) {
+async function health(env, origin) {
   const out = {
     ok: true, version: VERSION, build: BUILD, at: new Date().toISOString(),
     site: env.SITE_URL || "", origin: env.ALLOW_ORIGIN || "",
@@ -2490,6 +2500,42 @@ async function health(env) {
       if (!o) { out.ok = false; out.warn = (out.warn ? out.warn + "; " : "") + "жодного бекапу ще не було"; }
     }
   } catch (e) { out.last_backup = "помилка: " + String(e && e.message || e); }
+  if (origin && env.TELEGRAM_BOT_TOKEN) {
+    out.bot = await tgHealth(env, origin);
+    if (!out.bot.ok) { out.ok = false; out.warn = (out.warn ? out.warn + "; " : "") + "бот: " + (out.bot.problem || "див. поле bot"); }
+  }
+  return out;
+}
+/* Чи бот справді працює, а не лише чи задані секрети. Після передачі токен знає тільки власниця,
+   і «бот мовчить» без цього не розібрати: підтримка бачить /admin/health, а getWebhookInfo — ні.
+   Токена й секрету вебхука тут немає: ім'я бота, куди дивиться вебхук, черга й остання помилка
+   доставки, яку Telegram пам'ятає сам. */
+async function tgHealth(env, origin) {
+  const me = await tgApi(env, "getMe", {});
+  // 401 — токен відкликано, 404 — токен битий; інший error_code — збій Telegram; без коду — мережа.
+  if (!me || !me.ok) {
+    const c = me && me.error_code;
+    const why = c === 401 || c === 404 ? "Telegram не приймає токен" : c ? `Telegram відповів помилкою ${c}` : "Telegram не відповідає";
+    return { ok: false, problem: why + ": " + (me && me.description || "немає відповіді") };
+  }
+  const out = { ok: true, username: (me.result && me.result.username) || "", chat_set: !!env.TELEGRAM_CHAT_ID };
+  const wi = await tgApi(env, "getWebhookInfo", {});
+  if (!wi || !wi.ok) return Object.assign(out, { ok: false, problem: "getWebhookInfo: " + (wi && wi.description || "немає відповіді") });
+  const w = wi.result || {};
+  const want = origin + "/tg/webhook/" + (env.CID || DEFAULT_COMPANY_ID);
+  // Чужу адресу — лише хостом: дехто кладе токен бота просто в шлях вебхука.
+  let host = ""; try { host = new URL(w.url).host; } catch (e) { }
+  out.webhook = !w.url ? "не підключено" : w.url === want ? "цей воркер" : "інша адреса: " + host;
+  out.pending = w.pending_update_count || 0;
+  if (w.last_error_date) out.last_error = { at: new Date(w.last_error_date * 1000).toISOString(), message: w.last_error_message || "" };
+  if (!out.chat_set) { out.ok = false; out.problem = "не задано TELEGRAM_CHAT_ID"; }
+  if (w.url !== want) { out.ok = false; out.problem = "вебхук не на цьому воркері — власниці натиснути «Підключити бота»"; }
+  // last_error_date Telegram не стирає після успішної доставки, тож свіжа помилка — проблема лише
+  // тоді, коли апдейти справді накопичуються.
+  else if (w.last_error_date && out.pending > 0 && Date.now() / 1000 - w.last_error_date < 3600) {
+    // 403 тут майже завжди означає: новий токен уже у воркері, а кнопку ще не натиснули.
+    out.ok = false; out.problem = "Telegram не може достукатися до воркера: " + (w.last_error_message || "");
+  }
   return out;
 }
 function sqlLit(v) {
@@ -2595,11 +2641,8 @@ function contactLinks(phone) {
 }
 async function sendTelegram(env, text) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return false;
-  const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text, parse_mode: "HTML", disable_web_page_preview: true }),
-  });
-  return r.ok;
+  const r = await tgApi(env, "sendMessage", { chat_id: env.TELEGRAM_CHAT_ID, text, parse_mode: "HTML", disable_web_page_preview: true });
+  return !!(r && r.ok);
 }
 // Daily digest: tomorrow's appointments + clients due for a repeat visit.
 async function runDailyDigest(env, force) {
@@ -2620,12 +2663,13 @@ async function runDailyDigest(env, force) {
   let msg1;
   if (tmr.length) {
     msg1 = `🔔 <b>Записи на завтра (${tomorrow})</b>\n\n` + tmr.map(b =>
-      `${b.time} — ${b.pet_name ? b.pet_name + " · " : ""}${b.service || ""}${b.staff ? " · " + b.staff : ""}\n👤 ${b.name || ""} — ${b.phone || ""}${contactLinks(b.phone)}`
+      `${tgEsc(b.time)} — ${b.pet_name ? tgEsc(b.pet_name) + " · " : ""}${tgEsc(b.service || "")}${b.staff ? " · " + tgEsc(b.staff) : ""}\n👤 ${tgEsc(b.name || "")} — ${tgEsc(b.phone || "")}${contactLinks(b.phone)}`
     ).join("\n\n");
   } else {
     msg1 = `🔔 <b>Записи на завтра (${tomorrow})</b>\n\nНа завтра записів немає.`;
   }
-  await sendTelegram(env, msg1);
+  const sent1 = await sendTelegram(env, msg1);
+  let sent2 = true;
 
   // 2) repeat-due clients: last done >= weeks ago and no upcoming booking
   const byClient = {};
@@ -2648,9 +2692,12 @@ async function runDailyDigest(env, force) {
   due.sort((a, b) => (a.last || "").localeCompare(b.last || ""));
   if (due.length) {
     const msg2 = `🔁 <b>Час на повторний грумінг</b> (останній візит понад ${weeks} тижнів тому)\n\n` +
-      due.slice(0, 40).map(d => `${d.pet ? d.pet + " · " : ""}${d.name} — ${d.phone}${contactLinks(d.phone)}\n<i>останній: ${d.last}</i>`).join("\n\n");
-    await sendTelegram(env, msg2);
+      due.slice(0, 40).map(d => `${d.pet ? tgEsc(d.pet) + " · " : ""}${tgEsc(d.name)} — ${tgEsc(d.phone)}${contactLinks(d.phone)}\n<i>останній: ${tgEsc(d.last)}</i>`).join("\n\n");
+    sent2 = await sendTelegram(env, msg2);
   }
+  // Раніше відповідь була ok:true, навіть коли Telegram нічого не прийняв, і кнопка в CRM казала
+  // «Готово!». Причину відмови видно в wrangler tail (рядок «telegram sendMessage: …»).
+  if (!sent1 || !sent2) return { ok: false, error: "Telegram не прийняв зведення", tomorrow: tmr.length, repeatDue: due.length };
   return { ok: true, tomorrow: tmr.length, repeatDue: due.length };
 }
 
@@ -2701,16 +2748,17 @@ async function notifyTelegram(env, b) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
   const head = b.waitlist ? "⏳ <b>Лист очікування</b>"
     : b.isRequest ? "📩 <b>Нова заявка (готель/садочок)</b>" : "🗓️ <b>Новий запис</b>" + (b.source === "telegram" ? " · 🤖 через бота" : "");
-  const when = b.isRequest ? (b.date ? `\n📅 Бажана дата: ${b.date}` : "") : `\n📅 ${b.date} о ${b.time}`;
+  // Усе нижче приходить з анонімної форми, а повідомлення йде з parse_mode HTML: без tgEsc «<3» у
+  // коментарі ламало розбір (сповіщення не доходило), а <a href> малювався клікабельним у її чаті.
+  const e = tgEsc;
+  const when = b.isRequest ? (b.date ? `\n📅 Бажана дата: ${e(b.date)}` : "") : `\n📅 ${e(b.date)} о ${e(b.time)}`;
   const text =
-    `${head}\n\n🐾 ${b.pet || "—"} · ${b.breed || ""}\n✂️ ${b.service}${when}` +
-    (b.staff ? `\n👩‍🔧 ${b.staff}` : "") + `\n👤 ${b.name}\n📞 ${b.phone}` +
-    (b.note ? `\n💬 ${b.note}` : "");
-  await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text, parse_mode: "HTML" }),
-  });
+    `${head}\n\n🐾 ${e(b.pet || "—")} · ${e(b.breed || "")}\n✂️ ${e(b.service)}${when}` +
+    (b.staff ? `\n👩‍🔧 ${e(b.staff)}` : "") + `\n👤 ${e(b.name)}\n📞 ${e(b.phone)}` +
+    (b.note ? `\n💬 ${e(b.note)}` : "");
+  // Через tgApi, бо той не кидає: це повідомлення йде ДО saveBooking, і збій мережі до Telegram
+  // раніше губив сам запис клієнта.
+  await tgApi(env, "sendMessage", { chat_id: env.TELEGRAM_CHAT_ID, text, parse_mode: "HTML" });
 }
 
 /* ----------------------------- Client reminders via Telegram -----------------------------
@@ -2720,10 +2768,18 @@ async function notifyTelegram(env, b) {
 function tgEsc(s) { return String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 async function tgApi(env, method, payload) {
   if (!env.TELEGRAM_BOT_TOKEN) return { ok: false, description: "no bot token" };
+  // У лог — лише метод і відповідь Telegram («bot was blocked by the user», «Unauthorized»).
+  // Ні chat id, ні тексту повідомлення; токен вирізається, бо він є в адресі запиту.
+  const warn = (what) => console.warn(`telegram ${method}: ${String(what).split(env.TELEGRAM_BOT_TOKEN).join("<token>").slice(0, 300)}`);
   try {
     const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload || {}) });
-    return await r.json();
-  } catch (e) { return { ok: false, description: String(e && e.message || e) }; }
+    const j = await r.json();
+    if (!j || !j.ok) warn(`${(j && j.error_code) || r.status} ${(j && j.description) || ""}`);
+    return j;
+  } catch (e) {
+    warn(e && e.message || e);
+    return { ok: false, description: String(e && e.message || e) };
+  }
 }
 async function tgSendTo(env, chatId, text, extra) {
   if (!chatId) return { ok: false, description: "no chat" };
@@ -2982,6 +3038,9 @@ async function handleTgUpdate(env, u) {
     await tgSendTo(env, chat, "Записатися на грумінг можна прямо тут 👇", BOOK_BTN);
     return;
   }
+  // Свій chat id людина й так бачить, він не секрет. Потрібен у день передачі: id особистого чату
+  // власниці йде в TELEGRAM_CHAT_ID, а getUpdates, поки вебхук живий, не працює.
+  if (/^\/id(@\w+)?$/i.test(text)) { await tgSendTo(env, chat, `Ваш chat id: <code>${chat}</code>`); return; }
   if (/^\/book/.test(text)) { await bookingStart(env, chat); return; }
   if (/^\/cabinet/.test(text)) {
     const c = await clientByChat(env, chat);
@@ -3174,9 +3233,14 @@ async function moveApply(env, chat, st) {
 }
 
 async function tgWebhook(request, env) {
-  if ((request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "") !== await tgWebhookSecret(env)) { const e = new Error("forbidden"); e.status = 403; throw e; }
+  if ((request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "") !== await tgWebhookSecret(env)) {
+    // Секрет виводиться з токена: після зміни токена він не збігається, доки власниця не натисне
+    // «Підключити бота». Інших легальних причин для цього рядка в логах немає.
+    console.warn("telegram webhook: чужий секрет — токен змінено, а «Підключити бота» не натиснуто (або запит не від Telegram)");
+    const e = new Error("forbidden"); e.status = 403; throw e;
+  }
   const update = await request.json().catch(() => null);
-  try { await handleTgUpdate(env, update); } catch (e) { }
+  try { await handleTgUpdate(env, update); } catch (e) { console.error(`telegram update: ${errText(e)}`); }
   return { ok: true };
 }
 async function tgSetup(request, env) { // owner: remember the bot username and register the webhook
@@ -3191,15 +3255,6 @@ async function tgSetup(request, env) { // owner: remember the bot username and r
   try { await tgApi(env, "setMyCommands", { commands: [{ command: "book", description: "Записатися на грумінг" }, { command: "visits", description: "Мої візити — перенести чи скасувати" }, { command: "cabinet", description: "Мій кабінет на сайті" }, { command: "start", description: "Підключити нагадування" }] }); } catch (e) { }
   return { ok: !!(wh && wh.ok), bot: username, webhook: url, set: (wh && wh.description) || "", error: wh && !wh.ok ? wh.description : undefined };
 }
-async function tgTest(request, env) { // owner-only QA hook: run a synthetic update through the same handler
-  await requireOwner(request, env);
-  const b = await request.json();
-  const u = b && b.update; if (!u) return { ok: false, error: "update required" };
-  if (b.use_owner_chat && env.TELEGRAM_CHAT_ID) { const id = +env.TELEGRAM_CHAT_ID; if (u.message) u.message.chat = { id }; if (u.callback_query && u.callback_query.message) u.callback_query.message.chat = { id }; }
-  await handleTgUpdate(env, u);
-  return { ok: true };
-}
-
 /* ----------------------------- Default price catalog -----------------------------
    Fallback / seed for the site's «Ціни» section. Edited from the CRM → stored in
    the `catalog` D1 table; this constant is served only until the first CRM save. */
