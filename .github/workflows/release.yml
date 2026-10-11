@@ -325,13 +325,19 @@ jobs:
           rsync -a --exclude '.git' --exclude '_site' --exclude 'worker' --exclude '.github' \
                    --exclude 'photo' --exclude 'node_modules' --exclude 'Archive' ./ _site/
 
+      # Окреме ім'я артефакту: job release цього ж прогону вже залишив «github-pages», і з двома
+      # однаковими deploy-pages відмовляється («Multiple artifacts named github-pages») — відкат
+      # повертав воркер, а сайт лишався новим.
       - uses: actions/upload-pages-artifact@v3
         if: steps.watch.outputs.back == 'yes'
         with:
           path: _site
+          name: github-pages-back
 
       - uses: actions/deploy-pages@v4
         if: steps.watch.outputs.back == 'yes'
+        with:
+          artifact_name: github-pages-back
 
       - name: Записати відкат
         if: steps.watch.outputs.back == 'yes'
