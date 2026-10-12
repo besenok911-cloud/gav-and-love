@@ -179,6 +179,10 @@ CREATE TABLE IF NOT EXISTS support_log (id INTEGER PRIMARY KEY AUTOINCREMENT, co
 -- Журнал випусків коду: дозвіл власниці, запис і вказівник для відкату. Див. release.yml.
 CREATE TABLE IF NOT EXISTS releases (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL DEFAULT 1, n INTEGER NOT NULL, sha TEXT NOT NULL, prev_sha TEXT, build TEXT, note TEXT NOT NULL, who TEXT, run_url TEXT, had_migration INTEGER DEFAULT 0, state TEXT NOT NULL, at TEXT NOT NULL, decided_by TEXT, decided_at TEXT);
 
+-- Telegram співробітників: кабінет у боті салону. Роль і «активний» бот читає з users на кожному
+-- натисканні, тут лише прив'язка чату і хеш одноразового коду. Див. migrations/0005_staff_tg.sql.
+CREATE TABLE IF NOT EXISTS staff_tg (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL DEFAULT 1, user_id INTEGER NOT NULL, chat_id INTEGER, code_hash TEXT, code_expires TEXT, notify INTEGER DEFAULT 1, created_at TEXT, linked_at TEXT);
+
 -- ============================== індекси ==============================
 
 CREATE INDEX IF NOT EXISTS idx_bookings_company_client  ON bookings   (company_id, client_id);
@@ -202,6 +206,8 @@ CREATE INDEX IF NOT EXISTS idx_site_media_company       ON site_media (company_i
 CREATE INDEX IF NOT EXISTS idx_site_media_unref ON site_media(unref_at);
 CREATE INDEX IF NOT EXISTS idx_support_log_at ON support_log(at);
 CREATE INDEX IF NOT EXISTS idx_releases_n ON releases(n);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_staff_tg_user ON staff_tg (company_id, user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_staff_tg_chat ON staff_tg (company_id, chat_id);
 CREATE INDEX IF NOT EXISTS idx_users_company            ON users      (company_id);
 
 -- ============================== перший рядок ==============================

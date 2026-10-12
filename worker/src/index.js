@@ -208,6 +208,12 @@ export default {
       if ((url.pathname === "/tg/webhook" || /^\/tg\/webhook\/\d+$/.test(url.pathname)) && request.method === "POST") {
         return json(await tgWebhook(request, env), cors);        // called by Telegram (secret header checked inside)
       }
+      // Кабінет у боті для персоналу: одноразове посилання, стан і відключення. Сесія CRM будь-якої
+      // ролі, крім підтримки; власниця відключає будь-кого з «Доступи».
+      if (url.pathname === "/staff/tg" && request.method === "GET") return json(await staffTgStatus(request, env), cors);
+      if (url.pathname === "/staff/tg-link" && request.method === "POST") return json(await staffTgLink(request, env), cors);
+      if (url.pathname === "/staff/tg-unlink" && request.method === "POST") return json(await staffTgUnlinkSelf(request, env), cors);
+      if (url.pathname === "/admin/user-tg-unlink" && request.method === "POST") return json(await adminUserTgUnlink(request, env), cors);
       if (url.pathname === "/admin/tg-setup" && request.method === "POST") {
         return json(await tgSetup(request, env), cors);          // owner: register webhook, remember bot username
       }
@@ -671,8 +677,10 @@ async function book(body, env, source) {
     }
   }
 
-  await notifyTelegram(env, { pet, service, breed, name, phone, date, time, note, isRequest, staff, waitlist, source });
   const saved = (await saveBooking(env, { pet, pet_name, service, breed, weight, name, phone, date, time, note, isRequest, eventLink, eventId, staff, source, waitlist, duration: visitMin, addons: (body && body.addons) })) || {};
+  // Після saveBooking, а не до: так у сповіщенні є номер запису і кнопки «Підтвердити / Відкрити».
+  // saveBooking і notifyTelegram обидва не кидають, тож запис клієнта від Telegram не залежить.
+  await notifyTelegram(env, { pet, pet_name, service, breed, name, phone, date, time, note, isRequest, staff, waitlist, source, id: saved.id || null });
   let tgLink = "";
   try {
     tgLink = await tgDeepLink(env, saved.tg_code);                       // "" until the bot is connected in the CRM
@@ -1135,16 +1143,23 @@ function fmtKyiv(iso) {
 async function supportOpen(request, env) {
   await requireOwner(request, env);
   const b = await request.json().catch(() => ({}));
-  const hours = Math.max(1, Math.min(72, Number(b && b.hours) || 8));
+  return await supportOpenDo(env, b && b.hours, !!(b && b.prices));
+}
+// Одна дія для двох кнопок — у CRM і в боті власниці: строк, журнал і повідомлення не можуть розійтися.
+async function supportOpenDo(env, h, prices) {
+  const hours = Math.max(1, Math.min(72, Number(h) || 8));
   const until = new Date(Date.now() + hours * 3600e3).toISOString();
   await setSetting(env, "support_until", until);
-  await setSetting(env, "support_prices", b && b.prices ? "1" : "0");
-  await supportLog(env, "власниця", "відкрила доступ до " + fmtKyiv(until) + (b && b.prices ? ", з правом правити послуги і ціни" : ""));
-  await sendTelegram(env, `🔧 <b>Доступ для підтримки відкрито</b> до ${fmtKyiv(until)}.${b && b.prices ? "\nДозволено правити послуги і ціни." : ""}\nЗакрити можна будь-коли кнопкою в CRM.`).catch(() => { });
+  await setSetting(env, "support_prices", prices ? "1" : "0");
+  await supportLog(env, "власниця", "відкрила доступ до " + fmtKyiv(until) + (prices ? ", з правом правити послуги і ціни" : ""));
+  await sendTelegram(env, `🔧 <b>Доступ для підтримки відкрито</b> до ${fmtKyiv(until)}.${prices ? "\nДозволено правити послуги і ціни." : ""}\nЗакрити можна будь-коли кнопкою в CRM або в боті: /menu → 🔧 Підтримка.`).catch(() => { });
   return await supportState(env);
 }
 async function supportClose(request, env) {
   await requireOwner(request, env);
+  return await supportCloseDo(env);
+}
+async function supportCloseDo(env) {
   await setSetting(env, "support_until", "");
   await setSetting(env, "support_prices", "0");
   // Строк уже перевіряється на кожному запиті, тож це не для відкликання, а щоб наступного
@@ -1510,7 +1525,10 @@ async function authResetConfirm(body, env) {
 async function adminUsers(request, env) {
   await requireOwner(request, env);
   const { results } = await env.DB.prepare(`SELECT id,username,name,role,master_id,active,must_change,created_at FROM users ORDER BY role, username`).all();
-  return { ok: true, users: results || [] };
+  // Чий Telegram підключений до кабінету в боті. Без таблиці (міграцію 0005 ще не накочено) — просто ні в кого.
+  const tg = {};
+  try { ((await env.DB.prepare(`SELECT user_id, linked_at FROM staff_tg WHERE chat_id IS NOT NULL`).all()).results || []).forEach(r => { tg[r.user_id] = r.linked_at || "1"; }); } catch (e) { }
+  return { ok: true, users: (results || []).map(u => Object.assign(u, { tg_linked: tg[u.id] || "" })) };
 }
 async function userSave(request, env) {
   await requireOwner(request, env);
@@ -1531,6 +1549,13 @@ async function userSave(request, env) {
       (b.role != null && String(b.role) !== String(cur.role)) ||
       (b.active != null && (b.active ? 1 : 0) !== (cur.active ? 1 : 0))));
     if (kill) { try { await env.DB.prepare(`DELETE FROM sessions WHERE user_id=?`).bind(b.id).run(); } catch (e) { } }
+    /* Кабінет у боті читає роль і «активний» з users на кожному натисканні, тож доступ і так зник би
+       миттєво. Прив'язку все одно знімаємо: інша роль — інший кабінет, і людина має підключити його
+       сама, а не прокинутися адміністратором у чаті, який колись підключала як майстер. Пароль — ні:
+       Telegram від пароля не залежить. */
+    const unlink = cur && ((b.role != null && String(b.role) !== String(cur.role)) ||
+      (b.active != null && (b.active ? 1 : 0) !== (cur.active ? 1 : 0)));
+    if (unlink) await staffTgUnlink(env, b.id, "Ваш доступ у CRM змінено — кабінет у боті відключено. Підключіть його знову з CRM, якщо він вам потрібен.");
     return { ok: true, id: b.id };
   }
   if (!username) return { ok: false, error: "Вкажіть логін" };
@@ -1545,8 +1570,9 @@ async function userDelete(request, env) {
   await requireOwner(request, env);
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
-  await env.DB.prepare(`DELETE FROM users WHERE id=? AND role!='owner'`).bind(id).run();
+  const gone = await env.DB.prepare(`DELETE FROM users WHERE id=? AND role!='owner'`).bind(id).run();
   await env.DB.prepare(`DELETE FROM sessions WHERE user_id=?`).bind(id).run();
+  if (gone.meta && gone.meta.changes) await staffTgUnlink(env, id, "Ваш акаунт у CRM видалено — кабінет у боті відключено.");
   return { ok: true };
 }
 
@@ -1601,7 +1627,7 @@ async function adminUpdate(request, env) {
   for (const f of EDITABLE) {
     if (body[f] != null) { sets.push(`${f}=?`); vals.push(body[f]); }
   }
-  const prev = (await env.DB.prepare(`SELECT status,date,time FROM bookings WHERE id=?`).bind(id).first()) || {};
+  const prev = (await env.DB.prepare(`SELECT ${STAFF_COLS} FROM bookings WHERE id=?`).bind(id).first()) || {};
   const moved = (body.date != null && body.date !== prev.date) || (body.time != null && body.time !== prev.time);
   if (moved) sets.push("remind_day_sent=0", "remind_hour_sent=0"); // rescheduled → remind the client again
   if (sets.length) {
@@ -1611,14 +1637,19 @@ async function adminUpdate(request, env) {
   let calendar = "unchanged";
   try { calendar = await syncCalendar(env, id); }
   catch (e) { calendar = "error: " + String(e && e.message || e); }
-  // tell a linked client what changed: confirmed / cancelled / moved to another date-time
+  await tellClientChange(env, id, prev, body, moved);
+  try { await tellMastersChange(env, prev, await env.DB.prepare(`SELECT ${STAFF_COLS} FROM bookings WHERE id=?`).bind(id).first()); } catch (e) { }
+  return { ok: true, calendar };
+}
+/* Що сказати клієнту, коли салон змінив запис: підтверджено / скасовано / перенесено. Одне правило
+   для CRM і для бота персоналу — інакше кнопка в Telegram і кнопка в CRM казали б клієнту різне. */
+async function tellClientChange(env, id, prev, body, moved) {
   const newStatus = body.status != null ? body.status : prev.status;
   const newDate = body.date != null ? body.date : prev.date;
   const upcoming = !!newDate && newDate >= isoInTz(new Date(), BUSINESS.tz);   // past or finished visits get no messages
   if (body.status === "confirmed" && prev.status !== "confirmed" && upcoming) await tgNotifyClient(env, id, "confirmed");
   else if (body.status === "cancelled" && ["new", "confirmed"].includes(prev.status) && upcoming) await tgNotifyClient(env, id, "cancelled");
   else if (moved && ["new", "confirmed"].includes(newStatus) && upcoming) await tgNotifyClient(env, id, "moved");
-  return { ok: true, calendar };
 }
 
 async function adminCreate(request, env) {   // phone is standardised inside, like every other write
@@ -1651,6 +1682,7 @@ async function adminCreate(request, env) {   // phone is standardised inside, li
   ).run();
   const newId = r.meta && r.meta.last_row_id;
   try { if (hasTime && (b.status || "new") !== "cancelled") await tgNotifyClient(env, newId, b.status === "confirmed" ? "confirmed" : "created"); } catch (e) { }
+  try { if (hasTime && (b.status || "new") !== "cancelled") await tellMaster(env, "new", await env.DB.prepare(`SELECT ${STAFF_COLS} FROM bookings WHERE id=?`).bind(newId).first()); } catch (e) { }
   return { ok: true, id: newId };
 }
 
@@ -1813,7 +1845,8 @@ async function clientCancel(request, env) {
   if (b.date && b.date < isoInTz(new Date(), BUSINESS.tz)) return { ok: false, error: "Минулий запис не можна скасувати" };
   await env.DB.prepare(`UPDATE bookings SET status='cancelled' WHERE id=?`).bind(b.id).run();
   try { await syncCalendar(env, b.id); } catch (e) { }
-  try { await sendTelegram(env, `❌ <b>Клієнт скасував запис у кабінеті</b>\n${b.date && b.time ? visitText(b) : tgEsc(b.service || "")}\n👤 ${tgEsc(b.name || "")} — ${tgEsc(b.phone || "")}`); } catch (e) { }
+  try { await alertSalon(env, `❌ <b>Клієнт скасував запис у кабінеті</b>\n${b.date && b.time ? visitText(b) : tgEsc(b.service || "")}\n👤 ${tgEsc(b.name || "")} — ${tgEsc(b.phone || "")}`); } catch (e) { }
+  try { await tellMaster(env, "cancelled", b); } catch (e) { }
   return { ok: true };
 }
 async function clientMove(request, env) {
@@ -1831,7 +1864,8 @@ async function clientMove(request, env) {
   await env.DB.prepare(`UPDATE bookings SET date=?, time=?, staff=?, remind_day_sent=0, remind_hour_sent=0 WHERE id=?`).bind(date, time, staff, b.id).run();
   try { await syncCalendar(env, b.id); } catch (e) { }
   const nb = Object.assign({}, b, { date, time, staff });
-  try { await sendTelegram(env, `🔁 <b>Клієнт переніс запис у кабінеті</b>\nБуло: ${fmtDdMm(b.date)} о ${tgEsc(b.time)}${b.staff ? " (" + tgEsc(b.staff) + ")" : ""}\nСтало: ${visitText(nb)}\n👤 ${tgEsc(b.name || "")} — ${tgEsc(b.phone || "")}`); } catch (e) { }
+  try { await alertSalon(env, `🔁 <b>Клієнт переніс запис у кабінеті</b>\nБуло: ${fmtDdMm(b.date)} о ${tgEsc(b.time)}${b.staff ? " (" + tgEsc(b.staff) + ")" : ""}\nСтало: ${visitText(nb)}\n👤 ${tgEsc(b.name || "")} — ${tgEsc(b.phone || "")}`, staffAlertButtons(b.id)); } catch (e) { }
+  try { await tellMastersChange(env, b, nb); } catch (e) { }
   try { await tgNotifyClient(env, b.id, "moved"); } catch (e) { }
   return { ok: true, staff };
 }
@@ -1936,10 +1970,22 @@ async function photoKeysFor(env, where, ...binds) {   // collect the bucket keys
 }
 async function savePetPhoto(env, origin, b) {   // shared by the admin pet card and the master's visit card
   const petId = Number(b.pet_id); if (!Number.isInteger(petId) || petId <= 0) return { ok: false, error: "pet_id required" };
-  const kind = b.kind === "after" ? "after" : "before";
   const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.data || ""));
   if (!m) return { ok: false, error: "Очікується зображення JPEG / PNG / WebP" };
   const bin = Uint8Array.from(atob(m[2]), c => c.charCodeAt(0));
+  let thumb = null;
+  const tm = photoBucket(env) ? /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.thumb || "")) : null;
+  // the regex admits base64 that atob rejects — decoding belongs inside the guard
+  if (tm) { try { thumb = { mime: tm[1], bin: Uint8Array.from(atob(tm[2]), c => c.charCodeAt(0)) }; } catch (e) { } }
+  return await savePetPhotoBytes(env, origin, Object.assign({}, b, { mime: m[1], bin, thumb }));
+}
+/* Те саме, але з готовими байтами: так фото приходить з Telegram, і гнати його через base64 заради
+   спільного коду — це зайві мілісекунди CPU на безкоштовному тарифі. b.thumb = { mime, bin } або null. */
+async function savePetPhotoBytes(env, origin, b) {
+  const petId = Number(b.pet_id); if (!Number.isInteger(petId) || petId <= 0) return { ok: false, error: "pet_id required" };
+  const kind = b.kind === "after" ? "after" : "before";
+  const mime = b.mime, bin = b.bin;
+  if (!PHOTO_EXT[mime] || !bin || !bin.length) return { ok: false, error: "Очікується зображення JPEG / PNG / WebP" };
   const bucket = photoBucket(env);
   if (bin.length > (bucket ? PHOTO_MAX_R2 : PHOTO_MAX_D1)) {
     return { ok: false, error: bucket ? "Фото завелике (макс. 5 МБ)" : "Фото завелике (макс. 900 КБ після стиснення)" };
@@ -1947,27 +1993,26 @@ async function savePetPhoto(env, origin, b) {   // shared by the admin pet card 
   const pet = await env.DB.prepare(`SELECT client_id FROM pets WHERE id=?`).bind(petId).first();
   if (!pet) return { ok: false, error: "Улюбленця не знайдено" };
   const token = randHex(8);
-  const key = bucket ? photoKey(petId, token, m[1]) : null;
+  const key = bucket ? photoKey(petId, token, mime) : null;
   if (bucket) {
-    try { await bucket.put(key, bin, { httpMetadata: { contentType: m[1], cacheControl: PHOTO_CACHE } }); }
+    try { await bucket.put(key, bin, { httpMetadata: { contentType: mime, cacheControl: PHOTO_CACHE } }); }
     catch (e) { return { ok: false, error: "Не вдалося зберегти фото, спробуйте ще раз" }; }
   }
   // The small copy is a bonus, never a reason to lose the photo: if it fails, the row simply has none.
   let tKey = null, tSize = null;
-  const tm = bucket ? /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.thumb || "")) : null;
-  if (tm) {
-    try {   // the regex admits base64 that atob rejects — decoding belongs inside the guard
-      const tbin = Uint8Array.from(atob(tm[2]), c => c.charCodeAt(0));
-      if (tbin.length && tbin.length <= PHOTO_THUMB_MAX) {
-        const candidate = thumbKey(petId, token, tm[1]);
-        await bucket.put(candidate, tbin, { httpMetadata: { contentType: tm[1], cacheControl: PHOTO_CACHE } });
-        tKey = candidate; tSize = tbin.length;
+  const t = bucket && b.thumb && PHOTO_EXT[b.thumb.mime] ? b.thumb : null;
+  if (t) {
+    try {
+      if (t.bin && t.bin.length && t.bin.length <= PHOTO_THUMB_MAX) {
+        const candidate = thumbKey(petId, token, t.mime);
+        await bucket.put(candidate, t.bin, { httpMetadata: { contentType: t.mime, cacheControl: PHOTO_CACHE } });
+        tKey = candidate; tSize = t.bin.length;
       }
     } catch (e) { }
   }
   try {
     const r = await env.DB.prepare(`INSERT INTO pet_photos (pet_id,client_id,booking_id,kind,mime,data,r2_key,size,thumb_key,thumb_size,token,created_at,note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .bind(petId, pet.client_id || null, b.booking_id ? +b.booking_id : null, kind, m[1], key ? null : bin.buffer, key, bin.length, tKey, tSize, token, new Date().toISOString(), String(b.note || "").slice(0, 200)).run();
+      .bind(petId, pet.client_id || null, b.booking_id ? +b.booking_id : null, kind, mime, key ? null : bin.buffer, key, bin.length, tKey, tSize, token, new Date().toISOString(), String(b.note || "").slice(0, 200)).run();
     const id = r.meta && r.meta.last_row_id;
     const row = { id, token, thumb_key: tKey };
     return { ok: true, id, kind, url: photoUrl(origin, row), thumb: photoThumbUrl(origin, row) };
@@ -2402,7 +2447,7 @@ async function reviewCreate(b, env) {
   await env.DB.prepare(
     `INSERT INTO reviews (created_at,name,phone,rating,text,master,client_id,published) VALUES (?,?,?,?,?,?,?,0)`   /* phone standardised by the caller */
   ).bind(new Date().toISOString(), name, String(b && b.phone || "").trim(), rating, text, String(b && b.master || "").trim(), clientId).run();
-  try { await sendTelegram(env, `🌟 Новий відгук (${rating}/5)${name ? " від " + tgEsc(name) : ""}\n${text ? tgEsc(text) : "(без тексту)"}\nПідтвердьте показ у CRM → Відгуки.`); } catch (e) { }
+  try { await alertSalon(env, `🌟 Новий відгук (${rating}/5)${name ? " від " + tgEsc(name) : ""}\n${text ? tgEsc(text) : "(без тексту)"}\nПідтвердьте показ у CRM → Відгуки.`); } catch (e) { }
   return { ok: true };
 }
 // public: approved reviews for the site
@@ -2892,7 +2937,7 @@ const backupBucket = env => (env && env.BACKUPS && typeof env.BACKUPS.put === "f
 
 const EXPECTED_TABLES = ["bookings", "clients", "pets", "pet_photos", "masters", "services", "expenses",
   "reviews", "users", "sessions", "client_sessions", "client_otp", "settings", "tg_sessions",
-  "site_media", "companies", "support_log", "releases"];
+  "site_media", "companies", "support_log", "releases", "staff_tg"];
 
 /* Enough to diagnose someone else's installation without opening their data. Deliberately has no
    client names, phones or notes in it: supporting a salon should not require reading its clients.
@@ -3080,10 +3125,17 @@ function contactLinks(phone) {
   const intl = digits.startsWith("+") ? digits : ("+38" + digits.replace(/^\+?/, ""));
   return ` <a href="tel:${intl}">☎</a> <a href="viber://chat?number=${encodeURIComponent(intl)}">Viber</a>`;
 }
-async function sendTelegram(env, text) {
+async function sendTelegram(env, text, extra) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return false;
-  const r = await tgApi(env, "sendMessage", { chat_id: env.TELEGRAM_CHAT_ID, text, parse_mode: "HTML", disable_web_page_preview: true });
+  const r = await tgApi(env, "sendMessage", Object.assign({ chat_id: env.TELEGRAM_CHAT_ID, text, parse_mode: "HTML", disable_web_page_preview: true }, extra || {}));
   return !!(r && r.ok);
+}
+/* Подія салону, яку мають бачити всі, хто веде записи: власниця (її чат) і адміністратори з
+   підключеним ботом. Службове (підтримка, випуски, коди входу) сюди НЕ йде — лише sendTelegram. */
+async function alertSalon(env, text, extra) {
+  const ok = await sendTelegram(env, text, extra);
+  try { await staffNotify(env, text, { admins: true }, extra); } catch (e) { }
+  return ok;
 }
 // Daily digest: tomorrow's appointments + clients due for a repeat visit.
 async function runDailyDigest(env, force) {
@@ -3111,6 +3163,9 @@ async function runDailyDigest(env, force) {
   }
   const sent1 = await sendTelegram(env, msg1);
   let sent2 = true;
+  // Адміністраторам — те саме зведення, майстрам — лише їхній завтрашній день. Результат цієї
+  // функції (і кнопки в CRM) залежить тільки від чату власниці, як і раніше.
+  try { await staffNotify(env, msg1, { admins: true }); await runMasterDigest(env, tomorrow, tmr); } catch (e) { }
 
   // 2) repeat-due clients: last done >= weeks ago and no upcoming booking
   const byClient = {};
@@ -3135,6 +3190,7 @@ async function runDailyDigest(env, force) {
     const msg2 = `🔁 <b>Час на повторний грумінг</b> (останній візит понад ${weeks} тижнів тому)\n\n` +
       due.slice(0, 40).map(d => `${d.pet ? tgEsc(d.pet) + " · " : ""}${tgEsc(d.name)} — ${tgEsc(d.phone)}${contactLinks(d.phone)}\n<i>останній: ${tgEsc(d.last)}</i>`).join("\n\n");
     sent2 = await sendTelegram(env, msg2);
+    try { await staffNotify(env, msg2, { admins: true }); } catch (e) { }
   }
   // Раніше відповідь була ok:true, навіть коли Telegram нічого не прийняв, і кнопка в CRM казала
   // «Готово!». Причину відмови видно в wrangler tail (рядок «telegram sendMessage: …»).
@@ -3170,8 +3226,11 @@ async function adminDelete(request, env) {
   const { id } = await request.json();
   if (!id) return { ok: false, error: "id required" };
   try {   // an upcoming active booking removed from the CRM is a cancellation from the client's point of view
-    const cur = await env.DB.prepare(`SELECT status,date FROM bookings WHERE id=?`).bind(id).first();
-    if (cur && ["new", "confirmed"].includes(cur.status) && cur.date && cur.date >= isoInTz(new Date(), BUSINESS.tz)) await tgNotifyClient(env, id, "cancelled");
+    const cur = await env.DB.prepare(`SELECT ${STAFF_COLS} FROM bookings WHERE id=?`).bind(id).first();
+    if (cur && ["new", "confirmed"].includes(cur.status) && cur.date && cur.date >= isoInTz(new Date(), BUSINESS.tz)) {
+      await tgNotifyClient(env, id, "cancelled");
+      await tellMaster(env, "cancelled", cur);   // і майстру: інакше він чекатиме собаку, якої не буде
+    }
   } catch (e) { }
   // remove the linked Google Calendar event first
   try {
@@ -3186,7 +3245,7 @@ async function adminDelete(request, env) {
 }
 
 async function notifyTelegram(env, b) {
-  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
+  if (!env.TELEGRAM_BOT_TOKEN) return;
   const head = b.waitlist ? "⏳ <b>Лист очікування</b>"
     : b.isRequest ? "📩 <b>Нова заявка (готель/садочок)</b>" : "🗓️ <b>Новий запис</b>" + (b.source === "telegram" ? " · 🤖 через бота" : "");
   // Усе нижче приходить з анонімної форми, а повідомлення йде з parse_mode HTML: без tgEsc «<3» у
@@ -3197,9 +3256,13 @@ async function notifyTelegram(env, b) {
     `${head}\n\n🐾 ${e(b.pet || "—")} · ${e(b.breed || "")}\n✂️ ${e(b.service)}${when}` +
     (b.staff ? `\n👩‍🔧 ${e(b.staff)}` : "") + `\n👤 ${e(b.name)}\n📞 ${e(b.phone)}` +
     (b.note ? `\n💬 ${e(b.note)}` : "");
-  // Через tgApi, бо той не кидає: це повідомлення йде ДО saveBooking, і збій мережі до Telegram
-  // раніше губив сам запис клієнта.
-  await tgApi(env, "sendMessage", { chat_id: env.TELEGRAM_CHAT_ID, text, parse_mode: "HTML" });
+  // Через tgApi, бо той не кидає: збій мережі до Telegram колись губив сам запис клієнта.
+  const btns = b.id ? staffAlertButtons(b.id, !b.isRequest && !b.waitlist) : undefined;
+  if (env.TELEGRAM_CHAT_ID) await tgApi(env, "sendMessage", Object.assign({ chat_id: env.TELEGRAM_CHAT_ID, text, parse_mode: "HTML" }, btns || {}));
+  try {
+    await staffNotify(env, text, { admins: true }, btns);
+    if (b.id && b.staff && !b.isRequest && !b.waitlist) await tellMaster(env, "new", { id: b.id, date: b.date, time: b.time, service: b.service, pet_name: b.pet_name, pet: b.pet, breed: b.breed, name: b.name, staff: b.staff, note: b.note });
+  } catch (e) { }
 }
 
 /* ----------------------------- Client reminders via Telegram -----------------------------
@@ -3266,9 +3329,13 @@ async function notifyClientManual(request, env) {
   if (body.booking_id) { const b = await env.DB.prepare(`SELECT ${CLIENT_COLS} FROM bookings WHERE id=?`).bind(+body.booking_id).first(); if (b) { chat = await clientChatFor(env, b); name = b.name || ""; } }
   else if (body.client_id) { const c = await env.DB.prepare(`SELECT name,tg_chat_id FROM clients WHERE id=?`).bind(+body.client_id).first(); if (c) { chat = c.tg_chat_id || null; name = c.name || ""; } }
   if (!chat) return { ok: false, error: "Клієнт ще не підключив Telegram-бот — повідомлення нікуди надіслати" };
+  return await sendClientMessage(env, who.name || "CRM", chat, name, text);
+}
+// Повідомлення клієнту від імені салону — з CRM і з бота адміністратора. Власниця бачить кожне.
+async function sendClientMessage(env, whoName, chat, clientName, text) {
   const r = await tgSendTo(env, chat, `💬 <b>${tgEsc(salonName(env))}</b>\n${tgEsc(text)}`);
   if (!r || !r.ok) return { ok: false, error: "Telegram не прийняв повідомлення: " + ((r && r.description) || "помилка") };
-  try { await sendTelegram(env, `✉️ <b>${tgEsc(who.name || "CRM")}</b> написав(ла) клієнту ${tgEsc(name)}:\n<i>${tgEsc(text)}</i>`); } catch (e) { }
+  try { await sendTelegram(env, `✉️ <b>${tgEsc(whoName)}</b> написав(ла) клієнту ${tgEsc(clientName)}:\n<i>${tgEsc(text)}</i>`); } catch (e) { }
   return { ok: true };
 }
 // CRM → every linked client (promo / news). Sequential, gentle on the Bot API rate limit.
@@ -3344,7 +3411,7 @@ async function linkClientChat(env, clientId, chatId) {
 }
 // "Give us your phone" step: the contact handler continues wherever st.after says.
 const PHONE_KB = { reply_markup: { keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }]], resize_keyboard: true, one_time_keyboard: true } };
-function bookBtn() { return kb([[{ text: "📅 Записатися", callback_data: "b:start" }, { text: "🔑 Кабінет", callback_data: "cab" }]]); }
+function bookBtn() { return kb([[{ text: "📅 Записатися", callback_data: "b:start" }, { text: "🔑 Кабінет", callback_data: "cab" }], [{ text: "☰ Усе меню", callback_data: "c:m" }]]); }
 async function askPhone(env, chat, after, text) {
   await tgSetState(env, chat, { step: "contact", after: after || "" });
   await tgSendTo(env, chat, text, PHONE_KB);
@@ -3392,6 +3459,8 @@ async function handleTgUpdate(env, u) {
   const msg = u.message, cq = u.callback_query;
   if (cq && cq.data && cq.message) {
     const chat = cq.message.chat.id;
+    if (cq.data.startsWith("s:")) { await staffCallback(env, cq, chat); return; }    // кабінет персоналу
+    if (cq.data.startsWith("c:")) { await clientCallback(env, cq, chat); return; }   // меню клієнта
     if (cq.data.startsWith("b:")) {   // booking dialogue buttons
       try { await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id }); } catch (e) { }
       await bookingStep(env, chat, cq.data);
@@ -3435,7 +3504,8 @@ async function handleTgUpdate(env, u) {
       if (["new", "confirmed"].includes(b.status)) {
         await env.DB.prepare(`UPDATE bookings SET status='cancelled' WHERE id=?`).bind(b.id).run();
         try { await syncCalendar(env, b.id); } catch (e) { }
-        try { await sendTelegram(env, `❌ <b>Клієнт скасував запис через бота</b>\n${visitText(b)}\n👤 ${tgEsc(b.name || "")} — ${tgEsc(b.phone || "")}`); } catch (e) { }
+        try { await alertSalon(env, `❌ <b>Клієнт скасував запис через бота</b>\n${visitText(b)}\n👤 ${tgEsc(b.name || "")} — ${tgEsc(b.phone || "")}`); } catch (e) { }
+        try { await tellMaster(env, "cancelled", b); } catch (e) { }
       }
       await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id, text: "Запис скасовано" });
       await clearButtons();
@@ -3460,14 +3530,14 @@ async function handleTgUpdate(env, u) {
       const cur = await clientByChat(env, chat);
       if (cur) {
         c = cur;
-        try { await sendTelegram(env, `⚠️ <b>Номер у Telegram не збігається з карткою клієнта</b>\n👤 ${tgEsc(cur.name || "")} (#${cur.id}) — у CRM ${tgEsc(cur.phone || "")}, у Telegram ${tgEsc(phone)}`); } catch (e) { }
+        try { await alertSalon(env, `⚠️ <b>Номер у Telegram не збігається з карткою клієнта</b>\n👤 ${tgEsc(cur.name || "")} (#${cur.id}) — у CRM ${tgEsc(cur.phone || "")}, у Telegram ${tgEsc(phone)}`); } catch (e) { }
       }
     }
     if (!c) {   // nobody with this number yet → register them right here
       const nm = [msg.from.first_name, msg.from.last_name].filter(Boolean).join(" ") || [msg.contact.first_name, msg.contact.last_name].filter(Boolean).join(" ") || "Клієнт з Telegram";
       const r = await env.DB.prepare(`INSERT INTO clients (created_at,name,phone,source,status) VALUES (?,?,?,'telegram','active')`).bind(new Date().toISOString(), nm, phone).run();
       c = { id: r.meta && r.meta.last_row_id, name: nm, phone }; created = true;
-      try { await sendTelegram(env, `🆕 <b>Новий клієнт через Telegram-бот</b>\n👤 ${tgEsc(nm)} — ${tgEsc(phone)}`); } catch (e) { }
+      try { await alertSalon(env, `🆕 <b>Новий клієнт через Telegram-бот</b>\n👤 ${tgEsc(nm)} — ${tgEsc(phone)}`); } catch (e) { }
     }
     await linkClientChat(env, c.id, chat);
     await tgSendTo(env, chat, `✅ Готово, ${tgEsc(c.name || "")}! Нагадування про візити приходитимуть сюди.${created ? "" : await nextVisitsText(env, c.id)}`, { reply_markup: { remove_keyboard: true } });
@@ -3476,12 +3546,36 @@ async function handleTgUpdate(env, u) {
     await tgClearState(env, chat);
     if (after === "cab") { await sendCabinetLink(env, chat, c.id); return; }
     if (after === "visits") { await sendVisits(env, chat, c); return; }
+    if (after === "menu") { await clientMenu(env, chat, null, c); return; }
     await tgSendTo(env, chat, "Записатися на грумінг можна прямо тут 👇", BOOK_BTN);
     return;
   }
   // Свій chat id людина й так бачить, він не секрет. Потрібен у день передачі: id особистого чату
   // власниці йде в TELEGRAM_CHAT_ID, а getUpdates, поки вебхук живий, не працює.
   if (/^\/id(@\w+)?$/i.test(text)) { await tgSendTo(env, chat, `Ваш chat id: <code>${chat}</code>`); return; }
+  // Посилання з CRM «📲 Telegram»: t.me/<бот>?start=st_<код>. Раніше за все інше в /start.
+  const stCode = /^\/start\s+st_(\S+)$/.exec(text);
+  if (stCode) { await staffLinkStart(env, chat, msg.from, stCode[1]); return; }
+  const staff = await staffByChat(env, chat, msg.from);   // null для клієнтів і для будь-якої групи
+  if (staff && st && st.step === "s_photo" && (msg.photo || msg.document)) { await staffPhotoIn(env, chat, msg, st); return; }
+  const cmd = (re) => re.test(text);
+  if (staff) {
+    if (cmd(/^\/(menu|staff)(@\w+)?$/i)) { await tgClearState(env, chat); await staffMenu(env, chat, null, staff); return; }
+    if (cmd(/^\/today(@\w+)?$/i)) { await staffDay(env, chat, null, staff, isoInTz(new Date(), BUSINESS.tz)); return; }
+    if (cmd(/^\/tomorrow(@\w+)?$/i)) { await staffDay(env, chat, null, staff, isoShift(isoInTz(new Date(), BUSINESS.tz), 1)); return; }
+    if (cmd(/^\/week(@\w+)?$/i)) { await staffWeek(env, chat, null, staff); return; }
+    if (cmd(/^\/new(@\w+)?$/i) && isAdm(staff)) { await staffNew(env, chat, null, staff); return; }
+    const fq = /^\/find(?:@\w+)?(?:\s+([\s\S]+))?$/i.exec(text);
+    if (fq && isAdm(staff)) { if (fq[1]) await staffFind(env, chat, staff, fq[1]); else await staffFindAsk(env, chat, null); return; }
+    if (st && st.step === "s_find" && text && !text.startsWith("/")) { await staffFind(env, chat, staff, text); return; }
+    if (st && st.step === "s_write" && text && !text.startsWith("/")) { await staffWrite(env, chat, staff, st, text); return; }
+    if (st && st.step === "s_photo" && text && !text.startsWith("/")) { await tgSendTo(env, chat, "Чекаю на фото 📷 Коли закінчите — натисніть «✔ Готово» або /menu."); return; }
+  }
+  if (cmd(/^\/menu(@\w+)?$/i)) {
+    const c = await clientByChat(env, chat);
+    if (!c) { await askPhone(env, chat, "menu", "Щоб відкрити кабінет, поділіться номером телефону — ми знайдемо або створимо ваш профіль:"); return; }
+    await clientMenu(env, chat, null, c); return;
+  }
   if (/^\/book/.test(text)) { await bookingStart(env, chat); return; }
   if (/^\/cabinet/.test(text)) {
     const c = await clientByChat(env, chat);
@@ -3507,14 +3601,16 @@ async function handleTgUpdate(env, u) {
     // NB: a booking code is not proof of identity — anyone can book with someone else's phone and get the link.
     // Whoever arrives, the chat is attached only to the number Telegram itself confirms below.
     const c = await clientByChat(env, chat);
+    if (staff && !code) { await tgClearState(env, chat); await staffMenu(env, chat, null, staff); return; }
     if (c) {
       if (wantCab) { await sendCabinetLink(env, chat, c.id); return; }
-      await tgSendTo(env, chat, `Вітаємо знову, ${tgEsc(c.name || "")} 🐾${await nextVisitsText(env, c.id)}`, BOOK_BTN);
+      await clientMenu(env, chat, null, c, `Вітаємо знову, ${tgEsc(c.name || "")} 🐾`);
       return;
     }
     await askPhone(env, chat, wantCab ? "cab" : "", `Вітаємо в ${tgEsc(salonName(env))} 🐾\nЩоб отримувати нагадування, записатися або відкрити кабінет, поділіться номером телефону:`);
     return;
   }
+  if (staff) { await staffMenu(env, chat, null, staff, "Не впізнав команду 🙂 Ось ваше меню:"); return; }
   await tgSendTo(env, chat, `Я нагадую про візити в ${tgEsc(salonName(env))} і можу записати вас на грумінг — натисніть кнопку або /book.`, BOOK_BTN);
 }
 /* ---- Booking dialogue in the bot (/book): pet → service → breed/weight → date → time → confirm ---- */
@@ -3669,8 +3765,623 @@ async function moveApply(env, chat, st) {
   try { await syncCalendar(env, b.id); } catch (e) { }
   await tgClearState(env, chat);
   const nb = Object.assign({}, b, { date: st.date, time: st.time, staff });
-  try { await sendTelegram(env, `🔁 <b>Клієнт переніс запис через бота</b>\nБуло: ${fmtDdMm(b.date)} о ${tgEsc(b.time)}${b.staff ? " (" + tgEsc(b.staff) + ")" : ""}\nСтало: ${visitText(nb)}\n👤 ${tgEsc(b.name || "")} — ${tgEsc(b.phone || "")}`); } catch (e) { }
+  try { await alertSalon(env, `🔁 <b>Клієнт переніс запис через бота</b>\nБуло: ${fmtDdMm(b.date)} о ${tgEsc(b.time)}${b.staff ? " (" + tgEsc(b.staff) + ")" : ""}\nСтало: ${visitText(nb)}\n👤 ${tgEsc(b.name || "")} — ${tgEsc(b.phone || "")}`, staffAlertButtons(b.id)); } catch (e) { }
+  try { await tellMastersChange(env, b, nb); } catch (e) { }
   await tgSendTo(env, chat, `🔁 Перенесено: ${visitText(nb)}${staff !== b.staff && b.staff ? "\n(інший майстер — попередній на цей час зайнятий)" : ""}\n\nНагадаємо напередодні 🐾`, visitButtons(nb));
+}
+
+/* ======================= Кабінети в боті: власниця, адміністратор, майстер, клієнт =======================
+   Бот — та сама CRM, тільки в кишені. Тому права ті самі, що в CRM і в кабінеті майстра, і рахує
+   їх той самий код: статуси міняє тим же UPDATE + syncCalendar + tellClientChange, що й adminUpdate.
+
+   ХТО Є ХТО. Клієнта бот знає за номером, який Telegram сам підтвердив («Поділитися номером»).
+   Співробітника — за прив'язкою в staff_tg: у CRM (або в кабінеті майстра) людина натискає
+   «📲 Telegram» і отримує одноразове посилання на 15 хвилин. Паролів у чаті немає і не буде —
+   історія чату живе вічно на кожному пристрої. Власниці прив'язка не потрібна: її особистий чат
+   (TELEGRAM_CHAT_ID) і так ключ до кнопок випуску і до кодів «Забули пароль?».
+
+   ЩО ПЕРЕВІРЯЄТЬСЯ НА КОЖНОМУ НАТИСКАННІ. Роль і «активний» читаються з users щоразу, кешу немає —
+   як у sessionUser. Зняла власниця галочку «активний» — наступна ж кнопка в боті нічого не відкриє.
+   Лише особистий чат і та сама людина (from.id = chat id): у групі кабінет не відкривається ні в
+   кого, бо кнопку там натиснув би будь-хто з учасників.
+
+   ЧОГО В БОТІ НЕМАЄ свідомо: фінансів і зарплат (рішення власниці, 12.10), «підтримки» (розробник
+   не повинен бачити клієнтів ні в CRM, ні тут), редагування прайсу, майстрів і сайту — це CRM. */
+const STAFF_ROLES = ["owner", "admin", "master"];
+const STAFF_COLS = CLIENT_COLS + ",pet,breed,weight,pet_id,note,price,pay_method,source";
+const STAFF_LINK_TTL_MIN = 15;
+const ROLE_CAB = { owner: "Кабінет власниці", admin: "Кабінет адміністратора", master: "Кабінет майстра" };
+const ROLE_UA = { owner: "власниця", admin: "адміністратор", master: "майстер" };
+const ST_ICON = { new: "🕐", confirmed: "✅", arrived: "🏠", in_progress: "✂️", done: "🏁", paid: "💰", no_show: "🚫", cancelled: "❌", waitlist: "⏳" };
+const ST_UA = { new: "нова", confirmed: "підтверджена", arrived: "прибув", in_progress: "у роботі", done: "готово", paid: "оплачено", no_show: "не прийшов", cancelled: "скасована", waitlist: "лист очікування" };
+// Короткі коди статусів для callback_data (Telegram дає 64 байти). Майстер — як у master.html: без «підтвердити».
+const ST_CODE = { cf: "confirmed", ar: "arrived", ip: "in_progress", dn: "done", pd: "paid", ns: "no_show" };
+const ST_BTN = { cf: "✅ Підтвердити", ar: "🏠 Прибув", ip: "✂️ У роботі", dn: "🏁 Готово", pd: "💰 Оплачено", ns: "🚫 Не прийшов" };
+const PAY_UA = { cash: "💵 Готівка", card: "💳 Картка", transfer: "🔁 Переказ" };
+const PET_NOTES = [["warnings", "⚠️"], ["allergies", "🌡 Алергії:"], ["behavior", "🐾 Поведінка:"], ["reactions", "💢 Реакції:"], ["vet_notes", "🩺 Вет:"], ["prefs", "💡 Побажання:"], ["client_notes", "📝 Від клієнта:"]];
+const STAFF_CMDS = {
+  admin: [["menu", "Кабінет: меню"], ["today", "Записи на сьогодні"], ["tomorrow", "Записи на завтра"], ["new", "Нові записи — підтвердити"], ["find", "Знайти клієнта"]],
+  master: [["menu", "Мій кабінет"], ["today", "Мої записи на сьогодні"], ["tomorrow", "Мої записи на завтра"], ["week", "Мій тиждень"]],
+};
+const isAdm = s => s && (s.role === "owner" || s.role === "admin");
+const ownerChat = (env, chat) => !!env.TELEGRAM_CHAT_ID && String(chat) === String(env.TELEGRAM_CHAT_ID);
+const isoShift = (iso, days) => { const [y, m, d] = iso.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10); };
+const isIso = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
+const cut = (v, n) => { const t = String(v == null ? "" : v).replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
+function dayTitle(iso) {
+  if (!isIso(iso)) return "Без дати";
+  const [y, m, d] = iso.split("-").map(Number), dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const today = isoInTz(new Date(), BUSINESS.tz);
+  const pre = iso === today ? "Сьогодні, " : iso === isoShift(today, 1) ? "Завтра, " : iso === isoShift(today, -1) ? "Вчора, " : "";
+  return `${pre}${DOW_UA[dow].toLowerCase()} ${fmtDdMm(iso)}`;
+}
+const petLabel = b => b.pet_name || b.pet || b.name || "—";
+
+/* Хто пише боту. null — не співробітник (або не особистий чат). */
+async function staffByChat(env, chat, from) {
+  if (!(Number(chat) > 0) || !from || String(from.id) !== String(chat)) return null;
+  try {
+    const r = await env.DB.prepare(`SELECT u.id AS user_id, u.name, u.username, u.role, u.master_id, s.notify, m.name AS master
+        FROM staff_tg s JOIN users u ON u.id=s.user_id LEFT JOIN masters m ON m.id=u.master_id
+        WHERE s.chat_id=? AND u.active=1 AND u.role IN ('owner','admin','master')`).bind(chat).first();
+    if (r) return r;
+  } catch (e) { }   // таблиці ще немає (міграцію 0005 не накочено) — тоді кабінет є лише у власниці
+  if (ownerChat(env, chat)) return { user_id: 0, name: "", username: "", role: "owner", master_id: null, notify: 1, master: null };
+  return null;
+}
+// Майстру — лише його записи. Адміністратору й власниці — усі.
+const staffSees = (s, b) => !!b && (isAdm(s) || (s.role === "master" && !!s.master && b.staff === s.master));
+
+/* Чати персоналу для сповіщень. Чат власниці пропускаємо: усе салонне вона й так отримує через
+   sendTelegram, інакше кожне повідомлення приходило б їй двічі. */
+async function staffChats(env) {
+  try {
+    const rows = (await env.DB.prepare(`SELECT s.chat_id, s.notify, u.role, m.name AS master
+        FROM staff_tg s JOIN users u ON u.id=s.user_id LEFT JOIN masters m ON m.id=u.master_id
+        WHERE s.chat_id IS NOT NULL AND u.active=1 AND u.role IN ('owner','admin','master')`).all()).results || [];
+    return rows.filter(r => !ownerChat(env, r.chat_id));
+  } catch (e) { return []; }
+}
+// admins: власницям і адміністраторам; masters: [імена] — лише цим майстрам.
+async function staffNotify(env, text, opts, extra) {
+  const o = opts || {}, want = new Set((o.masters || []).filter(Boolean));
+  if (!o.admins && !want.size) return;
+  for (const r of await staffChats(env)) {
+    if (!r.notify) continue;
+    const hit = (o.admins && (r.role === "owner" || r.role === "admin")) || (r.role === "master" && r.master && want.has(r.master));
+    if (hit) await tgSendTo(env, r.chat_id, text, extra);
+  }
+}
+// Кнопки під сповіщенням про запис: відкрити картку і, для нової, підтвердити не відкриваючи.
+function staffAlertButtons(id, canConfirm) {
+  if (!id) return undefined;
+  const open = { text: "🗂 Відкрити", callback_data: `s:o:${id}` };
+  return kb([canConfirm ? [{ text: "✅ Підтвердити", callback_data: `s:ok:${id}` }, open] : [open]]);
+}
+function staffLine(b) {
+  const pet = [b.pet_name ? "«" + tgEsc(b.pet_name) + "»" : tgEsc(b.pet || ""), tgEsc(b.breed || "")].filter(Boolean).join(" · ");
+  return `${fmtDdMm(b.date)}${b.time ? " о <b>" + tgEsc(b.time) + "</b>" : ""} — ${tgEsc(b.service || "")}` +
+    (pet ? `\n🐾 ${pet}` : "") + (b.name ? `\n👤 ${tgEsc(b.name)}` : "");
+}
+const MASTER_HEAD = { new: "🗓 <b>Новий запис до вас</b>", moved: "🔁 <b>Ваш запис перенесено</b>", cancelled: "❌ <b>Запис скасовано</b>", gone: "↪️ <b>Запис передано іншому майстру</b>" };
+// Майстру — про його власний майбутній візит. Минулі й без майстра — мовчки.
+async function tellMaster(env, kind, b, was) {
+  if (!b || !b.staff || !isIso(b.date) || b.service === "Блокування") return;
+  if (b.date < isoInTz(new Date(), BUSINESS.tz)) return;
+  const text = `${MASTER_HEAD[kind] || MASTER_HEAD.new}\n` + (was ? `Було: ${fmtDdMm(was.date)} о ${tgEsc(was.time || "—")}\nСтало: ` : "") + staffLine(b);
+  const open = (kind === "new" || kind === "moved") && b.id ? kb([[{ text: "🗂 Відкрити", callback_data: `s:o:${b.id}` }]]) : undefined;
+  await staffNotify(env, text, { masters: [b.staff] }, open);
+}
+// Салон змінив запис (CRM, бот адміністратора, клієнт сам): хто з майстрів має про це знати.
+async function tellMastersChange(env, prev, next) {
+  if (!prev || !next) return;
+  const on = st => ["new", "confirmed"].includes(st || "new");
+  if (on(prev.status) && next.status === "cancelled") { await tellMaster(env, "cancelled", prev); return; }
+  if (["cancelled", "waitlist"].includes(prev.status) && on(next.status)) { await tellMaster(env, "new", next); return; }
+  if (!on(prev.status) || !on(next.status)) return;   // «прибув», «готово» тощо — це робота самого майстра
+  if ((prev.staff || "") !== (next.staff || "")) { await tellMaster(env, "gone", prev); await tellMaster(env, "new", next); return; }
+  if (prev.date !== next.date || prev.time !== next.time) await tellMaster(env, "moved", next, prev);
+}
+// Вечірній крон: кожному майстру з ботом — його завтрашній день.
+async function runMasterDigest(env, tomorrow, tmr) {
+  for (const r of await staffChats(env)) {
+    if (r.role !== "master" || !r.master || !r.notify) continue;
+    const mine = tmr.filter(b => b.staff === r.master);
+    if (!mine.length) continue;
+    await tgSendTo(env, r.chat_id, `🔔 <b>${dayTitle(tomorrow)}: ${supMany(mine.length, "запис", "записи", "записів")}</b>\n\n` +
+      mine.map(b => `<b>${tgEsc(b.time)}</b> — ${tgEsc(petLabel(b))} · ${tgEsc(b.service || "")}`).join("\n"),
+      kb([[{ text: "📋 Відкрити мій день", callback_data: `s:d:${tomorrow}` }]]));
+  }
+}
+
+/* ---- Прив'язка Telegram співробітника ---- */
+async function staffTgSession(request, env) {
+  const s = await sessionUser(env, bearer(request));
+  if (!s) { const e = new Error("unauthorized"); e.status = 401; throw e; }
+  if (!STAFF_ROLES.includes(s.role)) { const e = new Error("Кабінет у боті є у власниці, адміністраторів і майстрів"); e.status = 403; throw e; }
+  // Аварійний вхід (ADMIN_TOKEN) акаунта не має: прив'язувати чат нема до кого.
+  if (!s.user_id) { const e = new Error("Аварійний вхід не має акаунта — увійдіть своїм логіном"); e.status = 403; throw e; }
+  return s;
+}
+async function staffTgStatus(request, env) {
+  const s = await staffTgSession(request, env);
+  const bot = (await loadSettings(env)).tg_bot || "";
+  let row = null;
+  try { row = await env.DB.prepare(`SELECT chat_id, linked_at, notify FROM staff_tg WHERE user_id=?`).bind(s.user_id).first(); }
+  catch (e) { return { ok: true, bot, ready: false, linked: false }; }
+  return { ok: true, bot, ready: true, linked: !!(row && row.chat_id), linked_at: (row && row.linked_at) || "", notify: row ? (row.notify ? 1 : 0) : 1 };
+}
+async function staffTgLink(request, env) {
+  const s = await staffTgSession(request, env);
+  const bot = (await loadSettings(env)).tg_bot || "";
+  if (!bot || !env.TELEGRAM_BOT_TOKEN) return { ok: false, error: "Бот салону ще не підключений: власниця натискає «Підключити бота» в CRM → 🔔 Нагадування." };
+  const code = randHex(16), now = new Date();
+  const exp = new Date(now.getTime() + STAFF_LINK_TTL_MIN * 6e4).toISOString();
+  try {
+    await env.DB.prepare(`INSERT INTO staff_tg (user_id,code_hash,code_expires,created_at) VALUES (?,?,?,?)
+        ON CONFLICT(company_id,user_id) DO UPDATE SET code_hash=excluded.code_hash, code_expires=excluded.code_expires`)
+      .bind(s.user_id, await sha256hex("staff-tg:" + code), exp, now.toISOString()).run();
+  } catch (e) { return { ok: false, error: "У базі ще немає таблиці для Telegram співробітників — потрібна міграція 0005_staff_tg.sql." }; }
+  return { ok: true, link: `https://t.me/${bot}?start=st_${code}`, ttl_min: STAFF_LINK_TTL_MIN };
+}
+async function staffTgUnlinkSelf(request, env) {
+  const s = await staffTgSession(request, env);
+  await staffTgUnlink(env, s.user_id, "Кабінет у боті відключено з CRM. Підключити знову: CRM → 📲 Telegram.");
+  return { ok: true };
+}
+async function adminUserTgUnlink(request, env) {
+  await requireOwner(request, env);
+  const b = await request.json().catch(() => ({}));
+  const id = Number(b && b.id);
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "id required" };
+  await staffTgUnlink(env, id, "Власниця відключила ваш Telegram від кабінету салону.");
+  return { ok: true };
+}
+// Прибирає прив'язку і меню команд у тому чаті. Повертає true, якщо чат справді був підключений.
+async function staffTgUnlink(env, userId, why) {
+  let row = null;
+  try {
+    row = await env.DB.prepare(`SELECT chat_id FROM staff_tg WHERE user_id=?`).bind(userId).first();
+    await env.DB.prepare(`DELETE FROM staff_tg WHERE user_id=?`).bind(userId).run();
+  } catch (e) { return false; }
+  if (!row || !row.chat_id) return false;
+  try {
+    if (ownerChat(env, row.chat_id)) await setStaffCommands(env, row.chat_id, "owner");   // її чат лишається кабінетом власниці
+    else await tgApi(env, "deleteMyCommands", { scope: { type: "chat", chat_id: row.chat_id } });
+  } catch (e) { }
+  if (why) { try { await tgSendTo(env, row.chat_id, "🔌 " + tgEsc(why)); } catch (e) { } }
+  return true;
+}
+async function setStaffCommands(env, chat, role) {
+  const list = role === "master" ? STAFF_CMDS.master : STAFF_CMDS.admin;
+  await tgApi(env, "setMyCommands", { scope: { type: "chat", chat_id: chat }, commands: list.map(([command, description]) => ({ command, description })) });
+}
+// /start st_<код> — посилання з CRM. Код одноразовий: згоряє в тому ж UPDATE, що прив'язує чат.
+async function staffLinkStart(env, chat, from, code) {
+  if (!(Number(chat) > 0) || !from || String(from.id) !== String(chat)) { await tgSendTo(env, chat, "Кабінет підключається лише в особистому чаті з ботом."); return; }
+  const bad = "Посилання недійсне, прострочене або вже використане. Отримайте нове: CRM → 📲 Telegram (у майстрів — кабінет майстра).";
+  if (!/^[0-9a-f]{32}$/.test(code)) { await tgSendTo(env, chat, bad); return; }
+  const h = await sha256hex("staff-tg:" + code), now = new Date().toISOString();
+  let row = null;
+  try {
+    row = await env.DB.prepare(`SELECT s.id, s.user_id, u.name, u.username, u.role, u.active FROM staff_tg s JOIN users u ON u.id=s.user_id
+        WHERE s.code_hash=? AND s.code_expires>?`).bind(h, now).first();
+  } catch (e) { row = null; }
+  if (!row || !row.active || !STAFF_ROLES.includes(row.role)) { await tgSendTo(env, chat, bad); return; }
+  // Один чат — один акаунт: якщо цей Telegram був кабінетом іншого співробітника, той рядок іде геть.
+  await env.DB.prepare(`DELETE FROM staff_tg WHERE chat_id=? AND id<>?`).bind(chat, row.id).run();
+  const u = await env.DB.prepare(`UPDATE staff_tg SET chat_id=?, code_hash=NULL, code_expires=NULL, linked_at=?, notify=COALESCE(notify,1) WHERE id=? AND code_hash=?`)
+    .bind(chat, now, row.id, h).run();
+  if (!(u.meta && u.meta.changes)) { await tgSendTo(env, chat, bad); return; }   // хтось устиг цим кодом раніше
+  await tgClearState(env, chat);
+  try { await setStaffCommands(env, chat, row.role); } catch (e) { }
+  const who = row.name || row.username || "";
+  if (!ownerChat(env, chat)) {
+    try { await sendTelegram(env, `📲 <b>${tgEsc(who)}</b> (${ROLE_UA[row.role] || row.role}) підключив(ла) Telegram до кабінету в боті.\nВідключити: /menu → 👥 Команда або CRM → 👥 Доступи.`); } catch (e) { }
+  }
+  const s = await staffByChat(env, chat, from);
+  if (s) await staffMenu(env, chat, null, s, `✅ Готово${who ? ", " + tgEsc(who) : ""}! Telegram підключено до вашого кабінету.`);
+}
+
+/* ---- Екрани кабінету персоналу ---- */
+// Натиснули кнопку — редагуємо те саме повідомлення, щоб чат не заростав. Не вийшло — нове.
+async function tgShow(env, chat, cq, text, rows) {
+  const extra = { reply_markup: { inline_keyboard: rows || [] } };
+  if (cq && cq.message) {
+    const r = await tgApi(env, "editMessageText", Object.assign({ chat_id: chat, message_id: cq.message.message_id, text, parse_mode: "HTML", disable_web_page_preview: true }, extra));
+    if (r && (r.ok || /not modified/i.test(r.description || ""))) return r;
+  }
+  return tgSendTo(env, chat, text, extra);
+}
+const MENU_ROW = [{ text: "☰ Меню", callback_data: "s:m" }];
+async function staffMenu(env, chat, cq, s, note) {
+  const today = isoInTz(new Date(), BUSINESS.tz), one = async (sql, ...v) => { try { return ((await env.DB.prepare(sql).bind(...v).first()) || {}).n || 0; } catch (e) { return 0; } };
+  const lines = [`☰ <b>${ROLE_CAB[s.role]}</b>${s.name ? " · " + tgEsc(s.name) : ""}`];
+  if (s.role === "master" && !s.master) lines.push("\n⚠️ Акаунт не прив'язаний до майстра — попросіть власницю: CRM → 👥 Доступи.");
+  else {
+    const mineSql = s.role === "master" ? " AND staff=?" : "", mineV = s.role === "master" ? [s.master] : [];
+    const nToday = await one(`SELECT COUNT(*) AS n FROM bookings WHERE date=? AND service<>'Блокування' AND COALESCE(status,'new') NOT IN ('cancelled','waitlist')${mineSql}`, today, ...mineV);
+    lines.push(`Сьогодні: ${supMany(nToday, "запис", "записи", "записів")}${s.role === "master" ? " у вас" : " у салоні"}`);
+  }
+  let nNew = 0;
+  if (isAdm(s)) { nNew = await one(`SELECT COUNT(*) AS n FROM bookings WHERE COALESCE(status,'new')='new' AND service<>'Блокування'`); lines.push(`Непідтверджених: ${nNew}`); }
+  if (note) lines.push("", note);
+  const tomorrow = isoShift(today, 1), rows = [[{ text: "📋 Сьогодні", callback_data: `s:d:${today}` }, { text: "📅 Завтра", callback_data: `s:d:${tomorrow}` }]];
+  if (s.role === "master") rows.push([{ text: "🗓 Мій тиждень", callback_data: "s:wk" }]);
+  if (isAdm(s)) rows.push([{ text: `🆕 Нові (${nNew})`, callback_data: "s:n" }, { text: "🔎 Клієнт", callback_data: "s:f" }]);
+  if (s.role === "owner") rows.push([{ text: "👥 Команда", callback_data: "s:t" }, { text: "🔧 Підтримка", callback_data: "s:sp" }], [{ text: "🩺 Стан системи", callback_data: "s:hl" }]);
+  if (s.user_id && !ownerChat(env, chat)) rows.push([{ text: s.notify ? "🔔 Сповіщення увімкнені" : "🔕 Сповіщення вимкнені", callback_data: "s:nt" }]);
+  if (await clientByChat(env, chat)) rows.push([{ text: "🐾 Я як клієнт", callback_data: "c:m" }]);
+  await tgShow(env, chat, cq, lines.join("\n"), rows);
+}
+async function staffDay(env, chat, cq, s, iso) {
+  const mine = s.role === "master";
+  if (mine && !s.master) { await staffMenu(env, chat, cq, s); return; }
+  const rows = (await env.DB.prepare(`SELECT ${STAFF_COLS} FROM bookings WHERE date=? AND service<>'Блокування'${mine ? " AND staff=?" : ""}
+      ORDER BY CASE WHEN time IS NULL OR time='' THEN 1 ELSE 0 END, time`).bind(...(mine ? [iso, s.master] : [iso])).all()).results || [];
+  const vis = rows.filter(b => b.status !== "cancelled"), cancelled = rows.length - vis.length;
+  const lines = [`📋 <b>${dayTitle(iso)}</b>${mine ? "" : " — салон"}`];
+  if (mine) {
+    try {
+      const m = (await loadMasters(env)).find(x => x.name === s.master), [y, mo, d] = iso.split("-").map(Number);
+      if (m && !masterWorks(m, iso, new Date(Date.UTC(y, mo - 1, d)).getUTCDay())) lines.push("🌴 За графіком у вас вихідний");
+    } catch (e) { }
+  }
+  const shown = vis.slice(0, 40);
+  lines.push(...shown.map(b => `${b.time ? "<b>" + tgEsc(b.time) + "</b>" : "без часу"} ${ST_ICON[b.status || "new"] || "•"} ${tgEsc(petLabel(b))} · ${tgEsc(cut(b.service, 40))}${!mine && b.staff ? " · " + tgEsc(b.staff) : ""}`));
+  if (!vis.length) lines.push("Записів немає.");
+  if (vis.length > shown.length) lines.push(`… і ще ${vis.length - shown.length} — у CRM`);
+  if (cancelled) lines.push(`<i>Скасовано: ${cancelled}</i>`);
+  const kbRows = chunk(shown.map(b => ({ text: cut(`${b.time || "—"} ${petLabel(b)}`, 28), callback_data: `s:b:${b.id}` })), 2);
+  kbRows.push([{ text: "◀ " + fmtDdMm(isoShift(iso, -1)), callback_data: `s:d:${isoShift(iso, -1)}` }, { text: fmtDdMm(isoShift(iso, 1)) + " ▶", callback_data: `s:d:${isoShift(iso, 1)}` }], MENU_ROW);
+  await tgShow(env, chat, cq, lines.join("\n"), kbRows);
+}
+async function staffWeek(env, chat, cq, s) {
+  if (s.role !== "master" || !s.master) { await staffMenu(env, chat, cq, s); return; }
+  const today = isoInTz(new Date(), BUSINESS.tz);
+  const rows = (await env.DB.prepare(`SELECT ${STAFF_COLS} FROM bookings WHERE staff=? AND date>=? AND date<=? AND service<>'Блокування'
+      AND COALESCE(status,'new') IN ('new','confirmed','arrived','in_progress') ORDER BY date, time`).bind(s.master, today, isoShift(today, 6)).all()).results || [];
+  const lines = ["🗓 <b>Мій тиждень</b>"];
+  let day = "";
+  for (const b of rows.slice(0, 40)) {
+    if (b.date !== day) { day = b.date; lines.push("", `<b>${dayTitle(day)}</b>`); }
+    lines.push(`${tgEsc(b.time || "без часу")} ${ST_ICON[b.status || "new"] || "•"} ${tgEsc(petLabel(b))} · ${tgEsc(cut(b.service, 40))}`);
+  }
+  if (!rows.length) lines.push("Найближчі 7 днів записів немає.");
+  const kbRows = chunk(rows.slice(0, 40).map(b => ({ text: cut(`${fmtDdMm(b.date)} ${b.time || ""} ${petLabel(b)}`, 28), callback_data: `s:b:${b.id}` })), 2);
+  kbRows.push(MENU_ROW);
+  await tgShow(env, chat, cq, lines.join("\n"), kbRows);
+}
+async function staffNew(env, chat, cq, s) {
+  const rows = (await env.DB.prepare(`SELECT ${STAFF_COLS} FROM bookings WHERE COALESCE(status,'new')='new' AND service<>'Блокування'
+      ORDER BY CASE WHEN date IS NULL OR date='' THEN 1 ELSE 0 END, date, time LIMIT 30`).all()).results || [];
+  const lines = ["🆕 <b>Непідтверджені записи</b>"].concat(rows.map(b =>
+    `${isIso(b.date) ? fmtDdMm(b.date) : "без дати"}${b.time ? " <b>" + tgEsc(b.time) + "</b>" : ""} · ${tgEsc(petLabel(b))} · ${tgEsc(cut(b.service, 30))} · ${tgEsc(b.name || "")}`));
+  if (!rows.length) lines.push("Усе підтверджено 👌");
+  const kbRows = chunk(rows.map(b => ({ text: cut(`${isIso(b.date) ? fmtDdMm(b.date) : "—"} ${b.time || ""} ${petLabel(b)}`, 28), callback_data: `s:b:${b.id}` })), 2);
+  kbRows.push(MENU_ROW);
+  await tgShow(env, chat, cq, lines.join("\n"), kbRows);
+}
+// Картка запису. opts.note — рядок-підтвердження зверху («✅ Статус: готово»), opts.ready — клієнту вже сказали «готовий».
+async function staffCard(env, chat, cq, s, id, opts) {
+  const o = opts || {};
+  const b = await env.DB.prepare(`SELECT ${STAFF_COLS} FROM bookings WHERE id=?`).bind(id).first();
+  if (!staffSees(s, b)) { await tgShow(env, chat, cq, "Запис не знайдено або він не ваш.", [MENU_ROW]); return; }
+  const pet = b.pet_id ? await env.DB.prepare(`SELECT name,species,breed,weight,special,${PET_NOTES.map(x => x[0]).join(",")} FROM pets WHERE id=?`).bind(b.pet_id).first() : null;
+  const st = b.status || "new", L = [];
+  if (o.note) L.push(o.note, "");
+  L.push(`${ST_ICON[st] || "•"} <b>${dayTitle(b.date)}</b>${b.time ? " о <b>" + tgEsc(b.time) + "</b>" : ""}${b.duration ? " · " + b.duration + " хв" : ""}`);
+  L.push(`✂️ ${tgEsc(b.service || "—")}${Number(b.price) > 0 ? " · " + Math.round(b.price) + " ₴" : ""}`);
+  const petTxt = [b.pet_name ? "«" + b.pet_name + "»" : "", b.pet, b.breed, b.weight].filter(Boolean).map(tgEsc).join(" · ");
+  if (petTxt) L.push(`${(pet && pet.species === "cat") || /кіт|кот/i.test(b.pet || "") ? "🐱" : "🐶"} ${petTxt}`);
+  if (s.role !== "master") L.push(`👩‍🔧 ${b.staff ? tgEsc(b.staff) : "<i>майстра не призначено</i>"}`);
+  L.push(`👤 ${tgEsc(b.name || "—")}${b.phone ? " — " + tgEsc(b.phone) : ""}`);
+  if (b.note) L.push(`💬 ${tgEsc(cut(b.note, 300))}`);
+  if (pet) {
+    if (pet.special) L.push("⭐ <b>Особлива увага</b>");
+    for (const [f, lbl] of PET_NOTES) if (pet[f]) L.push(`${lbl} ${tgEsc(cut(pet[f], 300))}`);
+  }
+  L.push(`Статус: <b>${tgEsc(ST_UA[st] || st)}</b>${b.pay_method && PAY_UA[b.pay_method] ? " · " + PAY_UA[b.pay_method] : ""}`);
+  if (o.ready) L.push(`📣 ${o.ready}`);
+  const rows = [];
+  if (st !== "cancelled" && st !== "waitlist") {
+    const codes = (isAdm(s) && st === "new" ? ["cf"] : []).concat(["ar", "ip", "dn", "pd", "ns"]);
+    const btn = c => ({ text: (ST_CODE[c] === st ? "• " : "") + ST_BTN[c], callback_data: `s:st:${b.id}:${c}` });
+    rows.push(...chunk(codes.map(btn), 2));
+  }
+  if (isAdm(s) && st === "paid") rows.push(Object.keys(PAY_UA).map(k => ({ text: (b.pay_method === k ? "• " : "") + PAY_UA[k], callback_data: `s:pm:${b.id}:${k}` })));
+  if (b.pet_id && st !== "cancelled") rows.push([{ text: "📷 Фото «До»", callback_data: `s:ph:${b.id}:b` }, { text: "📷 Фото «Після»", callback_data: `s:ph:${b.id}:a` }]);
+  if (!o.ready && ["in_progress", "done"].includes(st) && await clientChatFor(env, b)) rows.push([{ text: `📣 Клієнту: «${cut(b.pet_name || "улюбленець", 14)} готовий»`, callback_data: `s:rd:${b.id}` }]);
+  if (isAdm(s) && ["new", "confirmed"].includes(st)) rows.push([{ text: "❌ Скасувати запис", callback_data: `s:bx:${b.id}` }]);
+  if (isAdm(s) && b.client_id) rows.push([{ text: "👤 Картка клієнта", callback_data: `s:c:${b.client_id}` }]);
+  rows.push(isIso(b.date) ? [{ text: "◀ " + fmtDdMm(b.date), callback_data: `s:d:${b.date}` }, MENU_ROW[0]] : MENU_ROW);
+  await tgShow(env, chat, cq, L.join("\n"), rows);
+}
+// Статус з бота — той самий шлях, що в CRM: запис, календар, повідомлення клієнту, майстру.
+async function staffSetStatus(env, b, status) {
+  if ((b.status || "new") === status) return;
+  await env.DB.prepare(`UPDATE bookings SET status=? WHERE id=?`).bind(status, b.id).run();
+  try { await syncCalendar(env, b.id); } catch (e) { }
+  await tellClientChange(env, b.id, b, { status }, false);
+  try { await tellMastersChange(env, b, Object.assign({}, b, { status })); } catch (e) { }
+}
+async function staffFindAsk(env, chat, cq) {
+  await tgSetState(env, chat, { step: "s_find" });
+  await tgShow(env, chat, cq, "🔎 Напишіть номер телефону (досить 4+ останніх цифр), ім'я клієнта або кличку улюбленця:", [MENU_ROW]);
+}
+async function staffFind(env, chat, s, text) {
+  const q = String(text || "").trim().slice(0, 60), digits = q.replace(/\D/g, ""), low = q.toLowerCase();
+  const cs = (await env.DB.prepare(`SELECT id,name,phone,tg_chat_id FROM clients`).all()).results || [];
+  let hits = [];
+  if (digits.length >= 4) {
+    const nd = digits.length >= 9 ? normPhone(digits) : digits;
+    hits = cs.filter(c => normPhone(c.phone).includes(nd));
+  } else if (low.length >= 2) {
+    const byPet = new Set((((await env.DB.prepare(`SELECT client_id,name FROM pets`).all()).results) || []).filter(p => String(p.name || "").toLowerCase().includes(low)).map(p => p.client_id));
+    hits = cs.filter(c => String(c.name || "").toLowerCase().includes(low) || byPet.has(c.id));
+  } else { await tgSendTo(env, chat, "Замало для пошуку — щонайменше 2 літери або 4 цифри.", kb([MENU_ROW])); return; }
+  await tgSetState(env, chat, { step: "s_find" });   // наступне повідомлення — уточнений пошук
+  if (hits.length === 1) { await staffClient(env, chat, null, s, hits[0].id); return; }
+  if (!hits.length) { await tgSendTo(env, chat, `Нікого не знайдено за «${tgEsc(q)}». Спробуйте інакше або ☰ Меню.`, kb([MENU_ROW])); return; }
+  hits.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "uk"));
+  const rows = hits.slice(0, 10).map(c => [{ text: cut(`${c.name || "—"} · ${String(c.phone || "").slice(-4)}${c.tg_chat_id ? " · ✈" : ""}`, 40), callback_data: `s:c:${c.id}` }]);
+  rows.push(MENU_ROW);
+  await tgSendTo(env, chat, `Знайдено: ${hits.length}${hits.length > 10 ? " (показую 10 — уточніть)" : ""}`, kb(rows));
+}
+async function staffClient(env, chat, cq, s, id) {
+  const c = await env.DB.prepare(`SELECT * FROM clients WHERE id=?`).bind(id).first();
+  if (!c) { await tgShow(env, chat, cq, "Клієнта не знайдено.", [MENU_ROW]); return; }
+  const pets = (await env.DB.prepare(`SELECT name,species,breed,weight,special,warnings,allergies FROM pets WHERE client_id=? ORDER BY id`).bind(c.id).all()).results || [];
+  const bks = await clientBookings(env, c), today = isoInTz(new Date(), BUSINESS.tz);
+  const done = bks.filter(b => b.status === "done" || b.status === "paid");
+  const up = bks.filter(b => isIso(b.date) && b.date >= today && ["new", "confirmed", "arrived", "in_progress"].includes(b.status || "new"))
+    .sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")));
+  const L = [`👤 <b>${tgEsc(c.name || "—")}</b>`, `📞 ${tgEsc(c.phone || "—")} · ${c.tg_chat_id ? "Telegram ✅" : "без Telegram"}`];
+  if (c.note) L.push(`📝 ${tgEsc(cut(c.note, 300))}`);
+  if (pets.length) L.push("", ...pets.slice(0, 8).map(p => `${p.species === "cat" ? "🐱" : "🐶"} <b>${tgEsc(p.name || "—")}</b>${p.breed ? " — " + tgEsc(p.breed) : ""}${p.weight ? ", " + tgEsc(p.weight) : ""}${p.special ? " ⭐" : ""}` +
+    (p.warnings ? `\n   ⚠️ ${tgEsc(cut(p.warnings, 150))}` : "") + (p.allergies ? `\n   🌡 ${tgEsc(cut(p.allergies, 150))}` : "")),
+    ...(pets.length > 8 ? [`… і ще ${pets.length - 8} — у CRM`] : []));   // повідомлення Telegram — до 4096 знаків
+  L.push("", `Візитів: ${done.length}${done.length ? ", останній " + fmtDdMm(done[0].date) + "." + String(done[0].date || "").slice(0, 4) : ""}`);
+  if (up.length) L.push("Попереду:", ...up.slice(0, 6).map(b => `• ${fmtDdMm(b.date)} ${tgEsc(b.time || "")} — ${tgEsc(cut(b.service, 40))}${b.staff ? " · " + tgEsc(b.staff) : ""}`));
+  const rows = chunk(up.slice(0, 6).map(b => ({ text: cut(`${fmtDdMm(b.date)} ${b.time || ""} ${b.pet_name || b.service || ""}`, 28), callback_data: `s:b:${b.id}` })), 2);
+  if (c.tg_chat_id) rows.push([{ text: "✉️ Написати клієнту", callback_data: `s:w:${c.id}` }]);
+  rows.push([{ text: "🔎 Новий пошук", callback_data: "s:f" }, MENU_ROW[0]]);
+  await tgShow(env, chat, cq, L.join("\n"), rows);
+}
+async function staffWrite(env, chat, s, st, text) {
+  await tgClearState(env, chat);
+  const c = isAdm(s) ? await env.DB.prepare(`SELECT id,name,tg_chat_id FROM clients WHERE id=?`).bind(+st.client_id || 0).first() : null;
+  if (!c || !c.tg_chat_id) { await tgSendTo(env, chat, "Клієнт недоступний — повідомлення не надіслано.", kb([MENU_ROW])); return; }
+  const msg = String(text || "").trim().slice(0, 1500);
+  // Власниця пише зі свого ж чату — копія «хто що написав» їй самій ні до чого.
+  const r = ownerChat(env, chat) ? await tgSendTo(env, c.tg_chat_id, `💬 <b>${tgEsc(salonName(env))}</b>\n${tgEsc(msg)}`).then(x => x && x.ok ? { ok: true } : { ok: false, error: "Telegram не прийняв повідомлення" })
+    : await sendClientMessage(env, s.name || s.username || ROLE_UA[s.role], c.tg_chat_id, c.name || "", msg);
+  await tgSendTo(env, chat, r.ok ? `✅ Надіслано: ${tgEsc(c.name || "клієнту")}` : `⚠️ ${tgEsc(r.error || "Не вдалося надіслати")}`,
+    kb([[{ text: "👤 Картка клієнта", callback_data: `s:c:${c.id}` }, MENU_ROW[0]]]));
+}
+async function staffTeam(env, chat, cq, note) {
+  let rows = [];
+  try {
+    rows = (await env.DB.prepare(`SELECT u.id,u.name,u.username,u.role,u.active,s.chat_id,s.linked_at FROM users u LEFT JOIN staff_tg s ON s.user_id=u.id
+        WHERE u.role IN ('owner','admin','master') ORDER BY CASE u.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.name`).all()).results || [];
+  } catch (e) { await tgShow(env, chat, cq, "👥 У базі ще немає таблиці staff_tg — потрібна міграція 0005_staff_tg.sql.", [MENU_ROW]); return; }
+  const L = [];
+  if (note) L.push(note, "");
+  L.push("👥 <b>Команда в боті</b>", ...rows.map(u => `${u.chat_id ? "📲" : "▫️"} <b>${tgEsc(u.name || u.username || "—")}</b> — ${ROLE_UA[u.role] || u.role}${u.active ? "" : " (вимкнено)"}${u.chat_id ? " · з " + fmtKyiv(u.linked_at) : ""}`));
+  L.push("", "Підключає співробітник сам: CRM → 📲 Telegram, майстер — у кабінеті майстра. Відключити — кнопкою нижче або в CRM → 👥 Доступи.");
+  const kbRows = rows.filter(u => u.chat_id).map(u => [{ text: "🔌 Відключити: " + cut(u.name || u.username || "?", 24), callback_data: `s:tu:${u.id}` }]);
+  kbRows.push(MENU_ROW);
+  await tgShow(env, chat, cq, L.join("\n"), kbRows);
+}
+async function staffSupport(env, chat, cq, note) {
+  const st = await supportState(env), L = [];
+  if (note) L.push(note, "");
+  L.push("🔧 <b>Доступ для підтримки</b>", st.open ? `🔓 Відкрито до ${fmtKyiv(st.until)}${st.prices ? " · з правом правити ціни" : ""}` : "🔒 Закрито");
+  if (st.log.length) L.push("", "Останнє в журналі:", ...st.log.slice(0, 5).map(r => `• ${fmtKyiv(r.at)} · ${tgEsc(r.who)}: ${tgEsc(cut(r.act, 120))}`));
+  const rows = st.open ? [[{ text: "🔒 Закрити доступ зараз", callback_data: "s:sx" }]]
+    : [[{ text: "🔓 На 8 год", callback_data: "s:so:8" }, { text: "🔓 На 24 год", callback_data: "s:so:24" }], [{ text: "🔓 8 год + право правити ціни", callback_data: "s:so:8p" }]];
+  rows.push(MENU_ROW);
+  await tgShow(env, chat, cq, L.join("\n"), rows);
+}
+async function staffHealth(env, chat, cq) {
+  const h = await health(env, env.ORIGIN || "");
+  const yes = v => v ? "✅" : "—";
+  const L = [`🩺 <b>Стан системи</b> — ${h.ok ? "✅ усе гаразд" : "⚠️ є що перевірити"}`, `Версія: ${tgEsc(h.version)} · ${tgEsc(h.build)}`];
+  L.push(`База: ${h.db ? "⚠️ " + tgEsc(h.db) : (h.tables || 0) + " таблиць" + (h.missing_tables ? " · ⚠️ немає: " + tgEsc(h.missing_tables.join(", ")) : " ✅")}`);
+  if (h.counts) L.push(`Записів попереду: ${h.upcoming || 0} · нових за добу: ${h.booked_last_24h || 0}`);
+  L.push(`Календар Google: ${yes(h.calendar)}`);
+  if (h.bot) L.push(`Бот: ${h.bot.ok ? "✅ @" + tgEsc(h.bot.username) : "⚠️ " + tgEsc(h.bot.problem || "")}`);
+  const lb = h.last_backup;
+  L.push(`Резервна копія: ${lb && lb.day ? "✅ " + tgEsc(lb.day) + " · " + (lb.rows || 0) + " рядків" : h.backups ? "⚠️ ще не було" : "— (немає бакета)"}`);
+  if (h.warn) L.push(`⚠️ ${tgEsc(h.warn)}`);
+  await tgShow(env, chat, cq, L.join("\n"), [[{ text: "🔄 Оновити", callback_data: "s:hl" }], MENU_ROW]);
+}
+async function staffPhotoAsk(env, chat, s, b, kind) {
+  await tgSetState(env, chat, { step: "s_photo", booking_id: b.id, kind });
+  await tgSendTo(env, chat, `📷 Надішліть фото «${kind === "after" ? "Після" : "До"}» для ${tgEsc(petLabel(b))} — одне чи кілька, звичайним фото. Фото потрапить у картку улюбленця.`,
+    kb([[{ text: "✔ Готово", callback_data: `s:px:${b.id}` }]]));
+}
+// Telegram сам тримає кілька розмірів фото: беремо найбільший до 1600 px і копію ≥ 480 px по короткій
+// стороні для сіток — так само, як браузер у CRM робить велике фото й мініатюру.
+async function tgFileBytes(env, fileId, max) {
+  const f = await tgApi(env, "getFile", { file_id: fileId });
+  const path = f && f.ok && f.result && f.result.file_path;
+  if (!path || (f.result.file_size && f.result.file_size > max)) return null;
+  try {
+    const r = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${path}`);
+    if (!r.ok) return null;
+    const bin = new Uint8Array(await r.arrayBuffer());
+    return bin.length && bin.length <= max ? bin : null;
+  } catch (e) { return null; }
+}
+async function staffPhotoIn(env, chat, msg, st) {
+  const s = await staffByChat(env, chat, msg.from);
+  const b = s && st.booking_id ? await env.DB.prepare(`SELECT ${STAFF_COLS} FROM bookings WHERE id=?`).bind(+st.booking_id).first() : null;
+  if (!staffSees(s, b) || !b.pet_id) { await tgClearState(env, chat); await tgSendTo(env, chat, "Цей запис більше недоступний — фото не збережено."); return; }
+  const max = photoBucket(env) ? PHOTO_MAX_R2 : PHOTO_MAX_D1;
+  let main = null, small = null;
+  if (Array.isArray(msg.photo) && msg.photo.length) {
+    const sizes = msg.photo.slice().sort((x, y) => x.width * x.height - y.width * y.height);
+    main = sizes.filter(p => Math.max(p.width, p.height) <= 1600).pop() || sizes[0];
+    small = sizes.find(p => Math.min(p.width, p.height) >= 480 && p.file_id !== main.file_id && p.width * p.height < main.width * main.height) || null;
+  } else if (msg.document && /^image\/(jpeg|png|webp)$/.test(msg.document.mime_type || "")) main = msg.document;
+  if (!main) { await tgSendTo(env, chat, "Потрібне фото (JPEG, PNG або WebP). Надішліть його звичайним фото, не файлом іншого формату."); return; }
+  const bin = await tgFileBytes(env, main.file_id, max);
+  const mime = bin && sniffImage(bin);
+  if (!mime) { await tgSendTo(env, chat, bin ? "Файл не схожий на фото JPEG / PNG / WebP." : "Не вдалося отримати фото з Telegram (завелике або збій) — спробуйте ще раз."); return; }
+  let thumb = null;
+  if (small && photoBucket(env)) { const t = await tgFileBytes(env, small.file_id, PHOTO_THUMB_MAX), tm = t && sniffImage(t); if (tm) thumb = { mime: tm, bin: t }; }
+  const kind = st.kind === "after" ? "after" : "before";
+  const r = await savePetPhotoBytes(env, env.ORIGIN || "", { pet_id: b.pet_id, booking_id: b.id, kind, mime, bin, thumb });
+  await tgSetState(env, chat, st);   // ще 45 хвилин на наступні фото
+  await tgSendTo(env, chat, r && r.ok ? `✅ Фото «${kind === "after" ? "Після" : "До"}» додано до картки ${tgEsc(petLabel(b))}.` : `⚠️ ${tgEsc((r && r.error) || "Не вдалося зберегти фото")}`);
+}
+async function staffCallback(env, cq, chat) {
+  let toast = "";
+  try {
+    const s = await staffByChat(env, chat, cq.from);
+    if (!s) { toast = "Кабінет недоступний. Підключіть Telegram у CRM → 📲 Telegram."; return; }
+    const a = cq.data.split(":"), k = a[1], id = +a[2] || 0;
+    const need = (ok, msg) => { if (!ok) toast = msg || "Недоступно для вашої ролі"; return ok; };
+    const st = await tgGetState(env, chat);
+    if (st && /^s_/.test(st.step || "") && !["ph", "px"].includes(k)) await tgClearState(env, chat);   // будь-яка кнопка закриває пошук / лист / фото
+    if (k === "m") { await staffMenu(env, chat, cq, s); return; }
+    if (k === "d") { if (isIso(a[2])) await staffDay(env, chat, cq, s, a[2]); return; }
+    if (k === "wk") { await staffWeek(env, chat, cq, s); return; }
+    if (k === "n") { if (need(isAdm(s))) await staffNew(env, chat, cq, s); return; }
+    if (k === "b") { await staffCard(env, chat, cq, s, id); return; }
+    if (k === "o") { await staffCard(env, chat, null, s, id); return; }   // зі сповіщення — новим повідомленням, сповіщення лишається
+    if (k === "f") { if (need(isAdm(s))) await staffFindAsk(env, chat, cq); return; }
+    if (k === "c") { if (need(isAdm(s))) await staffClient(env, chat, cq, s, id); return; }
+    if (k === "t") { if (need(s.role === "owner")) await staffTeam(env, chat, cq); return; }
+    if (k === "sp") { if (need(s.role === "owner")) await staffSupport(env, chat, cq); return; }
+    if (k === "hl") { if (need(s.role === "owner")) await staffHealth(env, chat, cq); return; }
+    if (k === "nt") {
+      if (!s.user_id) return;
+      await env.DB.prepare(`UPDATE staff_tg SET notify=CASE WHEN COALESCE(notify,1)=1 THEN 0 ELSE 1 END WHERE user_id=?`).bind(s.user_id).run();
+      const s2 = await staffByChat(env, chat, cq.from); if (s2) await staffMenu(env, chat, cq, s2);
+      toast = s2 && s2.notify ? "Сповіщення увімкнено" : "Сповіщення вимкнено"; return;
+    }
+    if (k === "tu" || k === "ty") {
+      if (!need(s.role === "owner")) return;
+      const u = await env.DB.prepare(`SELECT id,name,username FROM users WHERE id=?`).bind(id).first();
+      if (!u) { await staffTeam(env, chat, cq); return; }
+      if (k === "tu") { await tgShow(env, chat, cq, `🔌 Відключити Telegram <b>${tgEsc(u.name || u.username)}</b> від кабінету в боті? Акаунт у CRM лишається, підключити знову можна з CRM.`,
+        [[{ text: "Так, відключити", callback_data: `s:ty:${id}` }, { text: "◀ Ні", callback_data: "s:t" }]]); return; }
+      const was = await staffTgUnlink(env, id, "Власниця відключила ваш Telegram від кабінету салону.");
+      await staffTeam(env, chat, cq, was ? `🔌 ${tgEsc(u.name || u.username)} відключено.` : "Цей Telegram уже не був підключений.");
+      return;
+    }
+    if (k === "so" || k === "sx") {
+      if (!need(s.role === "owner")) return;
+      if (k === "sx") { await supportCloseDo(env); toast = "Доступ закрито"; await staffSupport(env, chat, cq, "🔒 Доступ закрито, сесії підтримки завершено."); return; }
+      const v = String(a[2] || ""), hours = parseInt(v, 10) === 24 ? 24 : 8;
+      await supportOpenDo(env, hours, /p$/.test(v));
+      toast = "Доступ відкрито"; await staffSupport(env, chat, cq); return;
+    }
+    if (k === "w") {   // написати клієнту від імені салону
+      if (!need(isAdm(s))) return;
+      const c = await env.DB.prepare(`SELECT id,name,tg_chat_id FROM clients WHERE id=?`).bind(id).first();
+      if (!c || !c.tg_chat_id) { toast = "Клієнт не підключив бота"; return; }
+      await tgSetState(env, chat, { step: "s_write", client_id: c.id });
+      await tgShow(env, chat, cq, `✉️ Напишіть повідомлення для <b>${tgEsc(c.name || "клієнта")}</b> — надішлю від імені салону.${ownerChat(env, chat) ? "" : " Власниця бачить кожне таке повідомлення."}`,
+        [[{ text: "✖ Не надсилати", callback_data: `s:c:${c.id}` }]]);
+      return;
+    }
+    // Далі — дії над конкретним записом.
+    const b = id ? await env.DB.prepare(`SELECT ${STAFF_COLS} FROM bookings WHERE id=?`).bind(id).first() : null;
+    if (!staffSees(s, b)) { toast = "Запис не знайдено або він не ваш"; return; }
+    if (k === "st") {
+      const status = ST_CODE[a[3]];
+      if (!status || (a[3] === "cf" && !isAdm(s))) { toast = "Недоступно"; return; }
+      if (["cancelled", "waitlist"].includes(b.status)) { toast = "Цей запис не можна змінити з бота — відкрийте CRM"; await staffCard(env, chat, cq, s, id); return; }
+      await staffSetStatus(env, b, status);
+      toast = "Статус: " + ST_UA[status];
+      await staffCard(env, chat, cq, s, id); return;
+    }
+    if (k === "ok") {   // «✅ Підтвердити» прямо під сповіщенням про новий запис
+      if (!need(isAdm(s))) return;
+      if ((b.status || "new") === "new") { await staffSetStatus(env, b, "confirmed"); toast = "Підтверджено"; } else toast = "Уже: " + (ST_UA[b.status] || b.status);
+      await tgApi(env, "editMessageReplyMarkup", { chat_id: chat, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [[{ text: `${ST_ICON[(b.status || "new") === "new" ? "confirmed" : b.status] || "•"} ${(b.status || "new") === "new" ? "Підтверджено" : ST_UA[b.status] || ""} · відкрити`, callback_data: `s:o:${id}` }]] } });
+      return;
+    }
+    if (k === "bx") { if (!need(isAdm(s))) return;
+      await tgShow(env, chat, cq, `❌ Скасувати запис?\n${staffLine(b)}\n\nКлієнт отримає повідомлення в Telegram (якщо бот у нього підключений), майстер — теж.`,
+        [[{ text: "Так, скасувати", callback_data: `s:by:${id}` }, { text: "◀ Ні", callback_data: `s:b:${id}` }]]); return; }
+    if (k === "by") { if (!need(isAdm(s))) return;
+      if (["new", "confirmed"].includes(b.status || "new")) { await staffSetStatus(env, b, "cancelled"); toast = "Запис скасовано"; }
+      await staffCard(env, chat, cq, s, id, { note: "❌ Запис скасовано." }); return; }
+    if (k === "pm") { if (!need(isAdm(s)) || !PAY_UA[a[3]]) return;
+      await env.DB.prepare(`UPDATE bookings SET pay_method=? WHERE id=?`).bind(a[3], id).run();
+      toast = PAY_UA[a[3]]; await staffCard(env, chat, cq, s, id); return; }
+    if (k === "ph") { if (!b.pet_id) { toast = "У записі немає картки улюбленця — створіть її в CRM"; return; } await staffPhotoAsk(env, chat, s, b, a[3] === "a" ? "after" : "before"); return; }
+    if (k === "px") { await tgClearState(env, chat); toast = "Готово"; await tgApi(env, "editMessageReplyMarkup", { chat_id: chat, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] } }); await staffCard(env, chat, null, s, id); return; }
+    if (k === "rd") {
+      const cc = await clientChatFor(env, b);
+      if (!cc) { toast = "Клієнт не підключив бота"; return; }
+      const r = await tgSendTo(env, cc, `🐾 <b>${tgEsc(b.pet_name || "Ваш улюбленець")}</b> готовий — можна забирати!\nЧекаємо вас у ${tgEsc(salonName(env))} 💜`);
+      toast = r && r.ok ? "Надіслано клієнту" : "Telegram не прийняв повідомлення";
+      if (r && r.ok) await staffCard(env, chat, cq, s, id, { ready: `Клієнту надіслано «готовий» о ${hhmm(kyivNow().min)}` });
+      return;
+    }
+  } catch (e) {
+    console.error(`telegram staff: ${errText(e)}`);
+    toast = "Щось пішло не так — спробуйте ще раз";
+  } finally {
+    try { await tgApi(env, "answerCallbackQuery", toast ? { callback_query_id: cq.id, text: toast } : { callback_query_id: cq.id }); } catch (e) { }
+  }
+}
+
+/* ---- Кабінет клієнта в боті ---- */
+async function clientMenu(env, chat, cq, c, note) {
+  const st = await loadSettings(env);
+  const L = [];
+  if (note) L.push(note);
+  L.push(`🐾 <b>${tgEsc(c.name || "Ваш кабінет")}</b>${await nextVisitsText(env, c.id) || "\n\nНайближчих візитів немає."}`);
+  const rows = [[{ text: "📅 Записатися", callback_data: "b:start" }, { text: "🗓 Мої візити", callback_data: "c:v" }],
+    [{ text: "🐶 Улюбленці", callback_data: "c:p" }, { text: "📜 Історія", callback_data: "c:h" }]];
+  rows.push(st.loyalty_enabled === "1" ? [{ text: "🎁 Бонуси", callback_data: "c:l" }, { text: "🔑 Кабінет на сайті", callback_data: "cab" }] : [{ text: "🔑 Кабінет на сайті", callback_data: "cab" }]);
+  if (/^https:\/\//.test(siteUrl(env))) rows.push([{ text: "⭐ Залишити відгук", url: siteUrl(env) + "review.html" }]);
+  await tgShow(env, chat, cq, L.join("\n"), rows);
+}
+async function clientCallback(env, cq, chat) {
+  try { await tgApi(env, "answerCallbackQuery", { callback_query_id: cq.id }); } catch (e) { }
+  const c = await clientByChat(env, chat);
+  if (!c) { await askPhone(env, chat, "menu", "Щоб відкрити кабінет, поділіться номером телефону — ми знайдемо або створимо ваш профіль:"); return; }
+  const k = cq.data.slice(2), back = [{ text: "◀ Меню", callback_data: "c:m" }];
+  if (k === "m") { await clientMenu(env, chat, cq, c); return; }
+  if (k === "v") { await sendVisits(env, chat, c); return; }
+  const full = await env.DB.prepare(`SELECT * FROM clients WHERE id=?`).bind(c.id).first();
+  const bks = await clientBookings(env, full || c), done = bks.filter(b => b.status === "done" || b.status === "paid");
+  if (k === "p") {
+    const pets = (await env.DB.prepare(`SELECT id,name,species,breed,weight FROM pets WHERE client_id=? ORDER BY id`).bind(c.id).all()).results || [];
+    const n = {};
+    try { ((await env.DB.prepare(`SELECT pet_id, COUNT(*) AS n FROM pet_photos WHERE pet_id IN (SELECT id FROM pets WHERE client_id=?) GROUP BY pet_id`).bind(c.id).all()).results || []).forEach(r => { n[r.pet_id] = r.n; }); } catch (e) { }
+    const L = ["🐶 <b>Ваші улюбленці</b>"].concat(pets.map(p => {
+      const last = done.find(b => String(b.pet_name || "").trim().toLowerCase() === String(p.name || "").trim().toLowerCase());
+      return `${p.species === "cat" ? "🐱" : "🐶"} <b>${tgEsc(p.name || "—")}</b>${p.breed ? " — " + tgEsc(p.breed) : ""}${p.weight ? ", " + tgEsc(p.weight) : ""}` +
+        (n[p.id] ? ` · 📷 ${n[p.id]}` : "") + (last ? `\n   останній грумінг ${fmtDdMm(last.date)}` : "");
+    }));
+    if (!pets.length) L.push("Поки що порожньо — улюбленець з'явиться після першого запису.");
+    L.push("", "Змінити дані чи додати фото — у кабінеті на сайті.");
+    await tgShow(env, chat, cq, L.join("\n"), [[{ text: "🔑 Кабінет на сайті", callback_data: "cab" }], back]); return;
+  }
+  if (k === "h") {
+    const L = ["📜 <b>Історія візитів</b>"].concat(done.slice(0, 10).map(b => `• ${fmtDdMm(b.date)}.${String(b.date || "").slice(2, 4)} — ${tgEsc(b.service || "")}${b.pet_name ? " · " + tgEsc(b.pet_name) : ""}${b.staff ? " · " + tgEsc(b.staff) : ""}`));
+    if (!done.length) L.push("Завершених візитів ще немає.");
+    else if (done.length > 10) L.push(`… усього ${done.length}. Повна історія — у кабінеті на сайті.`);
+    await tgShow(env, chat, cq, L.join("\n"), [back]); return;
+  }
+  if (k === "l") {   // той самий розрахунок, що в clientMe — картка в кабінеті і в боті мусять збігатися
+    const st = await loadSettings(env);
+    if (st.loyalty_enabled !== "1") { await tgShow(env, chat, cq, "🎁 Бонусна програма зараз не діє.", [back]); return; }
+    const every = Math.max(2, parseInt(st.loyalty_every, 10) || 6), filled = done.length % every, bonusNow = filled === every - 1;
+    const reward = st.loyalty_reward || "приємний бонус";
+    const bar = "●".repeat(filled) + "○".repeat(Math.max(0, every - 1 - filled)) + " 🎁";
+    const L = ["🎁 <b>Бонусна картка</b>", bar, `Кожен ${every}-й візит: ${tgEsc(reward)}.`, "",
+      bonusNow ? `🎉 Наступний візит — з бонусом!` : `До бонусу: ще ${supMany(every - 1 - filled, "візит", "візити", "візитів")}.`, `Усього завершених візитів: ${done.length}.`];
+    await tgShow(env, chat, cq, L.join("\n"), [back]); return;
+  }
 }
 
 async function tgWebhook(request, env) {
@@ -3681,7 +4392,8 @@ async function tgWebhook(request, env) {
     const e = new Error("forbidden"); e.status = 403; throw e;
   }
   const update = await request.json().catch(() => null);
-  try { await handleTgUpdate(env, update); } catch (e) { console.error(`telegram update: ${errText(e)}`); }
+  // Адреса воркера — для «🩺 Стан системи» і посилань на фото з кабінету в боті.
+  try { await handleTgUpdate(Object.assign({}, env, { ORIGIN: new URL(request.url).origin }), update); } catch (e) { console.error(`telegram update: ${errText(e)}`); }
   return { ok: true };
 }
 async function tgSetup(request, env) { // owner: remember the bot username and register the webhook
@@ -3693,7 +4405,12 @@ async function tgSetup(request, env) { // owner: remember the bot username and r
   await env.DB.prepare(`INSERT INTO settings (company_id,key,value) VALUES (${env.CID},'tg_bot',?) ON CONFLICT(company_id,key) DO UPDATE SET value=?`).bind(username, username).run();
   const url = new URL(request.url).origin + "/tg/webhook/" + (env.CID || DEFAULT_COMPANY_ID);
   const wh = await tgApi(env, "setWebhook", { url, secret_token: await tgWebhookSecret(env), allowed_updates: ["message", "callback_query"] });
-  try { await tgApi(env, "setMyCommands", { commands: [{ command: "book", description: "Записатися на грумінг" }, { command: "visits", description: "Мої візити — перенести чи скасувати" }, { command: "cabinet", description: "Мій кабінет на сайті" }, { command: "start", description: "Підключити нагадування" }] }); } catch (e) { }
+  try { await tgApi(env, "setMyCommands", { commands: [{ command: "menu", description: "Меню: візити, улюбленці, бонуси" }, { command: "book", description: "Записатися на грумінг" }, { command: "visits", description: "Мої візити — перенести чи скасувати" }, { command: "cabinet", description: "Мій кабінет на сайті" }, { command: "start", description: "Підключити нагадування" }] }); } catch (e) { }
+  // Персоналу — свій список команд у його особистому чаті (scope: chat), клієнти його не бачать.
+  try {
+    if (/^\d+$/.test(String(env.TELEGRAM_CHAT_ID || ""))) await setStaffCommands(env, env.TELEGRAM_CHAT_ID, "owner");
+    for (const r of await staffChats(env)) await setStaffCommands(env, r.chat_id, r.role);
+  } catch (e) { }
   return { ok: !!(wh && wh.ok), bot: username, webhook: url, set: (wh && wh.description) || "", error: wh && !wh.ok ? wh.description : undefined };
 }
 /* ----------------------------- Default price catalog -----------------------------

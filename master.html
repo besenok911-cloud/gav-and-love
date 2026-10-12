@@ -137,8 +137,10 @@
   .pw-act{display:flex;gap:10px;margin-top:8px}
   .pw-act .btn{flex:1}
   .btn.ghost2{background:#fff;border:1.5px solid var(--line);color:var(--ink-soft)}
-  #pwBtn{white-space:nowrap}
-  @media(max-width:560px){#pwBtn{font-size:0;padding:.4em .7em}#pwBtn::after{content:"🔑";font-size:1rem}}
+  #pwBtn,#tgBtn{white-space:nowrap}
+  @media(max-width:560px){#pwBtn{font-size:0;padding:.4em .7em}#pwBtn::after{content:"🔑";font-size:1rem}
+    #tgBtn{font-size:0;padding:.4em .7em}#tgBtn::after{content:"📲";font-size:1rem}}
+  .tg-open{display:block;text-align:center;text-decoration:none;margin:0 0 10px}
   /* ---- V2 shared polish (matches styles/main.css) ---- */
   h1,h2,h3{letter-spacing:-.022em;text-wrap:pretty}
   :focus-visible{outline:3px solid rgba(74,37,201,.5);outline-offset:3px;border-radius:8px}
@@ -177,6 +179,7 @@
       <span class="brand-sub">Кабінет майстра</span>
       <span class="sp"></span>
       <span class="who" id="who"></span>
+      <button class="btn ghost" id="tgBtn" title="Мій кабінет у Telegram-боті">📲 Telegram</button>
       <button class="btn ghost" id="pwBtn" title="Змінити пароль">🔑 Пароль</button>
       <button class="btn ghost" id="logoutBtn">Вийти</button>
     </div>
@@ -235,6 +238,23 @@
       <button class="btn ghost2" id="pw-cancel">Скасувати</button>
       <button class="btn" id="pw-save">Зберегти</button>
     </div>
+  </div>
+</div>
+
+<!-- кабінет у Telegram-боті -->
+<div class="pw-back" id="tgBack" hidden>
+  <div class="pw-modal">
+    <h2>📲 Кабінет у Telegram</h2>
+    <p class="pw-hint">Ваші записи на сьогодні й завтра, статуси одним дотиком, фото «До / Після» і сповіщення про нові записи — прямо в боті салону. Підключається ваш особистий Telegram, один раз.</p>
+    <p class="pw-hint" id="tgState" style="font-weight:800;color:var(--ink-2)"></p>
+    <a class="btn tg-open" id="tgOpen" href="#" target="_blank" rel="noopener" hidden>Відкрити бота і підключити</a>
+    <p class="pw-hint" id="tgNote" hidden>Посилання одноразове і діє 15 хвилин. Відкрийте його на телефоні, де ваш Telegram, і натисніть «Почати» / Start.</p>
+    <div class="err" id="tgErr"></div>
+    <div class="pw-act">
+      <button class="btn ghost2" id="tgClose">Закрити</button>
+      <button class="btn" id="tgGet">Отримати посилання</button>
+    </div>
+    <div class="pw-act"><button class="btn ghost2" id="tgUnlink" hidden>Відключити Telegram</button></div>
   </div>
 </div>
 
@@ -315,7 +335,7 @@
       .catch(function(){logoutLocal();showLogin();});
   }
   function logoutLocal(){token="";data=null;try{localStorage.removeItem(KEY);}catch(e){}}
-  function showLogin(){$("#loginView").hidden=false;$("#appView").hidden=true;closePw();}
+  function showLogin(){$("#loginView").hidden=false;$("#appView").hidden=true;closePw();$("#tgBack").hidden=true;}
   function showApp(){$("#loginView").hidden=true;$("#appView").hidden=false;render();}
 
   function fmtDayLabel(iso){
@@ -502,6 +522,33 @@
         if(!res||!res.ok){$("#pwErr").textContent=(res&&res.error)||"Не вдалося.";return;}
         mustChange=0;closePw();toast("Пароль змінено");})
       .catch(function(){$("#pwErr").textContent="Помилка з'єднання.";});
+  });
+
+  /* кабінет у Telegram-боті: одноразове посилання від воркера, код згорає, щойно бот його прийняв */
+  function tgCall(path,post){return fetch(API+path,post?{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},body:"{}"}:{headers:{"Authorization":"Bearer "+token}})
+    .then(function(r){if(r.status===401){logoutLocal();showLogin();$("#loginErr").textContent="Сесія завершилась — увійдіть знову.";throw {code:401};}return r.json();});}
+  function openTg(){
+    if(!token){showLogin();return;}
+    $("#tgErr").textContent="";$("#tgOpen").hidden=true;$("#tgNote").hidden=true;$("#tgUnlink").hidden=true;$("#tgState").textContent="Перевіряю…";$("#tgBack").hidden=false;
+    tgCall("/staff/tg").then(function(s){
+      if(!s||s.ok===false){$("#tgState").textContent="";$("#tgErr").textContent=(s&&s.error)||"Недоступно";$("#tgGet").disabled=true;return;}
+      $("#tgState").textContent=!s.bot?"Бот салону ще не підключений — скажіть власниці.":s.linked?"✅ Ваш Telegram підключено. Меню в боті — /menu.":"Ще не підключено.";
+      $("#tgUnlink").hidden=!s.linked;$("#tgGet").textContent=s.linked?"Підключити інший":"Отримати посилання";$("#tgGet").disabled=!s.bot;
+    }).catch(function(e){if(!e||e.code!==401){$("#tgState").textContent="";$("#tgErr").textContent="Не вдалося перевірити стан.";}});
+  }
+  $("#tgBtn").addEventListener("click",openTg);
+  $("#tgClose").addEventListener("click",function(){$("#tgBack").hidden=true;});
+  $("#tgBack").addEventListener("click",function(e){if(e.target===$("#tgBack"))$("#tgBack").hidden=true;});
+  $("#tgGet").addEventListener("click",function(){
+    $("#tgErr").textContent="";
+    tgCall("/staff/tg-link",true).then(function(r){
+      if(!r||!r.ok){$("#tgErr").textContent=(r&&r.error)||"Не вдалося отримати посилання.";return;}
+      $("#tgOpen").href=r.link;$("#tgOpen").hidden=false;$("#tgNote").hidden=false;
+    }).catch(function(e){if(!e||e.code!==401)$("#tgErr").textContent="Помилка з'єднання.";});
+  });
+  $("#tgUnlink").addEventListener("click",function(){
+    if(!confirm("Відключити ваш Telegram від кабінету в боті?"))return;
+    tgCall("/staff/tg-unlink",true).then(function(){toast("Telegram відключено");openTg();}).catch(function(){});
   });
 
   function submitLogin(){doLogin($("#mu-user").value.trim(),$("#mu-pass").value);}

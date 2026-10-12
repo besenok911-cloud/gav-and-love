@@ -608,6 +608,7 @@
 <symbol id="ic-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 3 2.5 15 0 18M12 3c-2.5 3-2.5 15 0 18"/></symbol>
 <symbol id="ic-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="9" cy="8" r="3.3"/><path d="M2.6 20c1-3.4 3.6-5.2 6.4-5.2s5.4 1.8 6.4 5.2"/><path d="M16.8 4.6a3.4 3.4 0 010 6.8M18.4 14.9c2 .7 3.4 2.4 4 5.1"/></symbol>
 <symbol id="ic-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="8" cy="12" r="4.2"/><path d="M12.2 12H21M18 12v3M15.2 12v2.2"/></symbol>
+<symbol id="ic-tg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4L3 11.2l6.2 2.2M21 4l-3.3 16-8.5-6.6M21 4L9.2 13.4v5.4l3.2-3.2"/></symbol>
 <symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8.6a6 6 0 10-12 0c0 5-2 6.4-2 6.4h16s-2-1.4-2-6.4z"/><path d="M10.4 19a2 2 0 003.2 0"/></symbol>
 <symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="3.9"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></symbol>
 <symbol id="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.6A8.6 8.6 0 019.4 4 8.6 8.6 0 1020 14.6z"/></symbol>
@@ -636,6 +637,7 @@
   <button class="btn ghost sm" id="usersBtn" hidden title="Доступи та акаунти"><svg class="ic"><use href="#ic-users"/></svg><span class="lbl">Доступи</span></button>
   <button class="btn ghost sm" id="supBtn" hidden title="Доступ для підтримки"><svg class="ic"><use href="#ic-key"/></svg><span class="lbl">Підтримка</span></button>
   <button class="btn ghost sm" id="pwBtn" hidden title="Змінити пароль"><svg class="ic"><use href="#ic-key"/></svg></button>
+  <button class="btn ghost sm" id="tgBtn" hidden title="Мій кабінет у Telegram-боті"><svg class="ic"><use href="#ic-tg"/></svg><span class="lbl">Telegram</span></button>
   <button class="btn ghost sm" id="remindBtn" hidden title="Нагадування та лояльність"><svg class="ic"><use href="#ic-bell"/></svg></button>
   <button class="btn ghost sm" id="refreshBtn" hidden title="Оновити дані"><svg class="ic"><use href="#ic-refresh"/></svg><span class="lbl">Оновити</span></button>
   <button class="btn ghost sm" id="logoutBtn" hidden title="Вийти">Вийти</button>
@@ -897,11 +899,27 @@
   </div>
 </div>
 
+<!-- Кабінет у Telegram-боті: власниця й адміністратори (майстри — у master.html) -->
+<div class="modal" id="tgModal">
+  <div class="sheet" style="width:min(500px,100%)">
+    <h2>📲 Кабінет у Telegram</h2>
+    <p class="muted" style="font-size:.86rem;margin:0 0 14px">Записи на день, нові заявки з кнопкою «Підтвердити», пошук клієнта і сповіщення про записи — у боті салону, без входу в CRM. Підключається ваш особистий Telegram, один раз.</p>
+    <p id="tg-state" style="font-weight:800;margin:0 0 12px"></p>
+    <div id="tg-linkbox" hidden style="border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px">
+      <a class="btn" id="tg-open" href="#" target="_blank" rel="noopener">Відкрити бота і підключити</a>
+      <button class="btn ghost sm" id="tg-copy" type="button" style="margin-left:6px;border-color:var(--line);color:var(--ink-soft)">⧉ Скопіювати</button>
+      <p class="muted" style="font-size:.8rem;margin:10px 0 0">Посилання одноразове і діє 15 хвилин. Відкрийте його там, де ваш Telegram, і натисніть «Почати» / Start. Якщо Telegram на телефоні — скопіюйте посилання і надішліть собі.</p>
+    </div>
+    <p class="modal-err" id="tgErr"></p>
+    <div class="sheet-act"><button class="btn danger sm" id="tg-unlink" hidden>Відключити</button><span style="flex:1"></span><button class="btn ghost sm" id="tg-close" style="border-color:var(--line);color:var(--ink-soft)">Закрити</button><button class="btn" id="tg-get">Отримати посилання</button></div>
+  </div>
+</div>
+
 <!-- Users / access (owner only) -->
 <div class="modal" id="usersModal">
   <div class="sheet" style="width:min(760px,100%)">
     <h2>👥 Доступи та акаунти</h2>
-    <p class="muted" style="font-size:.86rem;margin:0 0 14px">Створюйте акаунти для співробітників і задавайте ролі. <b>Власник</b> — усе. <b>Адміністратор</b> — усе, крім фінансів та акаунтів. <b>Майстер</b> — лише свій кабінет. <b>Підтримка</b> — розробник: сайт і налаштування, і лише поки ви самі відкрили доступ кнопкою «Підтримка» у шапці.</p>
+    <p class="muted" style="font-size:.86rem;margin:0 0 14px">Створюйте акаунти для співробітників і задавайте ролі. <b>Власник</b> — усе. <b>Адміністратор</b> — усе, крім фінансів та акаунтів. <b>Майстер</b> — лише свій кабінет. <b>Підтримка</b> — розробник: сайт і налаштування, і лише поки ви самі відкрили доступ кнопкою «Підтримка» у шапці. <b>📲 Telegram</b> — співробітник підключив кабінет у боті салону; «відключити» знімає його (зміна ролі чи галочки «Активний» — теж).</p>
     <div id="um-list"></div>
     <div style="margin-top:14px"><button class="btn" id="um-add">+ Додати акаунт</button></div>
     <p class="modal-err" id="umErr"></p>
@@ -1099,7 +1117,7 @@
   function showLogin(msg){document.body.classList.remove("crm-logged");closePwModal();fpShow(false);
     $("#siteBtn").hidden=true;$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;
-    $("#whoami").hidden=true;$("#usersBtn").hidden=true;$("#supBtn").hidden=true;$("#supBar").hidden=true;$("#pwBtn").hidden=true;$("#loginErr").textContent=msg||"";}
+    $("#whoami").hidden=true;$("#usersBtn").hidden=true;$("#supBtn").hidden=true;$("#supBar").hidden=true;$("#pwBtn").hidden=true;$("#tgBtn").hidden=true;$("#loginErr").textContent=msg||"";}
   function showApp(){document.body.classList.add("crm-logged");
     $("#siteBtn").hidden=false;$("#loginCard").hidden=true;$("#tabs").hidden=false;$("#refreshBtn").hidden=false;$("#logoutBtn").hidden=false;$("#remindBtn").hidden=false;
     $("#pwBtn").hidden=false;applyRole();setView(view);}
@@ -1127,6 +1145,7 @@
     var finBtn=document.querySelector('.tabbtn[data-view="finance"]');if(finBtn)finBtn.style.display=isOwner()?"":"none";
     if(!isOwner()&&view==="finance")view="dash";
     $("#supBtn").hidden=!isOwner();
+    $("#tgBtn").hidden=isSupport();   // кабінету в боті в підтримки немає: там клієнти й записи
     if(isSupport()){
       applySupportViews();
       // Список записів підтримці закритий, тож «Оновити» нічого не оновлює. «Нагадування» —
@@ -2727,6 +2746,7 @@
         '<select class="um-role" style="'+ib+'"><option value="owner"'+(u.role==="owner"?" selected":"")+'>Власник</option><option value="admin"'+(u.role==="admin"?" selected":"")+'>Адміністратор</option><option value="master"'+(u.role==="master"?" selected":"")+'>Майстер</option><option value="support"'+(u.role==="support"?" selected":"")+'>Підтримка</option></select>'+
         '<select class="um-master" style="'+ib+'">'+mopts(u.master_id)+'</select>'+
         '<label style="font-size:.82rem;font-weight:700;display:flex;gap:5px;align-items:center"><input type="checkbox" class="um-active"'+(u.active?" checked":"")+' style="width:auto">Активний</label>'+
+        (u.tg_linked?'<span title="Підключив(ла) кабінет у Telegram-боті" style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:.8rem;font-weight:800;border:1px solid var(--line);border-radius:999px;padding:.2em .25em .2em .7em">📲 Telegram<button class="btn ghost sm um-tgx" title="Відключити Telegram від кабінету в боті" style="padding:.15em .55em;border-color:var(--line);color:var(--ink-soft)">відключити</button></span>':'')+
         '<span style="flex:1"></span>'+
         '<button class="btn icon um-pw" title="Скинути пароль">🔑</button>'+
         '<button class="btn sm um-save">Зберегти</button>'+
@@ -2737,7 +2757,16 @@
       row.querySelector(".um-save").addEventListener("click",function(){saveUser(row);});
       row.querySelector(".um-pw").addEventListener("click",function(){resetUserPw(row);});
       var del=row.querySelector(".um-del");if(del)del.addEventListener("click",function(){delUser(row);});
+      var tgx=row.querySelector(".um-tgx");if(tgx)tgx.addEventListener("click",function(){unlinkUserTg(row);});
     });
+  }
+  async function unlinkUserTg(row){
+    var id=+row.dataset.id,uname=row.querySelector(".um-username").value;
+    if(!id||!confirm("Відключити Telegram «"+uname+"» від кабінету в боті? Акаунт у CRM лишається."))return;
+    try{var r=await api("/admin/user-tg-unlink",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id})});
+      if(r&&r.ok===false){toast(r.error||"Не вдалося",true);return;}
+      toast("Telegram «"+uname+"» відключено");usersList=(await api("/admin/users")).users||[];renderUserRows();
+    }catch(e){toast("Не вдалося відключити",true);}
   }
   function collectUser(row){
     var p={username:row.querySelector(".um-username").value.trim(),name:row.querySelector(".um-name").value.trim(),
@@ -2773,6 +2802,37 @@
   $("#usersBtn").addEventListener("click",openUsersModal);
   $("#um-close").addEventListener("click",function(){$("#usersModal").classList.remove("open");});
   $("#usersModal").addEventListener("click",function(e){if(e.target===$("#usersModal"))$("#usersModal").classList.remove("open");});
+
+  /* ---------- кабінет у Telegram-боті ----------
+     Посилання одноразове: воркер тримає лише хеш коду, і код згорає, щойно бот його прийняв. */
+  var tgLink="";
+  async function openTgModal(){
+    tgLink="";$("#tgErr").textContent="";$("#tg-linkbox").hidden=true;$("#tg-unlink").hidden=true;
+    $("#tg-state").textContent="Перевіряю…";$("#tgModal").classList.add("open");
+    try{var s=await api("/staff/tg");
+      if(s&&s.ok===false){$("#tg-state").textContent="";$("#tgErr").textContent=s.error||"Недоступно";$("#tg-get").disabled=true;return;}
+      $("#tg-state").textContent=!s.bot?"Бот салону ще не підключений: 🔔 Нагадування → «Підключити бота» (лише власник).":
+        s.linked?"✅ Ваш Telegram підключено"+(s.linked_at?" з "+fmtD(String(s.linked_at).slice(0,10)):"")+". Меню в боті — /menu.":"Ще не підключено.";
+      $("#tg-unlink").hidden=!s.linked;$("#tg-get").textContent=s.linked?"Підключити інший Telegram":"Отримати посилання";$("#tg-get").disabled=!s.bot;
+    }catch(e){$("#tg-state").textContent="";$("#tgErr").textContent="Не вдалося перевірити стан.";}
+  }
+  $("#tgBtn").addEventListener("click",openTgModal);
+  $("#tg-close").addEventListener("click",function(){$("#tgModal").classList.remove("open");});
+  $("#tgModal").addEventListener("click",function(e){if(e.target===$("#tgModal"))$("#tgModal").classList.remove("open");});
+  $("#tg-get").addEventListener("click",async function(){
+    $("#tgErr").textContent="";
+    try{var r=await api("/staff/tg-link",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+      if(!r||!r.ok){$("#tgErr").textContent=(r&&r.error)||"Не вдалося отримати посилання.";return;}
+      tgLink=r.link;$("#tg-open").href=r.link;$("#tg-linkbox").hidden=false;
+    }catch(e){$("#tgErr").textContent="Не вдалося отримати посилання.";}
+  });
+  $("#tg-copy").addEventListener("click",function(){if(!tgLink)return;
+    try{navigator.clipboard.writeText(tgLink).then(function(){toast("Посилання скопійовано");},function(){prompt("Скопіюйте посилання:",tgLink);});}catch(e){prompt("Скопіюйте посилання:",tgLink);}});
+  $("#tg-unlink").addEventListener("click",async function(){
+    if(!confirm("Відключити ваш Telegram від кабінету в боті?"))return;
+    try{await api("/staff/tg-unlink",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});toast("Telegram відключено");openTgModal();}
+    catch(e){toast("Не вдалося відключити",true);}
+  });
 
   /* ---------- set/reset password dialog (replaces the native prompt) ---------- */
   var _pwsetResolve=null;
