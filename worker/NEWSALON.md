@@ -3,7 +3,7 @@
 Один салон — один воркер, одна база, свої бакети, свої секрети. Нижче — повний шлях від
 порожнього місця до салону, який приймає записи. Приблизно година, якщо прайс уже зібраний.
 
-Команди для **Windows PowerShell**: там немає `&&`, команди пишуться окремо.
+Команди для **bash/zsh** (Mac). Вставляти по одній.
 
 ---
 
@@ -13,7 +13,7 @@
 |---|---|
 | Акаунт Cloudflare | краще одразу власниці салону — воркери між акаунтами не переносяться |
 | Увімкнений R2 | панель Cloudflare → R2. Це платіжна опція, з CLI не вмикається |
-| Telegram-бот | @BotFather → `/newbot` |
+| Telegram-бот | @BotFather → `/newbot`, краще одразу на Telegram власниці. Бот розробника передається їй через **Transfer ownership** (облачний пароль розробника ≥ 7 днів, пристрій залогінений ≥ 24 години, див. `HANDOVER.md`, 0b, крок 7) |
 | Google Calendar | не обов'язково (див. крок 6) |
 | Репозиторій | форк цього; статику доведеться наповнити контентом салону |
 
@@ -21,17 +21,17 @@
 
 ## 1. База
 
-```powershell
-cd <репозиторій>\worker
+```bash
+cd <репозиторій>/worker
 ```
 
-```powershell
+```bash
 npx wrangler d1 create <ім'я-бази>
 ```
 
 Ідентифікатор із відповіді вписати у `wrangler.toml` → `[[d1_databases]] database_id`.
 
-```powershell
+```bash
 npx wrangler d1 execute <ім'я-бази> --remote --env="" --file schema.sql
 ```
 
@@ -41,17 +41,17 @@ npx wrangler d1 execute <ім'я-бази> --remote --env="" --file schema.sql
 
 Назву салону поміняти під свою:
 
-```powershell
+```bash
 npx wrangler d1 execute <ім'я-бази> --remote --env="" --command "UPDATE companies SET name='Назва салону', slug='nazva' WHERE id=1"
 ```
 
 ## 2. Бакети
 
-```powershell
+```bash
 npx wrangler r2 bucket create <ім'я>-photos
 ```
 
-```powershell
+```bash
 npx wrangler r2 bucket create <ім'я>-backups
 ```
 
@@ -71,56 +71,60 @@ npx wrangler r2 bucket create <ім'я>-backups
 
 ## 4. Секрети
 
-```powershell
+```bash
 npx wrangler secret put ADMIN_TOKEN --env=""
 ```
 
-```powershell
+```bash
 npx wrangler secret put PLATFORM_TOKEN --env=""
 ```
 
 - **`ADMIN_TOKEN`** — аварійний пароль власника до CRM. Працює як пароль на вході (логін будь-який),
-  сесію видає звичайну на 2 години, її можна завершити виходом. Це єдиний спосіб зайти в порожню базу.
+  сесію видає звичайну на 2 години, її можна завершити виходом. Це єдиний спосіб зайти в порожню базу
+  і запасний шлях, коли власниця забула пароль, а бот не підключений (`HANDOVER.md`, розділ 1).
 - **`DEPLOY_TOKEN`** — довгий випадковий рядок, яким GitHub питає воркер про дозвіл на випуск.
   Те саме значення має лежати і в секретах репозиторію (див. розділ 8b).
 - **`BRIEF_CHAT_ID`** — chat id розробника, куди приходять брифи нових салонів. Заводить
   розробник, а не власниця.
-- **`PLATFORM_TOKEN`** — ключ **оператора** до нічних дампів (`/admin/backup-*`) і до повного
-  `/health`. Дамп містить телефони клієнтів, хеші паролів і живі токени сесій, тому власниці
-  салону він не передається. У CRM кнопки для нього немає і не буде.
+- **`PLATFORM_TOKEN`** — ключ до нічних дампів (`/admin/backup-*`) і до повного `/health`. Дамп
+  містить телефони клієнтів, хеші паролів і живі токени сесій, тому ключ у того, чий акаунт
+  Cloudflare: салон в акаунті власниці — значення задає вона і розробнику не показує
+  (`HANDOVER.md`, розділи 1–2). У CRM кнопки для нього немає і не буде.
 
 Згенерувати випадкове значення:
 
-```powershell
--join ((48..57)+(65..90)+(97..122) | Get-Random -Count 40 | % {[char]$_})
+```bash
+LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 40; echo
 ```
 
 ## 5. Telegram
 
-```powershell
+```bash
 npx wrangler secret put TELEGRAM_BOT_TOKEN --env=""
 ```
 
-```powershell
+```bash
 npx wrangler secret put TELEGRAM_CHAT_ID --env=""
 ```
 
 Після викочування — кнопка в CRM «Підключити бота» (реєструє вебхук). `chat_id` беруть із
 `https://api.telegram.org/bot<TOKEN>/getUpdates`, написавши боту будь-що, і **до** підключення
-вебхука: після нього `getUpdates` відповідає 409. `TELEGRAM_CHAT_ID` — особистий чат власниці з
-ботом (число додатне): кнопки випуску перевіряють людину, у групі вони не працюють.
+вебхука: після нього `getUpdates` відповідає 409. Після підключення chat id показує команда `/id`
+у боті. `TELEGRAM_CHAT_ID` — особистий чат власниці з ботом (число додатне): кнопки випуску
+перевіряють людину, у групі вони не працюють. У цей же чат бот надсилає власниці код «Забули
+пароль?», і id групи для цього воркер відхиляє.
 
 ## 6. Google Calendar — за бажанням
 
-```powershell
+```bash
 npx wrangler secret put CALENDAR_ID --env=""
 ```
 
-```powershell
+```bash
 npx wrangler secret put SA_EMAIL --env=""
 ```
 
-```powershell
+```bash
 npx wrangler secret put SA_PRIVATE_KEY --env=""
 ```
 
@@ -130,7 +134,7 @@ npx wrangler secret put SA_PRIVATE_KEY --env=""
 
 ## 7. Викочування
 
-```powershell
+```bash
 npx wrangler deploy --env=""
 ```
 
@@ -138,21 +142,22 @@ npx wrangler deploy --env=""
 
 Ручки «створити власника» у воркері немає навмисно: це крок розгортання, а не дія, доступна ззовні.
 
-```powershell
-node tools\owner-sql.js vlasnyk "Ім'я власниці" > owner.sql
+```bash
+node tools/owner-sql.js vlasnyk "Ім'я власниці" > owner.sql
 ```
 
 Пароль друкується в консоль **один раз** — збережіть і передайте. Далі:
 
-```powershell
+```bash
 npx wrangler d1 execute <ім'я-бази> --remote --env="" --file owner.sql
 ```
 
-```powershell
-Remove-Item owner.sql
+```bash
+rm owner.sql
 ```
 
-При першому вході CRM попросить змінити пароль.
+При першому вході CRM вимагатиме змінити пароль: вікно не закривається, доки пароль не змінено
+(лише «Вийти»).
 
 ## 8a. Акаунт підтримки (за бажанням власниці)
 
@@ -170,8 +175,11 @@ Remove-Item owner.sql
 
 Пуш у `main` не викочує нічого. Код потрапляє в салон тільки прогоном `release.yml` і тільки
 після того, як власниця натисне «✅ Випустити» в чаті салону. Налаштування — один раз, покроково
-в `worker/HANDOVER.md`, розділ «Як розробник випускає оновлення»: токен Cloudflare з правами на
-Workers + D1 + R2, секрет `DEPLOY_TOKEN` (однаковий у GitHub і у воркері), змінна `WORKER_URL`,
+в `worker/HANDOVER.md`, розділ «Як розробник випускає оновлення»: акаунтний токен Cloudflare з
+трьома правами — `Workers Scripts: Edit`, `Workers Tail: Read`, `Account Settings: Read` (цього
+досить для деплою і відкату воркера з D1 і R2; `D1: Edit` і `Workers R2 Storage: Edit` не
+потрібні, і без них токен не читає базу), секрет `DEPLOY_TOKEN` (однаковий у GitHub і у воркері),
+змінна `WORKER_URL`,
 міграція `0004_releases.sql` і перемикання Pages на `build_type=workflow`.
 
 Доки Pages публікується з гілки, прогін свідомо падає: інакше вся CRM їхала б повз дозвіл.
@@ -186,8 +194,8 @@ Workers + D1 + R2, секрет `DEPLOY_TOKEN` (однаковий у GitHub і 
 
 ## 10. Приймання
 
-```powershell
-curl.exe -s -H "Authorization: Bearer <PLATFORM_TOKEN>" https://<воркер>/health
+```bash
+curl -s -H "Authorization: Bearer <PLATFORM_TOKEN>" https://<воркер>/health
 ```
 
 `/health` без токена віддає лише версію і бази не торкається — годиться для монітора доступності.
