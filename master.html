@@ -87,6 +87,9 @@
   .login input:focus{outline:none;border-color:var(--violet)}
   .login .btn{width:100%;padding:.9em}
   .err{color:var(--cancelled);font-weight:700;font-size:.88rem;min-height:1.1em;margin-top:6px}
+  .fp-link{background:none;border:0;padding:.3em .2em;margin-top:4px;font:inherit;font-size:.86rem;font-weight:700;color:var(--violet);cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+  .login .fp-note{margin:8px 0 0;background:var(--bg-2);border-radius:12px;padding:10px 12px;font-size:.86rem;line-height:1.45;text-align:left;color:var(--ink-2)}
+  @media(max-width:420px){.login{margin:8vh auto;width:calc(100% - 24px);padding:26px 20px}}   /* картка 380px на телефоні 375px упиралась у краї; auto — щоб на 405–420px лишалась по центру */
   /* cards */
   .card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:16px 16px 14px;margin-bottom:16px;box-shadow:var(--shadow-sm)}
   .card h2{font-family:var(--font-head);font-weight:600;margin:0 0 12px;font-size:1.2rem;display:flex;align-items:center;gap:8px}
@@ -160,6 +163,9 @@
     <input id="mu-pass" type="password" autocomplete="current-password" placeholder="Пароль">
     <button class="btn" id="loginBtn">Увійти</button>
     <div class="err" id="loginErr"></div>
+    <!-- Майстри — співробітники: самі пароль не відновлюють, його скидає власниця. -->
+    <button type="button" class="fp-link" id="fpOpen" aria-expanded="false" aria-controls="fpNote">Забули пароль?</button>
+    <p class="fp-note" id="fpNote" hidden>Пароль майстра скидає власниця салону: CRM → <b>👥 Доступи → 🔑</b> біля вашого логіна. Вона дасть тимчасовий пароль, а свій ви задасте одразу після входу.</p>
   </div>
 </div>
 
@@ -292,16 +298,22 @@
         if(!d||!d.ok){$("#loginErr").textContent=(d&&d.error)||"Невірний логін або пароль.";return;}
         if(d.role!=="master"){$("#loginErr").textContent="Цей акаунт не є майстром. Увійдіть у CRM.";return;}
         token=d.token;mustChange=d.must_change?1:0;try{localStorage.setItem(KEY,token);}catch(e){}
-        load().then(function(dd){data=dd;showApp();if(mustChange)setTimeout(function(){openPw(true);},350);})
+        load().then(function(dd){data=dd;showApp();if(mustChange)openPw(true);})
           .catch(function(){$("#loginErr").textContent="Не вдалося завантажити дані.";});
       })
       .catch(function(){$("#loginErr").textContent="Помилка з'єднання. Спробуйте ще.";});
   }
+  // Після перезавантаження сторінки must_change зі входу вже немає — питаємо /auth/me (працює для
+  // будь-якої ролі). Інакше примусову зміну пароля обходило б звичайне оновлення сторінки.
   function restore(){
-    load().then(function(d){data=d;showApp();}).catch(function(){logoutLocal();showLogin();});
+    fetch(API+"/auth/me",{headers:{"Authorization":"Bearer "+token}})
+      .then(function(r){return r.json();})
+      .then(function(me){mustChange=me&&me.must_change?1:0;return load();})
+      .then(function(d){data=d;showApp();if(mustChange)openPw(true);})
+      .catch(function(){logoutLocal();showLogin();});
   }
   function logoutLocal(){token="";data=null;try{localStorage.removeItem(KEY);}catch(e){}}
-  function showLogin(){$("#loginView").hidden=false;$("#appView").hidden=true;$("#pwBack").hidden=true;}
+  function showLogin(){$("#loginView").hidden=false;$("#appView").hidden=true;closePw();}
   function showApp(){$("#loginView").hidden=true;$("#appView").hidden=false;render();}
 
   function fmtDayLabel(iso){
@@ -454,19 +466,28 @@
       .catch(function(){b.status=prev;render();toast("Не вдалося оновити",true);});
   }
 
-  /* change password */
+  /* change password
+     Примусова зміна (must_change=1) не закривається ні кліком мимо, ні кнопкою: замість
+     «Скасувати» — «Вийти», щоб ніхто не застряг, а кабінет за вікном inert (Tab до нього не
+     дійде). Інакше тимчасовий пароль від власниці лишався б чинним — знахідка B3 у CRM. */
+  var pwForced=false;
   function openPw(force){
     if(!token){showLogin();return;}
+    force=!!(force||mustChange);pwForced=force;
     var who=(data&&data.master&&data.master.name)?data.master.name:"";
     $("#pwErr").textContent="";$("#pw-old").value="";$("#pw-new").value="";$("#pw-new2").value="";
     $("#pw-old").style.display=force?"none":"";
     $("#pwTitle").textContent=who?("Пароль — "+who):"Зміна пароля";
-    $("#pwHint").textContent=(who?("Ви змінюєте пароль для акаунта «"+who+"». "):"")+(force?"Перший вхід — задайте власний пароль замість тимчасового.":"Введіть поточний і новий пароль.");
+    $("#pwHint").textContent=(who?("Ви змінюєте пароль для акаунта «"+who+"». "):"")+(force?"Перший вхід — задайте власний пароль замість тимчасового. Поки пароль не змінено, кабінет недоступний.":"Введіть поточний і новий пароль.");
+    $("#pw-cancel").textContent=force?"Вийти":"Скасувати";
+    if(force)$("#appView").setAttribute("inert","");
     $("#pwBack").hidden=false;
+    setTimeout(function(){$(force?"#pw-new":"#pw-old").focus();},60);
   }
+  function closePw(){pwForced=false;$("#appView").removeAttribute("inert");$("#pwBack").hidden=true;}
   $("#pwBtn").addEventListener("click",function(){openPw(false);});
-  $("#pw-cancel").addEventListener("click",function(){$("#pwBack").hidden=true;});
-  $("#pwBack").addEventListener("click",function(e){if(e.target===$("#pwBack"))$("#pwBack").hidden=true;});
+  $("#pw-cancel").addEventListener("click",function(){if(pwForced)doLogout();else closePw();});
+  $("#pwBack").addEventListener("click",function(e){if(e.target===$("#pwBack")&&!pwForced)closePw();});
   $("#pw-save").addEventListener("click",function(){
     var np=$("#pw-new").value,np2=$("#pw-new2").value;
     if(np.length<4){$("#pwErr").textContent="Пароль мінімум 4 символи.";return;}
@@ -475,9 +496,9 @@
     fetch(API+"/auth/change-password",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},body:JSON.stringify({old_password:$("#pw-old").value,new_password:np})})
       .then(function(r){return r.json().then(function(res){return {status:r.status,res:res};});})
       .then(function(x){var res=x.res;
-        if(x.status===401||x.status===403){$("#pwBack").hidden=true;logoutLocal();showLogin();$("#loginErr").textContent="Сесія завершилась — увійдіть знову.";return;}
+        if(x.status===401||x.status===403){logoutLocal();showLogin();$("#loginErr").textContent="Сесія завершилась — увійдіть знову.";return;}
         if(!res||!res.ok){$("#pwErr").textContent=(res&&res.error)||"Не вдалося.";return;}
-        mustChange=0;$("#pwBack").hidden=true;toast("Пароль змінено");})
+        mustChange=0;closePw();toast("Пароль змінено");})
       .catch(function(){$("#pwErr").textContent="Помилка з'єднання.";});
   });
 
@@ -485,7 +506,9 @@
   $("#loginBtn").addEventListener("click",submitLogin);
   $("#mu-user").addEventListener("keydown",function(e){if(e.key==="Enter")$("#mu-pass").focus();});
   $("#mu-pass").addEventListener("keydown",function(e){if(e.key==="Enter")submitLogin();});
-  $("#logoutBtn").addEventListener("click",function(){var t=token;logoutLocal();showLogin();try{fetch(API+"/auth/logout",{method:"POST",headers:{"Authorization":"Bearer "+t}});}catch(e){}});
+  function doLogout(){var t=token;logoutLocal();mustChange=0;$("#mu-pass").value="";$("#loginErr").textContent="";showLogin();try{fetch(API+"/auth/logout",{method:"POST",headers:{"Authorization":"Bearer "+t}});}catch(e){}}
+  $("#logoutBtn").addEventListener("click",doLogout);
+  $("#fpOpen").addEventListener("click",function(){var n=$("#fpNote");n.hidden=!n.hidden;$("#fpOpen").setAttribute("aria-expanded",n.hidden?"false":"true");});
   function setCustomRange(edited){
     var F=$("#p-from"),T=$("#p-to"),f=F.value,tt=T.value;
     if(!f&&!tt)return;

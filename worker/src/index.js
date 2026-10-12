@@ -188,6 +188,13 @@ export default {
       if (url.pathname === "/auth/logout" && request.method === "POST") {
         return json(await authLogout(request, env), cors);
       }
+      // «Забули пароль?» — публічні, як і сам вхід. Код отримує лише власниця, у свій особистий чат з ботом.
+      if (url.pathname === "/auth/reset-request" && request.method === "POST") {
+        return json(await authResetRequest(await request.json().catch(() => ({})), env, request), cors);
+      }
+      if (url.pathname === "/auth/reset-confirm" && request.method === "POST") {
+        return json(await authResetConfirm(await request.json().catch(() => ({})), env), cors);
+      }
       if (url.pathname === "/admin/users" && request.method === "GET") {
         return json(await adminUsers(request, env), cors);
       }
@@ -1109,7 +1116,105 @@ async function authChangePassword(request, env) {
   if (u.pass_hash && !u.must_change) { const h = await pbkdf2(oldp, u.pass_salt || ""); if (h !== u.pass_hash) return { ok: false, error: "Невірний поточний пароль" }; }
   const salt = randHex(16), hash = await pbkdf2(newp, salt);
   await env.DB.prepare(`UPDATE users SET pass_hash=?, pass_salt=?, must_change=0 WHERE id=?`).bind(hash, salt, u.id).run();
+  /* Решта сесій цього акаунта — геть, лишається тільки та, з якої міняли. Примусова зміна існує,
+     щоб тимчасовий пароль з листа чи з «Доступи» перестав пускати; але хто встиг увійти з ним
+     раніше, сидів би далі 30 днів, ще й з must_change=0 — замок у вікні його вже не спіймав би.
+     Так само, як reset-confirm. Аварійні сесії (user_id=0) сюди не доходять. */
+  await env.DB.prepare(`DELETE FROM sessions WHERE user_id=? AND token<>?`).bind(u.id, tok).run();
   return { ok: true };
+}
+/* ---- «Забули пароль?» на екрані входу ----
+   Сама собі пароль відновлює лише ВЛАСНИЦЯ: одноразовий код надсилає бот салону в її особистий
+   чат (TELEGRAM_CHAT_ID), і код + новий пароль замінюють старий. Співробітникам (адміністратор,
+   майстер, підтримка) самообслуговування немає: їм скидає власниця в «Доступи» → 🔑 (тимчасовий
+   пароль, must_change=1, сесії вбито), а свій вони задають одразу після входу. Пошти в CRM немає,
+   тож іншого каналу немає й не буде. Бота нема — запасний шлях: аварійний пароль (ADMIN_TOKEN).
+
+   Де лежить код. Нова таблиця = міграція, а міграції накочують руками, і після передачі в
+   розробника доступу до D1 немає. Тому код живе в client_otp, де client_id = -users.id:
+   ВІД'ЄМНИЙ — акаунт CRM, додатний — клієнт сайту. clientOtp/clientVerify шукають рядки лише за id
+   реального клієнта (завжди > 0), тож такого рядка вони не побачать ні як спробу, ні як вхід.
+   Не в settings: GET /admin/settings віддає всі рядки, а підтримці його читати можна. */
+const RESET_TTL_MIN = 10, RESET_TRIES = 5, RESET_PER_ACC = 3, RESET_PER_DAY = 10, RESET_PER_IP = 10;
+// Одна відповідь для співробітника і для невідомого логіна, тож підказка про одруківку — для всіх.
+const RESET_STAFF = "Код у Telegram отримує лише власниця салону. Співробітникам пароль скидає власниця: CRM → 👥 Доступи → 🔑 біля вашого логіна. Якщо ви власниця — перевірте, чи правильно введено логін.";
+const RESET_BUSY = "Забагато запитів коду. Зачекайте 10 хвилин і спробуйте знову.";
+const RESET_DAILY = "За добу вже надіслано забагато кодів — нових найближчим часом не буде. Увійдіть аварійним паролем (ADMIN_TOKEN), як описано нижче.";
+// Особистий чат = додатний id. Від'ємний — група, і код прочитав би кожен її учасник (та сама
+// причина, з якої releaseButton звіряє from.id).
+const resetBotOk = env => !!env.TELEGRAM_BOT_TOKEN && /^\d+$/.test(String(env.TELEGRAM_CHAT_ID || ""));
+async function resetOwner(env, body) {   // логін нормалізується так само, як в authLogin
+  const username = String(body && body.username || "").trim().toLowerCase();
+  if (!username) return null;
+  return await env.DB.prepare(`SELECT * FROM users WHERE lower(username)=? AND active=1 AND role='owner'`).bind(username).first();
+}
+function resetCode() {   // 6 цифр з crypto, не Math.random; хвіст вибірки відкидаємо, щоб % не давав перекосу
+  const a = new Uint32Array(1);
+  do crypto.getRandomValues(a); while (a[0] >= 4294800000);   // 900000 × 4772
+  return String(100000 + a[0] % 900000);
+}
+async function authResetRequest(body, env, request) {
+  if (!String(body && body.username || "").trim()) return { ok: false, error: "Вкажіть логін" };
+  // Бота й IP перевіряємо ДО пошуку акаунта: ці відповіді однакові для будь-якого логіна.
+  if (!resetBotOk(env)) return { ok: false, no_bot: true, error: "Бот салону не підключений до особистого чату власниці — код надіслати нікуди. Запасний шлях — аварійний пароль (ADMIN_TOKEN)." };
+  const ip = (request && request.headers.get("CF-Connecting-IP")) || "";
+  const now = Date.now(), nowIso = new Date(now).toISOString(), dayAgo = new Date(now - 864e5).toISOString();
+  if (ip) {   // той самий лічильник, що в clientOtp: одна адреса — не більше 10 живих кодів будь-кому
+    const byIp = await env.DB.prepare(`SELECT COUNT(*) AS n FROM client_otp WHERE ip=? AND expires_at>?`).bind(ip, nowIso).first();
+    if (byIp && byIp.n >= RESET_PER_IP) return { ok: false, error: RESET_BUSY };
+  }
+  const u = await resetOwner(env, body);
+  // Невідомий логін і логін співробітника отримують ОДНУ відповідь: список логінів так не вивудиш.
+  if (!u) return { ok: false, staff: true, error: RESET_STAFF };
+  const key = -u.id;
+  await env.DB.prepare(`DELETE FROM client_otp WHERE client_id<0 AND expires_at<?`).bind(dayAgo).run();   // старі коди CRM, клієнтських не чіпаємо
+  const code = resetCode();
+  /* Ліміти перевіряє сам INSERT, одним оператором, — паралельні запити не проскочать між
+     підрахунком і записом. 3 живі коди на акаунт (як у clientOtp) і 10 на добу: кожен код — це
+     5 спроб, і без добової стелі терплячий перебір мав би ~2000 спроб на день.
+     Рядок народжується РОЗБРОЄНИМ (attempts = межа), і зброю йому дає лише Telegram, що підтвердив
+     доставку. Інакше поки бот надсилає, вгадування вже б порівнювались із живим кодом, а невдала
+     відправка стирала б рядок разом зі слідом цих спроб — і жоден ліміт їх не бачив би. Зірвати
+     відправку чужій людині нескладно: напр., завалити чат власниці відгуками до 429 від Telegram. */
+  const ins = await env.DB.prepare(`INSERT INTO client_otp (client_id,code,expires_at,attempts,ip) SELECT ?,?,?,${RESET_TRIES},?
+      WHERE (SELECT COUNT(*) FROM client_otp WHERE client_id=? AND expires_at>?) < ${RESET_PER_ACC}
+        AND (SELECT COUNT(*) FROM client_otp WHERE client_id=? AND expires_at>?) < ${RESET_PER_DAY}`)
+    .bind(key, code, new Date(now + RESET_TTL_MIN * 6e4).toISOString(), ip, key, nowIso, key, dayAgo).run();
+  if (!(ins.meta && ins.meta.changes)) {
+    // Добова стеля — окрема відповідь: «зачекайте 10 хвилин» тут була б неправдою, а власниці
+    // потрібен запасний шлях (admin.html на daily показує його).
+    const day = await env.DB.prepare(`SELECT COUNT(*) AS n FROM client_otp WHERE client_id=? AND expires_at>?`).bind(key, dayAgo).first();
+    return day && day.n >= RESET_PER_DAY ? { ok: false, daily: true, error: RESET_DAILY } : { ok: false, error: RESET_BUSY };
+  }
+  const rowId = ins.meta.last_row_id;
+  const r = await tgSendTo(env, env.TELEGRAM_CHAT_ID, `🔐 <b>Скидання пароля CRM</b>\nЛогін: <b>${tgEsc(u.username)}</b>\nКод: <b>${code}</b>\nДіє ${RESET_TTL_MIN} хвилин.\n\nЯкщо це не ви — просто проігноруйте: без коду пароль не зміниться.`);
+  if (!r || !r.ok) {   // код, якого ніхто не отримав, не має й лежати; спроб на ньому не було — він був розброєний
+    await env.DB.prepare(`DELETE FROM client_otp WHERE id=?`).bind(rowId).run();
+    return { ok: false, send_failed: true, error: "Не вдалося надіслати код у Telegram. Спробуйте ще раз або увійдіть аварійним паролем." };
+  }
+  await env.DB.prepare(`UPDATE client_otp SET attempts=0 WHERE id=?`).bind(rowId).run();   // доставлено — тепер код приймається
+  return { ok: true, ttl_min: RESET_TTL_MIN };
+}
+async function authResetConfirm(body, env) {
+  const code = String(body && body.code || "").replace(/\D/g, "");
+  const newp = String(body && body.new_password || "");
+  if (code.length !== 6) return { ok: false, error: "Код — це 6 цифр із повідомлення бота" };
+  if (newp.length < 4) return { ok: false, error: "Новий пароль закороткий (мін. 4 символи)" };   // те саме правило, що в authChangePassword
+  const u = await resetOwner(env, body);
+  const row = u && await env.DB.prepare(`SELECT id,code FROM client_otp WHERE client_id=? AND expires_at>? ORDER BY id DESC LIMIT 1`).bind(-u.id, new Date().toISOString()).first();
+  if (!row) return { ok: false, error: "Код прострочений або не запитаний — надішліть новий" };   // і для чужого логіна так само
+  // Спробу списуємо ДО порівняння і одним оператором: інакше пачка паралельних запитів прочитала
+  // б attempts=0 разом і перебрала б куди більше п'яти кодів.
+  const t = await env.DB.prepare(`UPDATE client_otp SET attempts=attempts+1 WHERE id=? AND attempts<${RESET_TRIES}`).bind(row.id).run();
+  if (!(t.meta && t.meta.changes)) return { ok: false, error: "Забагато невірних спроб — надішліть новий код" };
+  if (row.code !== code) return { ok: false, error: "Невірний код" };
+  const salt = randHex(16), hash = await pbkdf2(newp, salt);
+  await env.DB.prepare(`UPDATE users SET pass_hash=?, pass_salt=?, must_change=0 WHERE id=?`).bind(hash, salt, u.id).run();
+  // Хто сидів зі старим паролем — більше не в CRM. Решта кодів цього акаунта згоряє.
+  await env.DB.prepare(`DELETE FROM sessions WHERE user_id=?`).bind(u.id).run();
+  await env.DB.prepare(`DELETE FROM client_otp WHERE client_id=?`).bind(-u.id).run();
+  if (resetBotOk(env)) await tgSendTo(env, env.TELEGRAM_CHAT_ID, `🔐 Пароль CRM для <b>${tgEsc(u.username)}</b> змінено через «Забули пароль?». Інші входи в цей акаунт завершено.\nЯкщо це були не ви — увійдіть аварійним паролем і скиньте пароль у 👥 Доступи → 🔑.`).catch(() => { });
+  return issueSession(env, Object.assign({}, u, { must_change: 0 }));   // як /auth/login: CRM одразу впускає
 }
 /* ---- User management (owner only) ---- */
 async function adminUsers(request, env) {

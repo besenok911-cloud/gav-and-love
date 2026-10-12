@@ -59,6 +59,20 @@
   .login input:focus{outline:none;border-color:var(--violet)}
   .login .btn{width:100%;padding:.85em}
   .err{color:var(--cancelled);font-weight:700;font-size:.88rem;min-height:1.2em;margin-top:10px}
+  /* «Забули пароль?» — панель усередині картки входу, не окрема модалка */
+  .fp-link{background:none;border:0;padding:.3em .2em;font:inherit;font-size:.86rem;font-weight:700;color:var(--violet);cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+  html[data-theme="dark"] .fp-link{color:#a78bff}
+  .fp{text-align:left}
+  .login .fp p{margin:0 0 12px;font-size:.86rem;line-height:1.45}
+  .fp h3{font-family:var(--font-body);font-size:.95rem;font-weight:800;margin:16px 0 10px;padding-top:14px;border-top:1px dashed var(--line)}
+  .login .fp .fp-msg{margin:2px 0 10px;min-height:0;font-weight:700;color:var(--ink-soft)}
+  .login .fp .fp-msg.bad{color:var(--cancelled)}
+  .fp-fb{background:var(--bg-2);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:.84rem;line-height:1.45;overflow-wrap:anywhere}
+  .fp-fb ol{margin:6px 0 8px;padding-left:1.25em}
+  .fp-fb li{margin-bottom:4px}
+  .login .fp .fp-fb p{margin:0;font-size:.84rem}
+  .fp-row{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  @media(max-width:420px){.login{margin:5vh auto;width:calc(100% - 24px);padding:28px 20px}}   /* картка 380px на телефоні 375px упиралась у краї; auto — щоб на 405–420px лишалась по центру */
 
   /* KPI cards */
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
@@ -635,12 +649,39 @@
 </div>
 
 <div class="login" id="loginCard">
-  <h2>Вхід у CRM</h2>
+  <h2 id="loginTitle">Вхід у CRM</h2>
+  <div id="loginMain">
   <p>Увійдіть за логіном і паролем.</p>
   <input type="text" id="userInput" placeholder="Логін" autocomplete="username" autocapitalize="off" spellcheck="false" />
   <input type="password" id="tokenInput" placeholder="Пароль" autocomplete="current-password" />
   <button class="btn" id="loginBtn">Увійти</button>
   <p class="err" id="loginErr"></p>
+  <button type="button" class="fp-link" id="fpOpen">Забули пароль?</button>
+  </div>
+  <!-- «Забули пароль?»: власниці — код від бота в її особистий чат; решті — скидання в «Доступи». -->
+  <div class="fp" id="fpBox" hidden>
+    <p>Співробітникам, майстрам і підтримці пароль скидає власниця: <b>👥 Доступи → 🔑</b> біля вашого логіна. З тимчасовим паролем увійдете й одразу задасте свій.</p>
+    <h3>Власниця: код у Telegram</h3>
+    <input type="text" id="fpUser" placeholder="Логін власниці" autocomplete="username" autocapitalize="off" spellcheck="false" />
+    <button class="btn" id="fpSend">Надіслати код у Telegram</button>
+    <div id="fpStep2" hidden>
+      <input type="text" id="fpCode" placeholder="Код із 6 цифр" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
+      <input type="password" id="fpNew" placeholder="Новий пароль" autocomplete="new-password" />
+      <input type="password" id="fpNew2" placeholder="Повторіть новий пароль" autocomplete="new-password" />
+      <button class="btn" id="fpSave">Змінити пароль і увійти</button>
+    </div>
+    <p class="fp-msg" id="fpMsg"></p>
+    <div class="fp-fb" id="fpFallback" hidden>
+      <b>Запасний шлях для власниці</b>
+      <ol>
+        <li>На екрані входу в поле «Пароль» введіть <b>аварійний пароль</b> — значення ADMIN_TOKEN, яке ви самі задали в Cloudflare (логін — будь-який).</li>
+        <li><b>👥 Доступи → 🔑</b> біля свого логіна → задайте тимчасовий пароль.</li>
+        <li>«Вийти» → увійдіть своїм логіном з тимчасовим паролем → CRM попросить задати власний.</li>
+      </ol>
+      <p>Забули й аварійний? Cloudflare → Workers &amp; Pages → gavlove-booking → Settings → Variables and Secrets → ADMIN_TOKEN → нове значення (діє за 10–20 секунд).</p>
+    </div>
+    <div class="fp-row"><button type="button" class="fp-link" id="fpBack">← Назад до входу</button><button type="button" class="fp-link" id="fpResend" hidden>Надіслати новий код</button></div>
+  </div>
 </div>
 
 <div class="wrap" id="dashView" hidden></div>
@@ -1055,7 +1096,7 @@
   $("#f-weight").addEventListener("change",autoPrice);
   if($("#f-addons"))$("#f-addons").addEventListener("change",autoPrice);
 
-  function showLogin(msg){document.body.classList.remove("crm-logged");
+  function showLogin(msg){document.body.classList.remove("crm-logged");closePwModal();fpShow(false);
     $("#siteBtn").hidden=true;$("#loginCard").hidden=false;$("#dashView").hidden=true;$("#listView").hidden=true;
     $("#tabs").hidden=true;$("#refreshBtn").hidden=true;$("#logoutBtn").hidden=true;$("#remindBtn").hidden=true;
     $("#whoami").hidden=true;$("#usersBtn").hidden=true;$("#supBtn").hidden=true;$("#supBar").hidden=true;$("#pwBtn").hidden=true;$("#loginErr").textContent=msg||"";}
@@ -1113,10 +1154,14 @@
       var res=await fetch(API+"/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:username,password:password})});
       var d=await res.json();
       if(!res.ok||!d.ok){showLogin(d&&d.error?d.error:"Невірний логін або пароль.");return;}
-      token=d.token;userRole=d.role;userName=d.name;mustChange=d.must_change?1:0;
-      try{localStorage.setItem(KEY,token);localStorage.setItem(KEY+"_role",userRole);localStorage.setItem(KEY+"_name",userName);}catch(e){}
-      await afterLogin();
+      await startSession(d);
     }catch(e){showLogin("Помилка з'єднання. Спробуйте ще раз.");}
+  }
+  // Відповідь /auth/login або /auth/reset-confirm (та сама форма) → звичайний шлях після входу.
+  async function startSession(d){
+    token=d.token;userRole=d.role;userName=d.name;mustChange=d.must_change?1:0;
+    try{localStorage.setItem(KEY,token);localStorage.setItem(KEY+"_role",userRole);localStorage.setItem(KEY+"_name",userName);}catch(e){}
+    await afterLogin();
   }
   async function afterLogin(){
     loadLiveDur();                      // тривалість послуг для сітки — з живого каталогу
@@ -1128,7 +1173,7 @@
       if(!supState||!supState.open){logoutLocal();showLogin("Доступ для підтримки зараз закритий. Попросіть власницю відкрити його в CRM.");return;}
     }
     try{all=isSupport()?[]:((await api("/admin/list")).bookings||[]);await loadClientsPets();showApp();renderPills();
-      if(mustChange)setTimeout(function(){openPwModal(true);},350);
+      if(mustChange)openPwModal(true);   // одразу, без паузи: і після входу, і після перезавантаження (restoreSession)
     }catch(e){logoutLocal();showLogin("Сесія недійсна. Увійдіть знову.");}
   }
   async function restoreSession(){
@@ -1141,7 +1186,57 @@
   $("#loginBtn").addEventListener("click",function(){doLogin($("#userInput").value.trim(),$("#tokenInput").value);});
   $("#tokenInput").addEventListener("keydown",function(e){if(e.key==="Enter")doLogin($("#userInput").value.trim(),$("#tokenInput").value);});
   $("#userInput").addEventListener("keydown",function(e){if(e.key==="Enter")$("#tokenInput").focus();});
-  $("#logoutBtn").addEventListener("click",function(){var t=token;logoutLocal();$("#tokenInput").value="";$("#userInput").value="";showLogin("");try{fetch(API+"/auth/logout",{method:"POST",headers:{"Authorization":"Bearer "+t}});}catch(e){}});
+  function doLogout(){var t=token;logoutLocal();$("#tokenInput").value="";$("#userInput").value="";showLogin("");try{fetch(API+"/auth/logout",{method:"POST",headers:{"Authorization":"Bearer "+t}});}catch(e){}}
+  $("#logoutBtn").addEventListener("click",doLogout);
+
+  /* ---------- «Забули пароль?» ----------
+     Код отримує лише власниця — бот надсилає його в її особистий чат. Для невідомого логіна і
+     логіна співробітника сервер відповідає однаково (staff), тож тут не вгадуємо, хто є хто:
+     рядок для співробітників стоїть угорі панелі завжди. Бота немає → запасний шлях (fpFallback). */
+  function fpMsg(t,bad){var m=$("#fpMsg");m.textContent=t||"";m.classList.toggle("bad",!!bad);}
+  function fpShow(on){
+    $("#fpBox").hidden=!on;$("#loginMain").hidden=on;$("#loginTitle").textContent=on?"Відновлення пароля":"Вхід у CRM";
+    if(!on){$("#fpStep2").hidden=true;$("#fpSend").hidden=false;$("#fpResend").hidden=true;$("#fpFallback").hidden=true;fpMsg("");
+      $("#fpCode").value="";$("#fpNew").value="";$("#fpNew2").value="";return;}
+    $("#fpUser").value=$("#userInput").value.trim();
+    setTimeout(function(){($("#fpUser").value?$("#fpSend"):$("#fpUser")).focus();},30);
+  }
+  var fpBusy=false;
+  async function fpRequest(){
+    var u=$("#fpUser").value.trim();if(!u){fpMsg("Вкажіть логін власниці.",true);$("#fpUser").focus();return;}
+    if(fpBusy)return;fpBusy=true;fpMsg("Надсилаємо код…");$("#fpFallback").hidden=true;
+    try{var r=await fetch(API+"/auth/reset-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u})});
+      var d=await r.json();
+      if(d&&d.ok){$("#fpStep2").hidden=false;$("#fpSend").hidden=true;$("#fpResend").hidden=false;
+        fpMsg("Код надіслано в Telegram — у ваш особистий чат з ботом салону. Діє "+(d.ttl_min||10)+" хвилин; працює лише останній надісланий.");
+        $("#fpCode").value="";$("#fpCode").focus();}
+      else{fpMsg((d&&d.error)||"Не вдалося надіслати код.",true);if(d&&(d.no_bot||d.send_failed||d.daily))$("#fpFallback").hidden=false;}
+    }catch(e){fpMsg("Помилка з'єднання. Спробуйте ще раз.",true);}
+    fpBusy=false;
+  }
+  async function fpConfirm(){
+    var code=$("#fpCode").value.replace(/\D/g,""),np=$("#fpNew").value,np2=$("#fpNew2").value;
+    if(code.length!==6){fpMsg("Код — це 6 цифр із повідомлення бота.",true);$("#fpCode").focus();return;}
+    if(np.length<4){fpMsg("Пароль мінімум 4 символи.",true);$("#fpNew").focus();return;}
+    if(np!==np2){fpMsg("Паролі не збігаються.",true);$("#fpNew2").focus();return;}
+    if(fpBusy)return;fpBusy=true;fpMsg("Змінюємо пароль…");
+    try{var r=await fetch(API+"/auth/reset-confirm",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:$("#fpUser").value.trim(),code:code,new_password:np})});
+      var d=await r.json();
+      if(!d||!d.ok||!d.token){fpMsg((d&&d.error)||"Не вдалося змінити пароль.",true);fpBusy=false;return;}
+      $("#userInput").value=$("#fpUser").value.trim();$("#tokenInput").value="";fpShow(false);
+      await startSession(d);toast("Пароль змінено");
+    }catch(e){fpMsg("Помилка з'єднання. Спробуйте ще раз.",true);}
+    fpBusy=false;
+  }
+  $("#fpOpen").addEventListener("click",function(){fpShow(true);});
+  $("#fpBack").addEventListener("click",function(){fpShow(false);$("#loginErr").textContent="";$("#userInput").focus();});
+  $("#fpSend").addEventListener("click",fpRequest);
+  $("#fpResend").addEventListener("click",fpRequest);
+  $("#fpSave").addEventListener("click",fpConfirm);
+  $("#fpUser").addEventListener("keydown",function(e){if(e.key==="Enter")fpRequest();});
+  $("#fpCode").addEventListener("keydown",function(e){if(e.key==="Enter")$("#fpNew").focus();});
+  $("#fpNew").addEventListener("keydown",function(e){if(e.key==="Enter")$("#fpNew2").focus();});
+  $("#fpNew2").addEventListener("keydown",function(e){if(e.key==="Enter")fpConfirm();});
   async function reload(){try{if(!isSupport()){var d=await api("/admin/list");all=d.bookings||[];}await loadClientsPets();renderPills();setView(view);refreshSupBar();}catch(e){if(e.code===401)showLogin("Сесія завершилась, увійдіть знову.");}}
   $("#refreshBtn").addEventListener("click",reload);
 
@@ -2543,16 +2638,30 @@
     btn.disabled=false;btn.textContent=old;
   }
 
-  /* ---------- change password ---------- */
+  /* ---------- change password ----------
+     Примусова зміна (must_change=1: перший вхід або пароль, скинутий у «Доступи»). Знахідка B3
+     репетиції: вікно закрили кліком мимо, і тимчасовий пароль з листа лишився чинним. Тепер воно
+     не закривається ні кліком мимо, ні Escape (глобальний Escape закриває лише #modal), ні кнопкою:
+     замість «Закрити» — «Вийти», щоб ніхто не застряг. Решта сторінки на цей час inert: інакше
+     Tab довів би до кнопок шапки, і з тимчасовим паролем можна було б працювати далі.
+     Сервер такі сесії не блокує — межа саме тут. Добровільна зміна (🔑) закривається як раніше. */
+  var pwForced=false;
+  function pwLock(on){pwForced=on;
+    [].forEach.call(document.body.children,function(el){if(el.id==="pwModal"||el.id==="toast"||el.tagName==="SCRIPT")return;
+      if(on)el.setAttribute("inert","");else el.removeAttribute("inert");});}
   function openPwModal(force){
+    force=!!(force||mustChange);
     $("#pwErr").textContent="";$("#pw-old").value="";$("#pw-new").value="";$("#pw-new2").value="";
     $("#pwOldWrap").style.display=force?"none":"";
-    $("#pwHint").textContent=force?"Перший вхід — задайте власний пароль замість тимчасового.":("Ви — "+(userName||"")+" ("+(ROLE_L[userRole]||userRole)+"). Введіть поточний і новий пароль.");
-    $("#pwModal").classList.add("open");
+    $("#pwHint").textContent=force?"Перший вхід — задайте власний пароль замість тимчасового. Поки пароль не змінено, CRM недоступна.":("Ви — "+(userName||"")+" ("+(ROLE_L[userRole]||userRole)+"). Введіть поточний і новий пароль.");
+    $("#pw-cancel").textContent=force?"Вийти":"Закрити";
+    pwLock(force);$("#pwModal").classList.add("open");
+    setTimeout(function(){$(force?"#pw-new":"#pw-old").focus();},60);
   }
+  function closePwModal(){if(pwForced)pwLock(false);$("#pwModal").classList.remove("open");}
   $("#pwBtn").addEventListener("click",function(){openPwModal(false);});
-  $("#pw-cancel").addEventListener("click",function(){$("#pwModal").classList.remove("open");});
-  $("#pwModal").addEventListener("click",function(e){if(e.target===$("#pwModal"))$("#pwModal").classList.remove("open");});
+  $("#pw-cancel").addEventListener("click",function(){if(pwForced)doLogout();else closePwModal();});
+  $("#pwModal").addEventListener("click",function(e){if(e.target===$("#pwModal")&&!pwForced)closePwModal();});
   $("#pw-save").addEventListener("click",async function(){
     var np=$("#pw-new").value,np2=$("#pw-new2").value;
     $("#pwErr").style.color="var(--cancelled)";
@@ -2560,7 +2669,7 @@
     if(np!==np2){$("#pwErr").textContent="Паролі не збігаються.";return;}
     try{var r=await api("/auth/change-password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({old_password:$("#pw-old").value,new_password:np})});
       if(r&&r.ok===false){$("#pwErr").textContent=r.error||"Не вдалося.";return;}
-      mustChange=0;$("#pwModal").classList.remove("open");toast("Пароль змінено");
+      mustChange=0;closePwModal();toast("Пароль змінено");
     }catch(e){$("#pwErr").textContent="Не вдалося змінити пароль.";}
   });
 
