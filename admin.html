@@ -411,8 +411,10 @@
   @media(max-width:760px){.site-head .btn{flex:1 1 100%}.site-bar .btn{flex:1 1 auto;text-align:center}}
 
   /* modal */
-  .modal{position:fixed;inset:0;background:rgba(28,19,64,.5);display:none;align-items:flex-start;justify-content:center;z-index:50;padding:24px;overflow:auto}
-  #pwSetModal{z-index:60} /* stacks above the Доступи modal */
+  /* Вище за бічне меню (z-index 60 на ≥981px): інакше вікно на ноутбуці заїжджало лівим краєм під
+     меню, а саме меню лишалося над затемненням і на нього можна було натиснути посеред редагування. */
+  .modal{position:fixed;inset:0;background:rgba(28,19,64,.5);display:none;align-items:flex-start;justify-content:center;z-index:70;padding:24px;overflow:auto}
+  #pwSetModal{z-index:80} /* stacks above the Доступи modal */
   .pwset-row{display:flex;gap:6px;align-items:stretch}
   .pwset-row input{flex:1;width:auto;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:1.05rem;letter-spacing:.06em;font-weight:700}
   .pwset-ib{font-size:1rem;padding:.3em .6em;line-height:1}
@@ -767,7 +769,6 @@
     <div class="grid2">
       <div class="fld"><label>Ім'я та прізвище *</label><input id="cl-name" /></div>
       <div class="fld"><label>Телефон *</label><input id="cl-phone" placeholder="+380…" /></div>
-      <div class="fld"><label>Email</label><input id="cl-email" type="email" /></div>
       <div class="fld"><label>Месенджер</label><input id="cl-messenger" placeholder="@telegram / viber / ig" /></div>
       <div class="fld"><label>Джерело залучення</label><select id="cl-source"><option value="site">Сайт</option><option value="telegram">Telegram</option><option value="instagram">Instagram</option><option value="phone">Телефон</option><option value="ads">Реклама</option><option value="referral">Рекомендація</option><option value="other">Інше</option></select></div>
       <div class="fld"><label>Статус</label><select id="cl-status"><option value="active">Активний</option><option value="inactive">Неактивний</option></select></div>
@@ -2156,7 +2157,7 @@
     editClientId=c?c.id:null;
     $("#clModalTitle").textContent=c?"Картка клієнта":"Новий клієнт";
     $("#cl-name").value=c?c.name||"":"";$("#cl-phone").value=c?c.phone||"":"";
-    $("#cl-email").value=c?c.email||"":"";$("#cl-messenger").value=c?c.messenger||"":"";
+    $("#cl-messenger").value=c?c.messenger||"":"";
     $("#cl-source").value=c?(c.source||"site"):"site";$("#cl-status").value=c?(c.status||"active"):"active";
     $("#cl-consent").checked=c?!!c.consent:false;$("#cl-note").value=c?c.note||"":"";
     $("#cl-del").hidden=!c;$("#cl-pets-wrap").hidden=!c;$("#cl-hist-wrap").hidden=!c;$("#cl-loyalty").hidden=!c;
@@ -2209,7 +2210,8 @@
   $("#clientModal").addEventListener("click",function(e){if(e.target===$("#clientModal"))$("#clientModal").classList.remove("open");});
   $("#cl-add-pet").addEventListener("click",function(){if(editClientId)openPetModal(null,editClientId);});
   $("#cl-save").addEventListener("click",async function(){
-    var payload={name:$("#cl-name").value.trim(),phone:$("#cl-phone").value.trim(),email:$("#cl-email").value.trim(),
+    // email не надсилаємо зовсім: воркер оновлює лише ті поля, що прийшли, тож уже збережений не зітреться
+    var payload={name:$("#cl-name").value.trim(),phone:$("#cl-phone").value.trim(),
       messenger:$("#cl-messenger").value.trim(),source:$("#cl-source").value,status:$("#cl-status").value,
       consent:$("#cl-consent").checked?1:0,note:$("#cl-note").value.trim()};
     if(!payload.name||!payload.phone){$("#clModalErr").textContent="Вкажіть імʼя і телефон.";return;}
@@ -2944,11 +2946,11 @@
     exportBookingsList(all.slice().sort(function(a,b){return (b.created_at||"").localeCompare(a.created_at||"");}),"gavlove-zapysy-"+today10());
   }
   function exportClients(){
-    var H=["ID","Ім'я","Телефон","Email","Месенджер","Джерело","Згода","Статус","Улюбленці","Візитів","Витрачено (грн)","Коментар"];
+    var H=["ID","Ім'я","Телефон","Месенджер","Джерело","Згода","Статус","Улюбленці","Візитів","Витрачено (грн)","Коментар"];
     var rows=clients.map(function(c){
       var bs=bookingsOf(c);var spent=bs.filter(function(b){return isRevenue(b);}).reduce(function(s,b){return s+(Number(b.price)||0);},0);
       var petnames=petsOf(c.id).map(function(p){return (p.special?"⚠ ":"")+p.name+(p.breed?" ("+p.breed+")":"");}).join("; ");
-      return [c.id,c.name,c.phone,c.email,c.messenger,(SRC[c.source]||c.source),(c.consent?"так":"ні"),(c.status==="inactive"?"неактивний":"активний"),petnames,bs.length,spent,c.note];
+      return [c.id,c.name,c.phone,c.messenger,(SRC[c.source]||c.source),(c.consent?"так":"ні"),(c.status==="inactive"?"неактивний":"активний"),petnames,bs.length,spent,c.note];
     });
     downloadCSV("gavlove-klienty-"+today10()+".csv",H,rows);
   }

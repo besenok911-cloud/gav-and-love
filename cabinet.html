@@ -321,7 +321,6 @@
         <div class="card">
           <h2>Профіль</h2>
           <div class="fld"><label for="pf-name">Ім'я</label><input id="pf-name" autocomplete="name" placeholder="Як до вас звертатися?"></div>
-          <div class="fld"><label for="pf-email">E-mail <span class="opt">(необов'язково)</span></label><input id="pf-email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com"></div>
           <div class="fld"><label for="pf-phone">Телефон</label><input id="pf-phone" readonly tabindex="-1"></div>
           <div class="tgrow" id="tgSt"></div>
           <button class="btn" id="pf-save" type="button">Зберегти</button>
@@ -810,21 +809,22 @@
   /* profile */
   function renderProfile(){
     var c=(data&&data.client)||{};
-    $("#pf-name").value=c.name||"";$("#pf-email").value=c.email||"";$("#pf-phone").value=fmtPhone(c.phone||"");
+    $("#pf-name").value=c.name||"";$("#pf-phone").value=fmtPhone(c.phone||"");
     var bot=botName(data&&data.bot);
     $("#tgSt").innerHTML=c.tg_linked
       ?'<span class="tg ok">✓ Telegram підключено</span>'
       :'<span class="tg">Telegram не підключено</span> <a class="btn sm ghost2" href="https://t.me/'+esc(bot)+'" target="_blank" rel="noopener">Відкрити бота</a>';
   }
   function saveProfile(){
-    var name=$("#pf-name").value.trim(), email=$("#pf-email").value.trim();
+    var name=$("#pf-name").value.trim();
     if(!name){toast("Вкажіть ім'я.",true);$("#pf-name").focus();return;}
-    if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){toast("Перевірте e-mail.",true);$("#pf-email").focus();return;}
     var btn=$("#pf-save");setBusy(btn,true,"Зберігаємо…");
-    call("/client/profile",{name:name,email:email}).then(function(r){
+    /* Поля e-mail у кабінеті більше немає, але /client/profile пише name і email разом:
+       без email воркер записав би порожній рядок і мовчки стер би вже збережену адресу. */
+    call("/client/profile",{name:name,email:(data&&data.client&&data.client.email)||""}).then(function(r){
       setBusy(btn,false);
       if(!r.ok){toast(r.error||"Не вдалося зберегти.",true);return;}
-      if(data&&data.client){data.client.name=name;data.client.email=email;}
+      if(data&&data.client)data.client.name=name;
       $("#hello").textContent="Вітаємо, "+name+"! 👋";toast("Профіль збережено");
     }).catch(function(e){setBusy(btn,false);netErr(e);});
   }
