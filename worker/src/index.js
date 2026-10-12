@@ -23,7 +23,7 @@
 /* Which build is running. Bump it with any change that goes out to a salon: when a salon someone
    else now owns misbehaves, the first question is which version it is on, and there is no other way
    to ask. Reported by GET /health. */
-const VERSION = "2026-09-21";
+const VERSION = "2026-10-12";
 /* Штамп конкретної збірки. Рядок нижче переписує release.yml перед викочуванням — sed-ом по
    ЦЬОМУ файлу, а не через змінну оточення: VERSION живе в модульній області, де env ще не існує,
    і спроба прочитати env тут поклала б воркер на кожному запиті (node --check такого не бачить).
@@ -838,12 +838,284 @@ async function supportGate(request, env, s) {
   }
   // Журнал пишеться ДО дії і без try/catch: доступ підтримки без запису — це те, від чого
   // ми й ідемо. Немає куди писати — немає й дії.
-  if (request.method === "POST") await supportLog(env, s.name || "підтримка", SUPPORT_ACT[key] || key);
+  if (request.method === "POST") {
+    const head = SUPPORT_ACT[key] || key;
+    let act = head;
+    // А от «що саме» — лише прикраса до запису: зламався підрахунок — лишається заголовок,
+    // і дія йде далі. Тіло читаємо з копії, оригінал обробник прочитає сам.
+    if (SUPPORT_DETAIL[key]) {
+      try { act = await SUPPORT_DETAIL[key](env, await request.clone().json(), st, head); } catch (e) { act = head; }
+    }
+    await supportLog(env, s.name || "підтримка", act);
+  }
   return s;
 }
 async function supportLog(env, who, act) {
   await env.DB.prepare(`INSERT INTO support_log (company_id,at,who,act) VALUES (${env.CID},?,?,?)`)
-    .bind(new Date().toISOString(), String(who).slice(0, 60), String(act).slice(0, 200)).run();
+    .bind(new Date().toISOString(), String(who).slice(0, 60), String(act).slice(0, SUPPORT_ACT_MAX)).run();
+}
+/* Що саме змінила підтримка: розділ або поле і, де можна, «було → стало». Рахує СЕРВЕР — з тіла
+   запиту проти того, що зараз лежить у базі. Опис від клієнта тут не годиться: клієнт і є та
+   людина, чию роботу журнал записує. Наступний стан рахує ТОЙ САМИЙ код, яким його запише
+   обробник (siteCmsNext і siteCmsRefusal, svcStore, svcNew): копія колись почала б розповідати
+   не те, що лежить у базі. Формат один: "<заголовок>: <що>; <що>; …", до 1000 знаків.
+   /admin/site-image свідомо не розбираємо: там мегабайти base64, а на Workers Free ~10 мс CPU.
+   Новий слот однаково з'являється в наступному site-save — як «замінив фото <слот>».
+   Персональних даних ці ручки не несуть; tg_bot, токени фото і id у запис не потрапляють. */
+const SUPPORT_ACT_MAX = 1000, SUPPORT_VAL_MAX = 70, SUPPORT_CTX = 20, SUPPORT_CELLS = 5, SUPPORT_TABLE_MAX = 20000;
+const SUPPORT_DETAIL = {
+  "POST /admin/settings-save": supDetailSettings,
+  "POST /admin/site-save": supDetailSite,
+  "POST /admin/service-save": supDetailService,
+};
+// Підписи — ті самі, що бачить власниця у вікні «Нагадування» і на вкладці «Послуги» CRM.
+const SUP_SETTING_L = {
+  reminders_enabled: "Автоматичні нагадування", repeat_weeks: "Нагадувати про повторний візит через (тижнів)",
+  loyalty_enabled: "Програма лояльності", loyalty_every: "Винагорода кожен N-й візит", loyalty_reward: "Опис винагороди",
+  client_reminders_enabled: "Нагадування клієнтам", remind_hours_before: "Нагадати за (годин до візиту)",
+  note_gift: "Примітка про подарунок", note_big: "Примітка (виводиться після *)",
+};
+const SUP_SETTING_FLAGS = { reminders_enabled: 1, loyalty_enabled: 1, client_reminders_enabled: 1 };   // воркер читає їх як === "1"
+const SUP_SVC_L = { name: "назва", species: "вид", duration: "тривалість, хв", is_request: "заявка (без слоту)",
+  bookable: "у формі запису", active: "активна (на сайті)", sort: "порядок", price_type: "тип ціни", price: "ціна",
+  unit: "одиниця", note: "опис / примітка" };
+const SUP_SPECIES_L = { both: "Всі", dog: "Собаки", cat: "Коти" };
+const SUP_PTYPE_L = { flat: "Фіксована", breed: "За породою + вага", addon: "Допи", options: "Список варіантів", table: "Таблиця" };
+const SUP_ROLE_L = { "": "—", info: "довідкова", label: "назва / порода", weight: "вага", price: "ціна",
+  "price:base": "ціна: базовий рівень", "price:top": "ціна: вищий рівень", duration: "час" };
+const supNorm = v => String(v == null ? "" : v).replace(/\s+/g, " ").trim();
+// Значення — в один рядок і обрізане. «» і [] — знаки самого журналу: у тексті, який набрала
+// підтримка, вони склали б у CRM ще один «запис», якого не було. Тому всередині значень — ‹› і ［］.
+function supShort(v, max) {
+  const s = supNorm(v).replace(/«/g, "‹").replace(/»/g, "›").replace(/\[/g, "［").replace(/\]/g, "］");
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max - 1);   // не розрізати емодзі навпіл
+  return (/[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut) + "…";
+}
+function supVal(v) { const s = supShort(v, SUPPORT_VAL_MAX); return s ? "«" + s + "»" : "порожньо"; }
+// «було» → «стало». Довге значення показуємо з того місця, де воно розходиться: інакше правка після
+// 70-го знака дала б «однакове…» → «однакове…», і що саме змінено, не побачив би ніхто.
+function supPair(a, z) {
+  const A = supNorm(a), Z = supNorm(z);
+  let f = 0;
+  if (A.length > SUPPORT_VAL_MAX || Z.length > SUPPORT_VAL_MAX) {
+    let p = 0; while (p < A.length && p < Z.length && A[p] === Z[p]) p++;
+    if (p > SUPPORT_CTX) { f = p - SUPPORT_CTX; if (/[\uDC00-\uDFFF]/.test(A[f])) f--; }
+  }
+  const v = S => { const s = supShort(S.slice(f), SUPPORT_VAL_MAX - (f ? 1 : 0)); return s ? "«" + (f ? "…" : "") + s + "»" : "порожньо"; };
+  return v(A) + " → " + v(Z);
+}
+function supMany(n, one, few, many) {
+  const t = n % 10, h = n % 100;
+  return n + " " + (t === 1 && h !== 11 ? one : t >= 2 && t <= 4 && (h < 12 || h > 14) ? few : many);
+}
+/* Частина запису: { t: "що → як", w: "де" (поле, ключ, клітинка), ws: правка лише в пробілах }.
+   t === null — лише місце, без «було → стало» (клітинки таблиці після п'ятої).
+   "<заголовок>: <lead><t>; <t>; …" — ніколи не довше за SUPPORT_ACT_MAX. Правки лише в пробілах ідуть
+   у кінець. Що не вмістилося повністю, не зникає в «і ще N»: його місце однаково назване. Порядок
+   правок задає той, чию роботу записуємо, — без цього десяток дрібних правок попереду сховав би
+   одну справжню. */
+function supJoin(head, parts, lead) {
+  const pre = head + ": " + (lead || "");
+  if (!parts.length) return pre + "(без змін)";
+  const ps = parts.filter(p => !p.ws).concat(parts.filter(p => p.ws)), n = ps.length;
+  if (ps.every(p => p.t != null)) { const all = pre + ps.map(p => p.t).join("; "); if (all.length <= SUPPORT_ACT_MAX) return all; }
+  const sufW = new Array(n + 1).fill(0);   // довжина списку місць від i-ї частини до кінця, з ", "
+  for (let i = n - 1; i >= 0; i--) sufW[i] = sufW[i + 1] + ps[i].w.length + 2;
+  const more = k => "і ще " + supMany(n - k, "зміна", "зміни", "змін") + ": ";
+  let k = 0, len = pre.length;
+  while (k < n - 1 && ps[k].t != null && len + ps[k].t.length + 2 + more(k + 1).length + sufW[k + 1] - 2 <= SUPPORT_ACT_MAX) { len += ps[k].t.length + 2; k++; }
+  let out = pre + ps.slice(0, k).map(p => p.t + "; ").join("") + more(k);
+  for (let i = k; i < n; i++) {
+    const add = (i > k ? ", " : "") + ps[i].w;
+    if (out.length + add.length + (i < n - 1 ? 3 : 0) > SUPPORT_ACT_MAX) return out + (i > k ? ", …" : "…");
+    out += add;
+  }
+  return out;
+}
+// Тільки ключі зі списку settingsSave, які є в тілі й справді відрізняються від збереженого.
+function supDetailSettings(env, b, st, head) {
+  if (!b || typeof b !== "object") return head;
+  const parts = [];
+  for (const k of SETTINGS_SAVE_KEYS) {
+    if (b[k] == null) continue;
+    const L = SUP_SETTING_L[k] || k, a = st[k] == null ? "" : String(st[k]), z = String(b[k]);
+    if (a === z) continue;
+    if (SUP_SETTING_FLAGS[k]) {
+      const fa = a === "1" ? "увімкнено" : "вимкнено", fz = z === "1" ? "увімкнено" : "вимкнено";
+      if (fa !== fz) parts.push({ t: L + ": " + fa + " → " + fz, w: L });
+    } else if (supNorm(a) === supNorm(z)) parts.push({ t: L + ": змінено лише пробіли", w: L, ws: true });
+    else parts.push({ t: L + ": " + supPair(a, z), w: L });
+  }
+  return supJoin(head, parts);
+}
+// Наступний стан рахує siteCmsNext — той самий код, яким його запише siteSave. Ключі сайту
+// пишемо в [дужках]: CRM, коли вже прочитала розмітку сайту, показує замість них назви.
+async function supDetailSite(env, b, st, head) {
+  if (!b || typeof b !== "object") return head;
+  const cur = await loadSiteCms(env), next = siteCmsNext(b, cur);
+  // Збереження, яке siteSave однаково відхилить, — не «було → стало», а спроба. І рахувати
+  // різницю для стану понад 64 КБ немає сенсу: це лише спалило б CPU запиту.
+  const why = siteCmsRefusal(next, cur);
+  if (why) return head + ": не збережено — " + why;
+  const parts = [], own = (o, k) => Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined;
+  const flip = (was, now, what) => {
+    const W = new Set(was), N = new Set(now);
+    now.forEach(x => { if (!W.has(x)) parts.push({ t: "приховав " + what + " [" + x + "]", w: "[" + x + "]" }); });
+    was.forEach(x => { if (!N.has(x)) parts.push({ t: "показав " + what + " [" + x + "]", w: "[" + x + "]" }); });
+  };
+  flip(cur.hidden, next.hidden, "розділ");
+  flip(cur.hiddenText, next.hiddenText, "рядок");
+  const union = (a, z) => { const ks = Object.keys(a), seen = new Set(ks); Object.keys(z).forEach(k => { if (!seen.has(k)) ks.push(k); }); return ks; };
+  for (const k of union(cur.texts, next.texts)) {
+    const a = own(cur.texts, k), z = own(next.texts, k), w = "[" + k + "]";
+    if (a === z) continue;
+    if (a == null) parts.push({ t: "текст " + w + ": стандартний текст → " + supVal(z), w });
+    else if (z == null) parts.push({ t: "текст " + w + ": повернуто стандартний текст (було " + supVal(a) + ")", w });
+    else if (supNorm(a) === supNorm(z)) parts.push({ t: "текст " + w + ": змінено лише пробіли", w, ws: true });
+    else parts.push({ t: "текст " + w + ": " + supPair(a, z), w });
+  }
+  for (const k of union(cur.images, next.images)) {
+    const a = own(cur.images, k), z = own(next.images, k), w = "фото [" + k + "]";
+    if (!a) { parts.push({ t: "замінив фото [" + k + "] (було стандартне)", w }); continue; }
+    if (!z) { parts.push({ t: "прибрав фото [" + k + "] — повернуто стандартне", w }); continue; }
+    if (a.id !== z.id || a.token !== z.token) parts.push({ t: "замінив фото [" + k + "]", w });
+    else if (["pos", "w", "h", "tw", "th"].some(f => (a[f] || "") !== (z[f] || ""))) parts.push({ t: "змінив кадрування фото [" + k + "]", w });
+    if ((a.alt || "") !== (z.alt || "")) parts.push({ t: "підпис фото [" + k + "]: " + supPair(a.alt, z.alt), w });
+  }
+  return supJoin(head, parts);
+}
+const supYN = v => v ? "так" : "ні";
+async function supDetailService(env, b, st, head) {
+  if (!b || typeof b !== "object") return head;
+  // Запит, який serviceSave відхилить (таблиця не того вигляду), так і записуємо: не збережено.
+  const refused = e => { if (e && e.status === 400) return head + ": не збережено — " + e.message; throw e; };
+  // Дві послуги з однією назвою — не дрібниця: запис і ціну бере та, що вище в списку (serviceInfo).
+  const twin = async (name, id) => !!(await env.DB.prepare(`SELECT 1 AS x FROM services WHERE name=? AND id IS NOT ?`).bind(String(name), id == null ? null : id).first());
+  if (!b.id) {
+    if (!b.name) return head + ": не збережено — немає назви";
+    let s; try { s = migrateBreedService(svcRow(svcZip(svcBind(svcNew(b))))); } catch (e) { return refused(e); }
+    const L = SUP_SVC_L, parts = [{ t: "додав послугу " + supVal(s.name) + (await twin(s.name, null) ? " (послуга з такою назвою вже є)" : ""), w: "нова послуга" }];
+    const f = (k, v) => parts.push({ t: L[k] + ": " + v, w: L[k] });
+    f("species", supVal(SUP_SPECIES_L[s.species] || s.species)); f("duration", supVal(s.duration));
+    f("price_type", supVal(SUP_PTYPE_L[s.price_type] || s.price_type));
+    if (s.price !== "") f("price", supVal(s.price));
+    if (s.unit !== "₴") f("unit", supVal(s.unit));
+    f("active", supYN(s.active)); f("bookable", supYN(s.bookable)); f("is_request", supYN(s.is_request)); f("sort", supVal(s.sort));
+    if (s.note) f("note", supVal(s.note));
+    if (s.rows.length || s.columns.length) parts.push({ t: "таблиця цін: " + supMany(s.rows.length, "рядок", "рядки", "рядків") +
+      ", колонки " + supVal(s.columns.map(x => x == null ? "" : String(x)).join(" | ")), w: "таблиця цін" });
+    return supJoin(head, parts);
+  }
+  const row = await env.DB.prepare(`SELECT * FROM services WHERE id=?`).bind(b.id).first();
+  if (!row) return head + ": послуга №" + supShort(b.id, 12) + " (не знайдена)";
+  const upd = {};
+  try { for (const k of SVC_COLS) if (b[k] != null) upd[k] = svcStore(k, b[k]); } catch (e) { return refused(e); }
+  // Обидві сторони — як їх прочитає loadServices (svcRow + migrateBreedService), тобто як побачать
+  // CRM, сайт і розрахунок ціни. Стара дво-колонкова порода так не дає «змін» без жодної правки,
+  // а "0x0" в прапорці — не «без змін», бо svcStore запише саме те, що тут описано.
+  const s = migrateBreedService(svcRow(row)), t = migrateBreedService(svcRow(Object.assign({}, row, upd))), parts = [];
+  for (const k of SVC_COLS) {
+    if (SVC_TABLE[k]) continue;
+    const L = SUP_SVC_L[k];
+    if (SVC_FLAGS[k]) { if (s[k] !== t[k]) parts.push({ t: L + ": " + supYN(s[k]) + " → " + supYN(t[k]), w: L }); continue; }
+    let a = s[k] == null ? "" : String(s[k]), z = t[k] == null ? "" : String(t[k]);
+    if (a === z) continue;
+    if (k === "species") { a = SUP_SPECIES_L[a] || a; z = SUP_SPECIES_L[z] || z; }
+    if (k === "price_type") { a = SUP_PTYPE_L[a] || a; z = SUP_PTYPE_L[z] || z; }
+    const ws = supNorm(a) === supNorm(z);
+    let txt = L + ": " + (ws ? "змінено лише пробіли" : supPair(a, z));
+    if (k === "name" && await twin(t.name, row.id)) txt += " (послуга з такою назвою вже є)";
+    parts.push({ t: txt, w: L, ws });
+  }
+  // Таблиця: перші п'ять правок повністю, решта — лише місцем (клітинкою), але кожна названа.
+  const cells = supTableDiff(s, t), ordered = cells.filter(c => !c.ws).concat(cells.filter(c => c.ws));
+  ordered.forEach((c, i) => { if (i >= SUPPORT_CELLS) c.t = null; });
+  return supJoin(head, parts.concat(ordered), supVal(s.name) + " — ");
+}
+/* Таблиця цін — по клітинках: «рядок / колонка»: було → стало. s і t — як було і як стане, обидва
+   так, як їх читає loadServices. Колонки зіставляємо за назвою (якщо вона унікальна), інакше за
+   місцем. Рядки — в чотири проходи:
+   1) рядок, у якому нічого не змінилося, — до свого двійника: вставка, видалення і перестановка
+      не породжують фальшивих правок;
+   2) назва + вага: у породному прайсі одна порода стоїть кількома рядками, по рядку на вагу;
+   3) сама назва;  4) те саме місце і хоч одна інша клітинка та сама — рядок, якому змінили назву.
+   Решта — «прибрав рядок» і «додав рядок», так воно й було.
+   Порядок теж має вагу: без ролей ціну код бере з ОСТАННЬОЇ клітинки, породу — з першої, а з двох
+   однакових рядків — перший. Тож перестановка колонок чи рядків — теж запис, хоч цифри ті самі.
+   Клітинки поза заголовками (рядок довший за колонки) теж порівнюємо: остання з них — це ціна. */
+function supTableDiff(s, t) {
+  const str = x => String(x == null ? "" : x), arr = v => Array.isArray(v) ? v : [];
+  const ca = arr(s.columns).map(str), cz = arr(t.columns).map(str), qa = arr(s.col_roles).map(str), qz = arr(t.col_roles).map(str);
+  const ra = arr(s.rows).map(arr), rz = arr(t.rows).map(arr), out = [];
+  const add = (txt, w, ws) => { out.push({ t: txt, w, ws: !!ws }); };
+  const count = l => l.reduce((m, x) => m.set(x, (m.get(x) || 0) + 1), new Map()), na = count(ca), nz = count(cz), first = new Map();
+  ca.forEach((c, i) => { if (!first.has(c)) first.set(c, i); });
+  const cmap = cz.map(c => (c && na.get(c) === 1 && nz.get(c) === 1) ? first.get(c) : -1), usedC = new Set(cmap.filter(i => i >= 0));
+  cmap.forEach((i, j) => { if (i < 0 && j < ca.length && !usedC.has(j)) { cmap[j] = j; usedC.add(j); } });
+  // Ширина: колонки плюс клітинки (і ролі) поза ними — ті зіставляються за місцем від кінця заголовків.
+  const beyond = (rows, cols, q) => rows.reduce((m, r) => Math.max(m, r.length), q.length) - cols.length;
+  const W = cz.length + Math.max(0, beyond(ra, ca, qa), beyond(rz, cz, qz));
+  const jm = j => j < cz.length ? cmap[j] : ca.length + j - cz.length;
+  const colName = j => supShort(j < cz.length && cz[j] ? cz[j] : "клітинка " + (j + 1), 30);
+  const role = r => SUP_ROLE_L[r] || supVal(r);
+  for (let j = 0; j < W; j++) {
+    const i = jm(j);
+    if (j < cz.length && i < 0) add("додав колонку " + supVal(cz[j]), "колонки");
+    else if (j < cz.length && ca[i] !== cz[j]) add("колонка " + (supNorm(ca[i]) === supNorm(cz[j]) ? supVal(cz[j]) + ": змінено лише пробіли" : supPair(ca[i], cz[j])), "колонки", supNorm(ca[i]) === supNorm(cz[j]));
+    const ro = i < 0 ? "" : (qa[i] || ""), rn = qz[j] || "";
+    if (ro !== rn) add("роль колонки «" + colName(j) + "»: " + role(ro) + " → " + role(rn), "ролі колонок");
+  }
+  ca.forEach((c, i) => { if (!usedC.has(i)) add("прибрав колонку " + supVal(c), "колонки"); });
+  const kept = cmap.filter(i => i >= 0);
+  if (kept.some((i, k) => k && i < kept[k - 1])) add("змінив порядок колонок: " + supVal(ca.join(" | ")) + " → " + supVal(cz.join(" | ")), "порядок колонок");
+  if (t.price_type === "breed" || t.price_type === "addon") {
+    // допи (loadAddonItems) беруть останню клітинку завжди, порода — коли колонок ціни ролі не названо
+    const last = (svc, q, cols) => (svc.price_type === "addon" || !priceColumns(q).length) ? cols.length - 1 : -1;
+    const pa = last(s, qa, ca), pz = last(t, qz, cz);
+    if (pa >= 0 && pz >= 0 && cmap[pz] !== pa) add("ціну тепер бере з колонки " + supVal(cz[pz]) + ", а не " + supVal(ca[pa]), "колонка ціни");
+    if (ca.length && cz.length && cmap[0] !== 0) add("породу / назву рядка тепер бере з колонки " + supVal(cz[0]) + ", а не " + supVal(ca[0]), "перша колонка");
+  }
+  // Таблиця на десятки тисяч клітинок — це не прайс салону, і порівнювати її по клітинках — спалити
+  // весь CPU запиту. Пишемо, що вона така, — це вже помітно.
+  if ((ra.length + rz.length) * Math.max(W, 1) > SUPPORT_TABLE_MAX) {
+    add("таблиця цін: було " + supMany(ra.length, "рядок", "рядки", "рядків") + ", стане " + supMany(rz.length, "рядок", "рядки", "рядків") +
+      " — завелика, щоб порівняти по клітинках", "таблиця цін");
+    return out;
+  }
+  const nk = x => supNorm(x).toLowerCase();
+  const lA = Math.max(0, roleAt(qa, "label")), lZ = Math.max(0, roleAt(qz, "label"));
+  const wA = s.price_type === "breed" ? weightIdx(s) : -1, wZ = t.price_type === "breed" ? weightIdx(t) : -1;
+  const oldCell = (o, j) => { const i = jm(j); return i < 0 ? "" : str(o[i]); };
+  const sig = get => { const c = []; for (let j = 0; j < W; j++) c.push(get(j)); while (c.length && c[c.length - 1] === "") c.pop(); return JSON.stringify(c); };
+  const rmap = rz.map(() => -1), usedR = new Set();
+  const pass = (keyA, keyZ) => {   // вільні рядки з однаковим ключем — попарно, по порядку
+    const m = new Map();
+    ra.forEach((o, i) => { if (!usedR.has(i)) { const k = keyA(o), e = m.get(k); e ? e.q.push(i) : m.set(k, { q: [i], p: 0 }); } });
+    rz.forEach((r, j) => { if (rmap[j] < 0) { const e = m.get(keyZ(r)); if (e && e.p < e.q.length) { rmap[j] = e.q[e.p++]; usedR.add(rmap[j]); } } });
+  };
+  pass(o => sig(j => oldCell(o, j)), r => sig(j => str(r[j])));
+  if (wA >= 0 && wZ >= 0) pass(o => nk(o[lA]) + "\u0000" + nk(o[wA]), r => nk(r[lZ]) + "\u0000" + nk(r[wZ]));
+  pass(o => nk(o[lA]), r => nk(r[lZ]));
+  const kin = (o, r) => cmap.some((i, j) => i >= 0 && j !== lZ && str(o[i]).trim() !== "" && str(o[i]) === str(r[j]));
+  rz.forEach((r, j) => { if (rmap[j] < 0 && j < ra.length && !usedR.has(j) && kin(ra[j], r)) { rmap[j] = j; usedR.add(j); } });
+  const rowName = (r, li, wi) => supShort([r[li], wi >= 0 ? r[wi] : ""].map(str).filter(x => x.trim()).join(" "), 40);
+  const whole = r => r.map(str).filter(x => x.trim()).join(" / ");
+  rz.forEach((r, j) => {
+    const i = rmap[j];
+    if (i < 0) { add("додав рядок " + supVal(whole(r)), "рядок " + supVal(rowName(r, lZ, wZ) || whole(r))); return; }
+    const o = ra[i], name = rowName(r, lZ, wZ) || rowName(o, lA, wA) || "рядок " + (j + 1);
+    for (let c = 0; c < W; c++) {
+      const was = oldCell(o, c), now = str(r[c]);
+      if (was === now) continue;
+      const where = "«" + name + " / " + colName(c) + "»", ws = supNorm(was) === supNorm(now);
+      add(where + ": " + (ws ? "змінено лише пробіли" : supPair(was, now)), where, ws);
+    }
+  });
+  ra.forEach((o, i) => { if (!usedR.has(i)) add("прибрав рядок " + supVal(whole(o)), "рядок " + supVal(rowName(o, lA, wA) || whole(o))); });
+  const keptR = rmap.filter(i => i >= 0);
+  if (keptR.some((i, k) => k && i < keptR[k - 1])) add("змінив порядок рядків", "порядок рядків");
+  return out;
 }
 async function setSetting(env, key, value) {
   await env.DB.prepare(`INSERT INTO settings (company_id,key,value) VALUES (${env.CID},?,?) ON CONFLICT(company_id,key) DO UPDATE SET value=?`)
@@ -2371,6 +2643,34 @@ async function publicCatalog(env) {
   return { ok: true, services, notes: { gift: st.note_gift || "", big: st.note_big || "" } };
 }
 async function adminServices(request, env) { await requireAdmin(request, env); return { ok: true, services: await loadServices(env) }; }
+/* Що serviceSave записує в колонку — і, слово в слово, що журнал підтримки каже, ніби записано.
+   Раніше значення йшло в D1 як прийшло, а вирішувала спорідненість колонок SQLite: "0x0" чи " 0"
+   лишалися ТЕКСТОМ у колонці INTEGER, svcRow читав їх як «так», і прихована послуга виходила на
+   сайт. col_roles ішов сирим масивом, якого D1 не приймає: збереження послуги з ролями колонок
+   закінчувалося 500. Таблиця — лише масив (рядки — масиви) простих значень: рядок-об'єкт
+   {"0":…,"length":3} код прочитав би як рядок прайсу, а порівняти його не зміг би ніхто. */
+const SVC_FLAGS = { is_request: 1, bookable: 1, active: 1 }, SVC_TABLE = { columns: 1, rows: 1, col_roles: 1 };
+function svcOn(v) { if (typeof v !== "string") return !!v; const t = v.trim(); return t !== "" && !(isFinite(+t) && +t === 0); }
+function svcBad(msg) { const e = new Error(msg); e.status = 400; return e; }
+function svcTable(f, v) {
+  const a = typeof v === "string" ? jparse(v, null) : v, plain = x => x == null || typeof x !== "object";
+  if (!Array.isArray(a) || !a.every(f === "rows" ? r => Array.isArray(r) && r.every(plain) : plain)) throw svcBad("Таблиця цін має неправильний формат");
+  return a;
+}
+function svcStore(f, v) {
+  if (SVC_TABLE[f]) return JSON.stringify(svcTable(f, v));
+  if (typeof v === "object") throw svcBad("bad request");                  // null сюди не доходить
+  if (SVC_FLAGS[f]) return svcOn(v) ? 1 : 0;
+  if (f === "duration" || f === "sort") { const n = +v; return Number.isFinite(n) ? n : 0; }
+  return String(v);
+}
+// Нова послуга такою, як її вставить serviceSave (далі — svcBind): таблиці перевірені і вже масиви.
+function svcNew(b) {
+  const t = Object.assign({}, b);
+  for (const f of Object.keys(SVC_TABLE)) if (b[f] != null) t[f] = svcTable(f, b[f]);
+  return t;
+}
+const svcZip = vals => Object.fromEntries(SVC_COLS.map((f, i) => [f, vals[i]]));
 async function serviceSave(request, env) {
   await requireAdmin(request, env);
   const b = await request.json();
@@ -2379,13 +2679,13 @@ async function serviceSave(request, env) {
     for (const f of SVC_COLS) {
       if (b[f] == null) continue;
       sets.push(`${f}=?`);
-      vals.push((f === "columns" || f === "rows") ? (typeof b[f] === "string" ? b[f] : JSON.stringify(b[f])) : b[f]);
+      vals.push(svcStore(f, b[f]));
     }
     if (sets.length) { vals.push(b.id); await env.DB.prepare(`UPDATE services SET ${sets.join(",")} WHERE id=?`).bind(...vals).run(); }
     return { ok: true, id: b.id };
   }
   if (!b.name) return { ok: false, error: "name required" };
-  const r = await env.DB.prepare(`INSERT INTO services (${SVC_COLS.join(",")}) VALUES (${SVC_COLS.map(() => "?").join(",")})`).bind(...svcBind(b)).run();
+  const r = await env.DB.prepare(`INSERT INTO services (${SVC_COLS.join(",")}) VALUES (${SVC_COLS.map(() => "?").join(",")})`).bind(...svcBind(svcNew(b))).run();
   return { ok: true, id: r.meta && r.meta.last_row_id };
 }
 async function serviceDelete(request, env) {
@@ -2444,10 +2744,12 @@ async function adminSettings(request, env) {
   await requireAdmin(request, env);
   return { ok: true, settings: await loadSettings(env) };
 }
+// Що CRM може змінити в settings. Окремою константою, бо по ній же журнал підтримки рахує «було → стало».
+const SETTINGS_SAVE_KEYS = ["reminders_enabled", "repeat_weeks", "note_gift", "note_big", "loyalty_enabled", "loyalty_every", "loyalty_reward", "client_reminders_enabled", "remind_hours_before"];
 async function settingsSave(request, env) {
   await requireAdmin(request, env);
   const b = await request.json();
-  for (const k of ["reminders_enabled", "repeat_weeks", "note_gift", "note_big", "loyalty_enabled", "loyalty_every", "loyalty_reward", "client_reminders_enabled", "remind_hours_before"]) {
+  for (const k of SETTINGS_SAVE_KEYS) {
     if (b[k] != null) await env.DB.prepare(`INSERT INTO settings (company_id,key,value) VALUES (${env.CID},?,?) ON CONFLICT(company_id,key) DO UPDATE SET value=?`).bind(k, String(b[k]), String(b[k])).run();
   }
   return { ok: true, settings: await loadSettings(env) };
@@ -2522,23 +2824,33 @@ async function publicSite(env, origin) {
   }
   return { ok: true, hidden: c.hidden, hiddenText: c.hiddenText, texts: c.texts, images };
 }
+// What siteSave is about to store. A function of its own because the support journal computes its
+// «було → стало» with this very code — a copy of it would one day start telling a different story.
+// Texts are replaced wholesale (the editor always sends them all), photos are MERGED: a second tab,
+// or a CRM page that parsed an older index.html, must not drop a slot it never knew about.
+// Clearing a photo is explicit — the editor names the slot in the remove list.
+function siteCmsNext(b, cur) {
+  const next = normalizeSiteCms(b, cur);
+  next.images = Object.assign({}, cur.images || {}, next.images);
+  (Array.isArray(b.remove) ? b.remove : []).forEach(k => { if (CMS_KEY_RE.test(String(k))) delete next.images[String(k)]; });
+  return next;
+}
+// Why siteSave would refuse that next state, or "" when it would not. The support journal asks the same
+// function, so it never records a «було → стало» for a save that did not happen.
+function siteCmsRefusal(next, cur) {
+  if (Object.keys(next.images).length > SITE_IMG_SLOTS) return "Забагато фото";
+  const size = new TextEncoder().encode(JSON.stringify(next)).length;   // bytes, not UTF-16 units — Cyrillic costs double
+  if (size > SITE_CMS_MAX && size >= new TextEncoder().encode(JSON.stringify(cur)).length) return "Занадто багато тексту (ліміт 64 КБ)";   // a save that shrinks it always passes
+  return "";
+}
 async function siteSave(request, env) {
   await requireAdmin(request, env);
   const b = await request.json().catch(() => null);
   if (!b || typeof b !== "object") { const e = new Error("bad request"); e.status = 400; throw e; }
   const cur = await loadSiteCms(env);
-  const next = normalizeSiteCms(b, cur);
-  // Texts are replaced wholesale (the editor always sends them all), photos are MERGED: a second tab,
-  // or a CRM page that parsed an older index.html, must not drop a slot it never knew about.
-  // Clearing a photo is explicit — the editor names the slot in the remove list.
-  next.images = Object.assign({}, cur.images || {}, next.images);
-  (Array.isArray(b.remove) ? b.remove : []).forEach(k => { if (CMS_KEY_RE.test(String(k))) delete next.images[String(k)]; });
-  if (Object.keys(next.images).length > SITE_IMG_SLOTS) { const e = new Error("Забагато фото"); e.status = 413; throw e; }
+  const next = siteCmsNext(b, cur), why = siteCmsRefusal(next, cur);
+  if (why) { const e = new Error(why); e.status = 413; throw e; }
   const raw = JSON.stringify(next), prev = JSON.stringify(cur);
-  const size = new TextEncoder().encode(raw).length;   // bytes, not UTF-16 units — Cyrillic costs double
-  if (size > SITE_CMS_MAX && size >= new TextEncoder().encode(prev).length) {
-    const e = new Error("Занадто багато тексту (ліміт 64 КБ)"); e.status = 413; throw e;   // a save that shrinks it always passes
-  }
   await env.DB.prepare(`INSERT INTO settings (company_id,key,value) VALUES (${env.CID},'site_cms_prev',?) ON CONFLICT(company_id,key) DO UPDATE SET value=?`).bind(prev, prev).run();
   await env.DB.prepare(`INSERT INTO settings (company_id,key,value) VALUES (${env.CID},'site_cms',?) ON CONFLICT(company_id,key) DO UPDATE SET value=?`).bind(raw, raw).run();
   await siteMediaMark(env, next.images);

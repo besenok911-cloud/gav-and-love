@@ -954,7 +954,7 @@
     <div id="sup-rel" style="max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:12px"></div>
 
     <h3 style="margin:18px 0 8px;font-size:.95rem">Що робила підтримка</h3>
-    <div id="sup-log" style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:12px"></div>
+    <div id="sup-log" style="max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:12px"></div>
     <div class="sheet-act"><span style="flex:1"></span><button class="btn ghost sm" id="sup-close-modal" style="border-color:var(--line);color:var(--ink-soft)">Закрити</button></div>
   </div>
 </div>
@@ -1120,6 +1120,9 @@
     // header identity + owner-only controls
     $("#whoami").hidden=false;$("#whoami").textContent=(userName||"")+" · "+(ROLE_L[userRole]||userRole);
     $("#usersBtn").hidden=!isOwner();
+    // Вкладки, сховані для підтримки, повертаємо: інакше власниця, що увійшла в тій самій вкладці
+    // браузера після підтримки, бачила б лише «Сайт» і «Послуги» до перезавантаження.
+    [].forEach.call(document.querySelectorAll(".tabbtn"),function(b){b.style.display="";});
     // Фінанси — owner only
     var finBtn=document.querySelector('.tabbtn[data-view="finance"]');if(finBtn)finBtn.style.display=isOwner()?"":"none";
     if(!isOwner()&&view==="finance")view="dash";
@@ -1265,13 +1268,42 @@
     $("#sup-readonly").textContent="Бачить, але не змінює: "+((supState&&supState.prices)?"":"прайс, ")+"графік майстрів, стан системи.";
     $("#supErr").textContent=open?"Доступ відкрито до "+supWhen(supState.until)+". Закрити можна в будь-який момент — кнопкою в жовтій смузі вгорі.":"";
     renderReleases();
+    renderSupLog();
+  }
+  function renderSupLog(){
     var log=(supState&&supState.log)||[];
     $("#sup-log").innerHTML=log.length?log.map(function(r){
-      return '<div style="display:flex;gap:10px;padding:.5em .8em;border-bottom:1px solid var(--line);font-size:.85rem">'+
+      return '<div style="display:flex;flex-wrap:wrap;gap:2px 10px;padding:.5em .8em;border-bottom:1px solid var(--line);font-size:.85rem">'+
         '<span class="muted" style="flex:0 0 96px">'+esc(supWhen(r.at))+'</span>'+
         '<span style="flex:0 0 auto;font-weight:700">'+esc(r.who)+'</span>'+
-        '<span style="flex:1">'+esc(r.act)+'</span></div>';}).join(""):
+        '<span style="flex:1 1 220px;min-width:0;overflow-wrap:anywhere;word-break:break-word">'+supActHtml(r.act)+'</span></div>';}).join(""):
       '<p class="nodata" style="padding:14px">Підтримка ще нічого не робила.</p>';
+    // Назви розділів живуть у розмітці сайту; якщо вкладку «Сайт» ще не відкривали — прочитати її раз.
+    if(!SITE.sections.length&&!supSiteFetch&&log.some(function(r){return /\[[\w.-]+\]/.test(r.act||"");})){
+      supSiteFetch=fetch("index.html",{cache:"no-store"}).then(function(x){if(!x.ok)throw new Error("index");return x.text();})
+        .then(function(page){if(!SITE.sections.length)siteCollect(new DOMParser().parseFromString(page,"text/html"));
+          if($("#supModal").classList.contains("open"))renderSupLog();})
+        .catch(function(){});
+    }
+  }
+  /* Запис журналу: «що зроблено: що саме; що саме; …». Що саме — другим, тихішим рядком.
+     Ключі сайту воркер пише в [дужках]; коли розмітка сайту прочитана, на їх місці назва, як у
+     редакторі сайту («Про нас · Цитата 1»), а сирий ключ — у підказці. Невідомий ключ лишається як є. */
+  var supSiteFetch=null;
+  function supKeyName(k){
+    var all=SITE.groups.concat(SITE.sections),i,j,s;
+    for(i=0;i<all.length;i++){s=all[i];
+      if(s.id===k)return s.title;
+      for(j=0;j<s.fields.length;j++)if(s.fields[j].key===k)return s.title+" · "+siteLabel(k);
+      for(j=0;j<(s.images||[]).length;j++)if(s.images[j].key===k)return s.title+" · "+siteLabel(k);
+    }
+    return "";
+  }
+  function supActHtml(act){
+    var a=String(act==null?"":act),i=a.indexOf(": ");
+    if(i<0)return esc(a);
+    var det=esc(a.slice(i+2)).replace(/\[([\w.-]{1,80})\]/g,function(m,k){var n=supKeyName(k);return n?'<b title="'+k+'">'+esc(n)+'</b>':m;});
+    return esc(a.slice(0,i))+'<div class="muted" style="font-size:.8rem;line-height:1.45;margin-top:2px">'+det+'</div>';
   }
   /* Історія випусків приходить ОКРЕМОЮ ручкою, а не полем у /admin/support: той стоїть у
      білому списку підтримки, і все, що в ньому лежить, підтримка бачить. */
