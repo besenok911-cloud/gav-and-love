@@ -296,7 +296,9 @@
       .then(function(r){return r.json();})
       .then(function(d){
         if(!d||!d.ok){$("#loginErr").textContent=(d&&d.error)||"Невірний логін або пароль.";return;}
-        if(d.role!=="master"){$("#loginErr").textContent="Цей акаунт не є майстром. Увійдіть у CRM.";return;}
+        // Власниця, адміністратор чи підтримка ввели логін тут — ведемо в CRM уже увійденими
+        // (ті самі ключі, що читає admin.html), а не відправляємо шукати іншу сторінку.
+        if(d.role!=="master"){try{localStorage.setItem("gavlove_admin_token",d.token);localStorage.setItem("gavlove_admin_token_role",d.role);localStorage.setItem("gavlove_admin_token_name",d.name||"");}catch(e){}location.replace("admin.html");return;}
         token=d.token;mustChange=d.must_change?1:0;try{localStorage.setItem(KEY,token);}catch(e){}
         load().then(function(dd){data=dd;showApp();if(mustChange)openPw(true);})
           .catch(function(){$("#loginErr").textContent="Не вдалося завантажити дані.";});

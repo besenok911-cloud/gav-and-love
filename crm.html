@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>GAV&LOVE · Вхід</title>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet" />
+<!--
+  Одна адреса для всіх: …/crm. Сторінка нічого не показує сама — вона лише впускає і веде далі:
+    власниця, адміністратор, підтримка → admin.html (CRM; що в ній видно, вирішує роль);
+    майстер → master.html (лише його записи і заробіток);
+    клієнт  → cabinet.html (його візити й улюбленці).
+  Токен кладеться в той самий ключ localStorage, який читає сторінка призначення, тож вона
+  відкривається вже увійденою. Воркер для цього не змінювався: ті самі /auth/* і /client/*.
+-->
+<style>
+  :root{
+    --bg:#faf7f2; --paper:#fff; --ink:#221a38; --ink-soft:#6d6484;
+    --violet:#361e96; --violet-d:#2b1878; --violet-soft:#ebe6fb;
+    --line:#e7e0d3; --bg-2:#f2ece2; --cancelled:#c0472b; --warn-bg:#fff7e6; --warn-line:#f3dfae;
+    --shadow:0 20px 44px -28px rgba(28,19,64,.4);
+    --font-head:"Playfair Display",Georgia,serif; --font-body:"Nunito",system-ui,sans-serif;
+  }
+  html[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#100d1f; --paper:#1b1540; --bg-2:#241d50; --ink:#efeaff; --ink-soft:#b7acdf;
+    --violet:#6d4fe0; --violet-d:#5a3fc4; --violet-soft:#2e2568; --line:#2a2358;
+    --cancelled:#f1705a; --warn-bg:#2b2340; --warn-line:#4a3d6e;
+    --shadow:0 24px 50px -34px rgba(0,0,0,.8);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+  body{margin:0;min-height:100vh;font-family:var(--font-body);color:var(--ink);background:var(--bg);line-height:1.5;
+    -webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:var(--violet)}
+  html[data-theme="dark"] a{color:#a78bff}
+  [hidden]{display:none!important}
+
+  .center{padding:6vh 16px 32px}
+  .card{max-width:400px;margin:0 auto;background:var(--paper);border:1px solid var(--line);border-radius:20px;
+    padding:28px 26px 22px;box-shadow:var(--shadow);text-align:center}
+  .logo{height:42px;width:auto;margin:0 auto 10px;display:block}
+  html[data-theme="dark"] .logo{filter:brightness(0) invert(1)}
+  h1{font-family:var(--font-head);font-weight:600;font-size:1.45rem;margin:0 0 16px}
+  .sub{color:var(--ink-soft);margin:0 0 16px;font-size:.9rem}
+
+  /* хто входить */
+  .seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--bg-2);border-radius:999px;padding:4px;margin:0 0 16px}
+  .seg button{border:0;background:transparent;color:var(--ink-soft);font:inherit;font-weight:800;font-size:.9rem;
+    padding:.55em .6em;border-radius:999px;cursor:pointer}
+  .seg button[aria-selected="true"]{background:var(--paper);color:var(--violet);box-shadow:0 2px 8px -4px rgba(28,19,64,.35)}
+  html[data-theme="dark"] .seg button[aria-selected="true"]{color:#fff;background:#30266e}
+
+  input{width:100%;padding:.8em 1em;border:1.5px solid var(--line);border-radius:12px;font-size:1rem;margin:0 0 12px;
+    font-family:var(--font-body);background:var(--paper);color:var(--ink)}
+  input:focus{outline:none;border-color:var(--violet)}
+  input.code{font-size:1.5rem;letter-spacing:.35em;font-weight:800;text-align:center}
+  .btn{display:block;width:100%;font-family:var(--font-body);font-weight:800;font-size:1rem;border:1.5px solid transparent;
+    border-radius:999px;padding:.85em 1em;cursor:pointer;background:var(--violet);color:#fff;text-decoration:none;text-align:center;line-height:1.25}
+  .btn:hover{background:var(--violet-d)}
+  a.btn,html[data-theme="dark"] a.btn{color:#fff}   /* інакше колір посилань темної теми перебиває білий текст кнопки */
+  .btn[disabled]{opacity:.6;cursor:default}
+  .btn.ghost{background:transparent;border-color:var(--line);color:var(--ink)}
+  .btn.ghost:hover{background:var(--bg-2)}
+  .lnk{background:none;border:0;padding:.3em .2em;margin:12px 6px 0;font:inherit;font-size:.86rem;font-weight:800;color:var(--violet);
+    cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+  html[data-theme="dark"] .lnk{color:#a78bff}
+  .err{color:var(--cancelled);font-weight:700;font-size:.88rem;min-height:1.2em;margin:8px 0 0}
+  .sent{background:var(--violet-soft);color:var(--violet-d);border-radius:12px;padding:10px 12px;font-size:.9rem;font-weight:700;margin:0 0 12px}
+  html[data-theme="dark"] .sent{color:#e3dcff}
+  .note{background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:12px;padding:12px 14px;margin-top:12px;
+    font-size:.86rem;text-align:left;line-height:1.45}
+  .note .btn{margin:10px 0 6px;font-size:.92rem;padding:.7em 1em}
+  .note p{margin:0 0 8px}
+  .note p:last-child{margin:0}
+
+  /* вже увійшли кількома акаунтами на цьому пристрої */
+  .pick{display:grid;gap:10px;margin:0 0 4px}
+  .pick button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;cursor:pointer;
+    border:1.5px solid var(--line);border-radius:14px;background:var(--paper);color:var(--ink);padding:12px 16px;font:inherit}
+  .pick button:hover{border-color:var(--violet)}
+  .pick b{font-size:1rem}
+  .pick span{color:var(--ink-soft);font-size:.86rem;font-weight:700}
+
+  .boot{color:var(--ink-soft);font-weight:700;padding:10px 0}
+  .foot{text-align:center;font-size:.82rem;padding:16px 0 0}
+  .foot a{font-weight:800;text-decoration:none}
+  :focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+  @media(max-width:420px){.card{padding:24px 18px 20px}}
+</style>
+<script>
+/* Та сама тема, що й у CRM (ключ спільний), і до першого кадру — без білого спалаху. */
+(function(){
+  var saved=null;try{saved=localStorage.getItem("gl_crm_theme");}catch(e){}
+  if(!saved&&window.matchMedia&&matchMedia("(prefers-color-scheme:dark)").matches)saved="dark";
+  document.documentElement.setAttribute("data-theme",saved==="dark"?"dark":"light");
+})();
+</script>
+</head>
+<body>
+<main class="center">
+  <div class="card">
+    <img class="logo" src="assets/brand/logo.svg" alt="GAV&amp;LOVE" width="460" height="130" />
+
+    <div id="bootView">
+      <h1>Вхід</h1>
+      <p class="boot" id="bootMsg">Перевіряємо вхід…</p>
+      <div id="bootErr" hidden>
+        <p class="err">Не вдалося з'єднатися із сервером.</p>
+        <button class="btn" type="button" id="bootRetry">Спробувати ще раз</button>
+        <button class="lnk" type="button" id="bootLogin">Увійти заново</button>
+      </div>
+    </div>
+
+    <div id="pickView" hidden>
+      <h1>Ви вже увійшли</h1>
+      <p class="sub">На цьому пристрої відкрито кілька входів. Куди перейти?</p>
+      <div class="pick" id="pickList"></div>
+      <button class="lnk" type="button" id="pickOther">Увійти іншим акаунтом</button>
+    </div>
+
+    <div id="loginView" hidden>
+      <h1>Вхід</h1>
+      <div class="seg" role="tablist" aria-label="Хто входить">
+        <button type="button" role="tab" id="tabClient" aria-controls="clientBox" aria-selected="true">Клієнт</button>
+        <button type="button" role="tab" id="tabStaff" aria-controls="staffBox" aria-selected="false">Команда салону</button>
+      </div>
+
+      <div id="clientBox" role="tabpanel" aria-labelledby="tabClient">
+        <p class="sub">Ваші візити, улюбленці та бонуси. Код для входу прийде в Telegram.</p>
+        <div id="stepPhone">
+          <input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="+380…" aria-label="Номер телефону" />
+          <button class="btn" type="button" id="otpBtn">Отримати код у Telegram</button>
+          <div class="note" id="needLink" hidden>
+            <p id="needLinkTxt"></p>
+            <a class="btn" id="botLink" href="https://t.me/GAV_and_LOVE_bot?start=cab" target="_blank" rel="noopener">Відкрити бота</a>
+            <p>У боті натисніть «📱 Поділитися номером», потім поверніться сюди й запросіть код ще раз.</p>
+          </div>
+        </div>
+        <div id="stepCode" hidden>
+          <div class="sent">Код надіслано в Telegram на <b id="sentTo"></b></div>
+          <input id="code" class="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" placeholder="······" aria-label="Код із Telegram" />
+          <button class="btn" type="button" id="verifyBtn">Увійти</button>
+          <button class="lnk" type="button" id="resendBtn">Надіслати код ще раз</button>
+          <button class="lnk" type="button" id="changePhone">Змінити номер</button>
+        </div>
+        <p class="err" id="clientErr" role="alert"></p>
+      </div>
+
+      <div id="staffBox" role="tabpanel" aria-labelledby="tabStaff" hidden>
+        <p class="sub">Власниця, адміністратори й майстри — кожен потрапить у свій розділ.</p>
+        <input type="text" id="user" placeholder="Логін" autocomplete="username" autocapitalize="off" spellcheck="false" aria-label="Логін" />
+        <input type="password" id="pass" placeholder="Пароль" autocomplete="current-password" aria-label="Пароль" />
+        <button class="btn" type="button" id="loginBtn">Увійти</button>
+        <p class="err" id="staffErr" role="alert"></p>
+        <button class="lnk" type="button" id="fpOpen" aria-expanded="false" aria-controls="fpBox">Забули пароль?</button>
+        <div class="note" id="fpBox" hidden>
+          <p>Майстрам і адміністраторам пароль скидає власниця: <b>👥 Доступи → 🔑</b> біля вашого логіна. З тимчасовим паролем увійдете й одразу задасте свій.</p>
+          <p>Власниця відновлює пароль сама — кодом у Telegram:</p>
+          <a class="btn" href="admin.html#forgot">Відновити пароль власниці</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><a href="index.html">← на сайт</a></div>
+</main>
+
+<script>
+(function(){
+  "use strict";
+  var API="https://gavlove-booking.besenok911.workers.dev";
+  // Ключі, які читають сторінки призначення. Змінюються лише разом із ними.
+  var K={admin:"gavlove_admin_token",master:"gavlove_master_token",client:"gavlove_client_token"};
+  var TAB="gl_entry_tab";
+  var ROLE_L={owner:"власниця",admin:"адміністратор",support:"підтримка",master:"майстер",client:"клієнт"};
+  var $=function(s){return document.querySelector(s);};
+  var NET_ERR="Помилка з'єднання. Спробуйте ще раз.";
+  var phone="";
+
+  function get(k){try{return localStorage.getItem(k)||"";}catch(e){return "";}}
+  function put(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+  function del(k){try{localStorage.removeItem(k);}catch(e){}}
+  function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c];});}
+  function show(v){$("#bootView").hidden=v!=="boot";$("#pickView").hidden=v!=="pick";$("#loginView").hidden=v!=="login";}
+  function busy(btn,on,txt){if(on){btn.dataset.t=btn.textContent;btn.disabled=true;btn.textContent=txt;}else if(btn.dataset.t){btn.disabled=false;btn.textContent=btn.dataset.t;delete btn.dataset.t;}}
+
+  /* ---------- куди веде кожна роль ---------- */
+  function dest(role){return role==="master"?"master.html":role==="client"?"cabinet.html":(role==="owner"||role==="admin"||role==="support")?"admin.html":"";}
+  function place(s){return s.role==="master"?"Кабінет майстра":s.role==="client"?"Кабінет клієнта":"CRM";}
+  /* Кладемо токен туди, де його шукає сторінка призначення, і йдемо. replace — щоб «Назад»
+     з CRM не повертав на цю проміжну сторінку, яка одразу ж перекине вперед. */
+  function go(s){
+    var page=dest(s.role);
+    if(!page){show("login");tab("staff");$("#staffErr").textContent="Для цього акаунта немає розділу. Зверніться до власниці.";return;}
+    var key=s.role==="master"?K.master:s.role==="client"?K.client:K.admin;
+    if(s.from&&s.from!==key)del(s.from);
+    put(key,s.token);
+    if(key===K.admin){put(K.admin+"_role",s.role);put(K.admin+"_name",s.name||"");}
+    location.replace(page);
+  }
+
+  /* ---------- уже увійдені сесії на цьому пристрої ----------
+     Кожен збережений токен перевіряємо в сервера. 401 — токен мертвий, прибираємо його, щоб
+     сторінки призначення не показували чужий старий вхід. Мережа впала — нічого не стираємо. */
+  function probe(key,path){
+    var t=get(key);if(!t)return Promise.resolve(null);
+    return fetch(API+path,{headers:{"Authorization":"Bearer "+t}}).then(function(r){
+      if(r.status===401){del(key);if(key===K.admin){del(K.admin+"_role");del(K.admin+"_name");}return null;}
+      return r.json().then(function(d){
+        if(!d||!d.ok)return null;
+        if(key===K.client)return {role:"client",token:t,from:key,name:(d.client&&d.client.name)||""};
+        return {role:d.role,token:t,from:key,name:d.name||""};
+      });
+    }).catch(function(){return {offline:true};});
+  }
+  function boot(){
+    var any=get(K.admin)||get(K.master)||get(K.client);
+    if(!any){show("login");return;}
+    show("boot");$("#bootMsg").hidden=false;$("#bootErr").hidden=true;
+    Promise.all([probe(K.admin,"/auth/me"),probe(K.master,"/auth/me"),probe(K.client,"/client/me")]).then(function(rs){
+      var live=[],seen={},offline=false;
+      rs.forEach(function(s){if(!s)return;if(s.offline){offline=true;return;}var p=dest(s.role);if(p&&!seen[p]){seen[p]=1;live.push(s);}});
+      if(live.length===1)return go(live[0]);
+      if(live.length>1)return pick(live);
+      if(offline){$("#bootMsg").hidden=true;$("#bootErr").hidden=false;return;}
+      show("login");
+    });
+  }
+  function pick(list){
+    $("#pickList").innerHTML=list.map(function(s,i){
+      return '<button type="button" data-i="'+i+'"><b>'+esc(place(s))+'</b><span>'+esc([s.name,ROLE_L[s.role]].filter(Boolean).join(" · "))+'</span></button>';
+    }).join("");
+    [].forEach.call($("#pickList").querySelectorAll("button"),function(b){b.addEventListener("click",function(){go(list[+b.dataset.i]);});});
+    show("pick");
+  }
+  $("#bootRetry").addEventListener("click",boot);
+  $("#bootLogin").addEventListener("click",function(){show("login");});
+  $("#pickOther").addEventListener("click",function(){show("login");});
+
+  /* ---------- вкладки ---------- */
+  function tab(which){
+    var staff=which==="staff";
+    $("#tabStaff").setAttribute("aria-selected",staff?"true":"false");$("#tabClient").setAttribute("aria-selected",staff?"false":"true");
+    $("#staffBox").hidden=!staff;$("#clientBox").hidden=staff;
+    put(TAB,staff?"staff":"client");
+  }
+  $("#tabClient").addEventListener("click",function(){tab("client");$("#ph").focus();});
+  $("#tabStaff").addEventListener("click",function(){tab("staff");$("#user").focus();});
+
+  /* ---------- команда салону: логін і пароль ---------- */
+  function staffLogin(){
+    var u=$("#user").value.trim(),p=$("#pass").value,btn=$("#loginBtn");
+    $("#staffErr").textContent="";
+    if(!u||!p){$("#staffErr").textContent="Вкажіть логін і пароль.";(u?$("#pass"):$("#user")).focus();return;}
+    if(btn.disabled)return;busy(btn,true,"Вхід…");
+    fetch(API+"/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(!d||!d.ok||!d.token){busy(btn,false);$("#staffErr").textContent=(d&&d.error)||"Невірний логін або пароль.";$("#pass").select();return;}
+        busy(btn,false);btn.disabled=true;btn.textContent="Відкриваємо…";
+        go({role:d.role,token:d.token,name:d.name});
+      })
+      .catch(function(){busy(btn,false);$("#staffErr").textContent=NET_ERR;});
+  }
+  $("#loginBtn").addEventListener("click",staffLogin);
+  $("#user").addEventListener("keydown",function(e){if(e.key==="Enter")$("#pass").focus();});
+  $("#pass").addEventListener("keydown",function(e){if(e.key==="Enter")staffLogin();});
+  $("#fpOpen").addEventListener("click",function(){var box=$("#fpBox");box.hidden=!box.hidden;this.setAttribute("aria-expanded",box.hidden?"false":"true");});
+
+  /* ---------- клієнт: телефон і код у Telegram (так само, як у cabinet.html) ---------- */
+  function cleanPhone(v){return String(v||"").replace(/[\s\-().]/g,"");}
+  function requestOtp(again){
+    var p=again?phone:cleanPhone($("#ph").value),btn=again?$("#resendBtn"):$("#otpBtn");
+    $("#clientErr").textContent="";$("#needLink").hidden=true;
+    if(!/^\+?\d{10,13}$/.test(p)){$("#clientErr").textContent="Введіть номер у форматі +380XXXXXXXXX.";$("#ph").focus();return;}
+    if(btn.disabled)return;busy(btn,true,"Надсилаємо…");
+    fetch(API+"/client/otp",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone:p})})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        busy(btn,false);
+        if(d&&d.ok){phone=p;$("#stepPhone").hidden=true;$("#stepCode").hidden=false;$("#sentTo").textContent=d.masked||p;$("#code").value="";
+          setTimeout(function(){$("#code").focus();},30);return;}
+        if(d&&d.need_link){
+          var bot=String(d.bot||"").replace(/[^A-Za-z0-9_]/g,"")||"GAV_and_LOVE_bot";
+          $("#botLink").href="https://t.me/"+bot+"?start=cab";
+          $("#needLinkTxt").textContent=d.error||"Ваш Telegram ще не підключено до салону.";
+          $("#stepPhone").hidden=false;$("#stepCode").hidden=true;$("#needLink").hidden=false;return;}
+        $("#clientErr").textContent=(d&&d.error)||"Не вдалося надіслати код.";
+      })
+      .catch(function(){busy(btn,false);$("#clientErr").textContent=NET_ERR;});
+  }
+  function verify(){
+    var c=$("#code").value.replace(/\D/g,""),btn=$("#verifyBtn");
+    $("#clientErr").textContent="";
+    if(c.length!==6){$("#clientErr").textContent="Введіть 6 цифр коду з Telegram.";return;}
+    if(btn.disabled)return;busy(btn,true,"Перевіряємо…");
+    fetch(API+"/client/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone:phone,code:c})})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(!d||!d.ok||!d.token){busy(btn,false);$("#clientErr").textContent=(d&&d.error)||"Невірний код. Спробуйте ще.";$("#code").select();return;}
+        btn.textContent="Відкриваємо…";
+        go({role:"client",token:String(d.token),name:d.name});
+      })
+      .catch(function(){busy(btn,false);$("#clientErr").textContent=NET_ERR;});
+  }
+  $("#otpBtn").addEventListener("click",function(){requestOtp(false);});
+  $("#resendBtn").addEventListener("click",function(){requestOtp(true);});
+  $("#verifyBtn").addEventListener("click",verify);
+  $("#changePhone").addEventListener("click",function(){phone="";$("#stepCode").hidden=true;$("#stepPhone").hidden=false;$("#clientErr").textContent="";$("#ph").focus();});
+  $("#ph").addEventListener("keydown",function(e){if(e.key==="Enter")requestOtp(false);});
+  $("#code").addEventListener("keydown",function(e){if(e.key==="Enter")verify();});
+  $("#code").addEventListener("input",function(){var v=this.value.replace(/\D/g,"").slice(0,6);if(v!==this.value)this.value=v;if(v.length===6&&!$("#verifyBtn").disabled)verify();});
+
+  /* ---------- старт ----------
+     #staff / #client у посиланні вибирають вкладку (напр. «для співробітників» у футері сайту);
+     інакше — та, якою входили на цьому пристрої востаннє. */
+  var h=(location.hash||"").replace("#","");
+  tab(h==="staff"||h==="client"?h:(get(TAB)==="staff"?"staff":"client"));
+  boot();
+})();
+</script>
+</body>
+</html>

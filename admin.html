@@ -1160,8 +1160,12 @@
       await startSession(d);
     }catch(e){showLogin("Помилка з'єднання. Спробуйте ще раз.");}
   }
+  /* Майстер, що ввів свій логін тут, — не помилка, а не та сторінка: віддаємо сесію кабінету
+     майстра (той читає свій ключ) замість «Сесія недійсна». Так само робить crm.html. */
+  function toMaster(t){logoutLocal();try{localStorage.setItem("gavlove_master_token",t);}catch(e){}location.replace("master.html");}
   // Відповідь /auth/login або /auth/reset-confirm (та сама форма) → звичайний шлях після входу.
   async function startSession(d){
+    if(d.role==="master"){toMaster(d.token);return;}
     token=d.token;userRole=d.role;userName=d.name;mustChange=d.must_change?1:0;
     try{localStorage.setItem(KEY,token);localStorage.setItem(KEY+"_role",userRole);localStorage.setItem(KEY+"_name",userName);}catch(e){}
     await afterLogin();
@@ -1180,7 +1184,8 @@
     }catch(e){logoutLocal();showLogin("Сесія недійсна. Увійдіть знову.");}
   }
   async function restoreSession(){
-    try{var me=await api("/auth/me");userRole=me.role;userName=me.name;mustChange=me.must_change?1:0;
+    try{var me=await api("/auth/me");if(me.role==="master"){toMaster(token);return;}
+      userRole=me.role;userName=me.name;mustChange=me.must_change?1:0;
       try{localStorage.setItem(KEY+"_role",userRole);localStorage.setItem(KEY+"_name",userName);}catch(e){}
       await afterLogin();
     }catch(e){logoutLocal();showLogin("");}
@@ -2888,7 +2893,7 @@
     downloadCSV("gavlove-klienty-"+today10()+".csv",H,rows);
   }
 
-  if(token){restoreSession();}else{showLogin("");}
+  if(token){restoreSession();}else{showLogin("");if(location.hash==="#forgot")fpShow(true);}   // #forgot — з «Забули пароль?» на crm.html
 })();
 </script>
 </body>

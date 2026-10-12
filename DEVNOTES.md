@@ -7,7 +7,8 @@
 | Частина | Де |
 | --- | --- |
 | Публічний сайт | GitHub Pages, репозиторій `besenok911-cloud/gav-and-love`, https://besenok911-cloud.github.io/gav-and-love/ |
-| CRM | `admin.html` (noindex, вхід за логіном; ролі owner / admin / master) |
+| Єдиний вхід | `crm.html` (адреса `…/crm` для всіх: власниця / адмін / підтримка → `admin.html`, майстер → `master.html`, клієнт → `cabinet.html`; сам нічого не показує, лише кладе токен у ключ сторінки призначення) |
+| CRM | `admin.html` (noindex, вхід за логіном; ролі owner / admin / support; майстра, що увійшов тут, передає в `master.html`) |
 | Кабінет майстра | `master.html` |
 | Кабінет клієнта | `cabinet.html` (вхід за кодом у Telegram або одноразовим посиланням з бота) |
 | Відгуки | `review.html` |
