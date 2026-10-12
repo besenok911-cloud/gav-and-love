@@ -3586,6 +3586,7 @@ async function handleTgUpdate(env, u) {
   const staff = await staffByChat(env, chat, msg.from);   // null для клієнтів і для будь-якої групи
   if (staff && st && st.step === "s_photo" && (msg.photo || msg.document)) { await staffPhotoIn(env, chat, msg, st); return; }
   const cmd = (re) => re.test(text);
+  if (/^\/(start|menu)\b/i.test(text)) await syncBotCommandsIfStale(env);
   if (staff) {
     if (cmd(/^\/(menu|staff)(@\w+)?$/i)) { await tgClearState(env, chat); await staffMenu(env, chat, null, staff); return; }
     if (cmd(/^\/today(@\w+)?$/i)) { await staffDay(env, chat, null, staff, isoInTz(new Date(), BUSINESS.tz)); return; }
@@ -3826,10 +3827,13 @@ const ST_CODE = { cf: "confirmed", ar: "arrived", ip: "in_progress", dn: "done",
 const ST_BTN = { cf: "✅ Підтвердити", ar: "🏠 Прибув", ip: "✂️ У роботі", dn: "🏁 Готово", pd: "💰 Оплачено", ns: "🚫 Не прийшов" };
 const PAY_UA = { cash: "💵 Готівка", card: "💳 Картка", transfer: "🔁 Переказ" };
 const PET_NOTES = [["warnings", "⚠️"], ["allergies", "🌡 Алергії:"], ["behavior", "🐾 Поведінка:"], ["reactions", "💢 Реакції:"], ["vet_notes", "🩺 Вет:"], ["prefs", "💡 Побажання:"], ["client_notes", "📝 Від клієнта:"]];
+// Одне головне меню на роль: /menu відкриває те саме, що /start. /start у списку немає —
+// Telegram і так показує його кнопкою на початку чату, а опис «Підключити нагадування» плутав.
 const STAFF_CMDS = {
-  admin: [["menu", "Кабінет: меню"], ["today", "Записи на сьогодні"], ["tomorrow", "Записи на завтра"], ["new", "Нові записи — підтвердити"], ["find", "Знайти клієнта"]],
-  master: [["menu", "Мій кабінет"], ["today", "Мої записи на сьогодні"], ["tomorrow", "Мої записи на завтра"], ["week", "Мій тиждень"]],
+  admin: [["menu", "☰ Мій кабінет"], ["today", "Записи на сьогодні"], ["tomorrow", "Записи на завтра"], ["new", "Нові записи — підтвердити"], ["find", "Знайти клієнта"]],
+  master: [["menu", "☰ Мій кабінет"], ["today", "Мої записи на сьогодні"], ["tomorrow", "Мої записи на завтра"], ["week", "Мій тиждень"]],
 };
+const CLIENT_CMDS = [["menu", "☰ Головне меню"], ["book", "Записатися на грумінг"], ["visits", "Мої візити — перенести чи скасувати"], ["cabinet", "Мій кабінет на сайті"]];
 const isAdm = s => s && (s.role === "owner" || s.role === "admin");
 const ownerChat = (env, chat) => !!env.TELEGRAM_CHAT_ID && String(chat) === String(env.TELEGRAM_CHAT_ID);
 const isoShift = (iso, days) => { const [y, m, d] = iso.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10); };
@@ -3978,6 +3982,22 @@ async function staffTgUnlink(env, userId, why) {
   } catch (e) { }
   if (why) { try { await tgSendTo(env, row.chat_id, "🔌 " + tgEsc(why)); } catch (e) { } }
   return true;
+}
+// Списки команд живуть у Telegram, не в коді: після зміни STAFF_CMDS / CLIENT_CMDS їх треба
+// перереєструвати. Підніміть BOT_CMDS_V — і бот зробить це сам на першому ж /start чи /menu.
+const BOT_CMDS_V = "2";
+async function syncBotCommands(env) {
+  await tgApi(env, "setMyCommands", { commands: CLIENT_CMDS.map(([command, description]) => ({ command, description })) });
+  // Персоналу — свій список команд у його особистому чаті (scope: chat), клієнти його не бачать.
+  if (/^\d+$/.test(String(env.TELEGRAM_CHAT_ID || ""))) await setStaffCommands(env, env.TELEGRAM_CHAT_ID, "owner");
+  for (const r of await staffChats(env)) { try { await setStaffCommands(env, r.chat_id, r.role); } catch (e) { } }   // хтось міг заблокувати бота
+  await env.DB.prepare(`INSERT INTO settings (company_id,key,value) VALUES (${env.CID},'tg_cmds_v',?) ON CONFLICT(company_id,key) DO UPDATE SET value=?`).bind(BOT_CMDS_V, BOT_CMDS_V).run();
+}
+async function syncBotCommandsIfStale(env) {
+  try {
+    const row = await env.DB.prepare(`SELECT value FROM settings WHERE company_id=${env.CID} AND key='tg_cmds_v'`).first();
+    if (!row || row.value !== BOT_CMDS_V) await syncBotCommands(env);
+  } catch (e) { }
 }
 async function setStaffCommands(env, chat, role) {
   const list = role === "master" ? STAFF_CMDS.master : STAFF_CMDS.admin;
@@ -4432,12 +4452,7 @@ async function tgSetup(request, env) { // owner: remember the bot username and r
   await env.DB.prepare(`INSERT INTO settings (company_id,key,value) VALUES (${env.CID},'tg_bot',?) ON CONFLICT(company_id,key) DO UPDATE SET value=?`).bind(username, username).run();
   const url = new URL(request.url).origin + "/tg/webhook/" + (env.CID || DEFAULT_COMPANY_ID);
   const wh = await tgApi(env, "setWebhook", { url, secret_token: await tgWebhookSecret(env), allowed_updates: ["message", "callback_query"] });
-  try { await tgApi(env, "setMyCommands", { commands: [{ command: "menu", description: "Меню: візити, улюбленці, бонуси" }, { command: "book", description: "Записатися на грумінг" }, { command: "visits", description: "Мої візити — перенести чи скасувати" }, { command: "cabinet", description: "Мій кабінет на сайті" }, { command: "start", description: "Підключити нагадування" }] }); } catch (e) { }
-  // Персоналу — свій список команд у його особистому чаті (scope: chat), клієнти його не бачать.
-  try {
-    if (/^\d+$/.test(String(env.TELEGRAM_CHAT_ID || ""))) await setStaffCommands(env, env.TELEGRAM_CHAT_ID, "owner");
-    for (const r of await staffChats(env)) await setStaffCommands(env, r.chat_id, r.role);
-  } catch (e) { }
+  try { await syncBotCommands(env); } catch (e) { }
   return { ok: !!(wh && wh.ok), bot: username, webhook: url, set: (wh && wh.description) || "", error: wh && !wh.ok ? wh.description : undefined };
 }
 /* ----------------------------- Default price catalog -----------------------------
