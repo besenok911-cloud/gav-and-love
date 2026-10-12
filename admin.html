@@ -662,11 +662,11 @@
   <p class="err" id="loginErr"></p>
   <button type="button" class="fp-link" id="fpOpen">Забули пароль?</button>
   </div>
-  <!-- «Забули пароль?»: власниці — код від бота в її особистий чат; решті — скидання в «Доступи». -->
+  <!-- «Забули пароль?»: код від бота в особистий чат власника акаунта; Telegram не підключено — скидання в «Доступи». -->
   <div class="fp" id="fpBox" hidden>
-    <p>Співробітникам, майстрам і підтримці пароль скидає власниця: <b>👥 Доступи → 🔑</b> біля вашого логіна. З тимчасовим паролем увійдете й одразу задасте свій.</p>
-    <h3>Власниця: код у Telegram</h3>
-    <input type="text" id="fpUser" placeholder="Логін власниці" autocomplete="username" autocapitalize="off" spellcheck="false" />
+    <p>Код прийде від бота салону у ваш особистий чат у Telegram. Адміністраторам і майстрам — якщо свій Telegram уже підключено до кабінету в боті (кнопка <b>📲 Telegram</b> у CRM чи в кабінеті майстра). Не підключено — пароль скине власниця: <b>👥 Доступи → 🔑</b> біля вашого логіна.</p>
+    <h3>Код у Telegram</h3>
+    <input type="text" id="fpUser" placeholder="Ваш логін" autocomplete="username" autocapitalize="off" spellcheck="false" />
     <button class="btn" id="fpSend">Надіслати код у Telegram</button>
     <div id="fpStep2" hidden>
       <input type="text" id="fpCode" placeholder="Код із 6 цифр" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
@@ -1218,9 +1218,10 @@
   $("#logoutBtn").addEventListener("click",doLogout);
 
   /* ---------- «Забули пароль?» ----------
-     Код отримує лише власниця — бот надсилає його в її особистий чат. Для невідомого логіна і
-     логіна співробітника сервер відповідає однаково (staff), тож тут не вгадуємо, хто є хто:
-     рядок для співробітників стоїть угорі панелі завжди. Бота немає → запасний шлях (fpFallback). */
+     Код бот надсилає в особистий чат власника акаунта: власниці — у її чат, адміністратору й майстру —
+     у чат, підключений кнопкою «📲 Telegram». На невідомий логін і на логін без підключеного бота
+     сервер відповідає так само, як на справжній запит, тож тут не вгадуємо, хто є хто, а одразу
+     кажемо, що робити, якщо код не прийшов. Бота немає → запасний шлях власниці (fpFallback). */
   function fpMsg(t,bad){var m=$("#fpMsg");m.textContent=t||"";m.classList.toggle("bad",!!bad);}
   function fpShow(on){
     $("#fpBox").hidden=!on;$("#loginMain").hidden=on;$("#loginTitle").textContent=on?"Відновлення пароля":"Вхід у CRM";
@@ -1231,12 +1232,12 @@
   }
   var fpBusy=false;
   async function fpRequest(){
-    var u=$("#fpUser").value.trim();if(!u){fpMsg("Вкажіть логін власниці.",true);$("#fpUser").focus();return;}
+    var u=$("#fpUser").value.trim();if(!u){fpMsg("Вкажіть свій логін.",true);$("#fpUser").focus();return;}
     if(fpBusy)return;fpBusy=true;fpMsg("Надсилаємо код…");$("#fpFallback").hidden=true;
     try{var r=await fetch(API+"/auth/reset-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u})});
       var d=await r.json();
       if(d&&d.ok){$("#fpStep2").hidden=false;$("#fpSend").hidden=true;$("#fpResend").hidden=false;
-        fpMsg("Код надіслано в Telegram — у ваш особистий чат з ботом салону. Діє "+(d.ttl_min||10)+" хвилин; працює лише останній надісланий.");
+        fpMsg("Якщо логін правильний і Telegram підключено, код уже в особистому чаті з ботом салону. Діє "+(d.ttl_min||10)+" хвилин; працює лише останній надісланий. Не прийшов за хвилину — перевірте логін або попросіть власницю скинути пароль (👥 Доступи → 🔑).");
         $("#fpCode").value="";$("#fpCode").focus();}
       else{fpMsg((d&&d.error)||"Не вдалося надіслати код.",true);if(d&&(d.no_bot||d.send_failed||d.daily))$("#fpFallback").hidden=false;}
     }catch(e){fpMsg("Помилка з'єднання. Спробуйте ще раз.",true);}
