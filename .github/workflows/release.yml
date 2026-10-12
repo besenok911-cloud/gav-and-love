@@ -232,13 +232,17 @@ jobs:
       - id: pages
         uses: actions/deploy-pages@v4
 
+      # back_min — та сама довжина вікна, що й у job watch нижче: воркер за нею пише «кнопка діє N
+      # хвилин» або не показує ↩️ зовсім, коли вікно вимкнено.
       - name: Записати випуск
         env:
           DT: ${{ secrets.DEPLOY_TOKEN }}
           WANT: ${{ steps.stamp.outputs.v }}
+          BACK_MIN: ${{ vars.BACK_MIN }}
         run: |
+          bm="${BACK_MIN:-45}"; case "$bm" in ''|*[!0-9]*) bm=45 ;; esac; bm=$((10#$bm)); [ "$bm" -gt 50 ] && bm=50
           curl -fsS -X POST -H "Authorization: Bearer $DT" -H "Content-Type: application/json" \
-            -d "{\"n\":$GITHUB_RUN_NUMBER,\"ok\":true,\"build\":\"$WANT\"}" \
+            -d "{\"n\":$GITHUB_RUN_NUMBER,\"ok\":true,\"build\":\"$WANT\",\"back_min\":$bm}" \
             "$WORKER_URL/release/done" || true
 
       - name: Сказати, що не поїхало
@@ -256,9 +260,14 @@ jobs:
   #
   # Відкат = викотити ПОПЕРЕДНІЙ КОМІТ цілком, а не wrangler rollback: Cloudflare тримає лише
   # десять останніх версій, а коміт нікуди не дінеться.
+  #
+  # Довжина вікна — змінна репозиторію BACK_MIN (хвилини, до 50; порожньо — 45). BACK_MIN=0
+  # вимикає вікно: прогін закінчується одразу після випуску і не тримає чергу наступного, а ↩️ у
+  # чаті не з'являється. Лише на час тестів: `gh variable set BACK_MIN -b 0`, після —
+  # `gh variable delete BACK_MIN`. Без вікна поганий випуск повертають новим випуском.
   watch:
     needs: release
-    if: success() && needs.release.outputs.prev_sha != ''
+    if: success() && needs.release.outputs.prev_sha != '' && vars.BACK_MIN != '0'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -272,9 +281,11 @@ jobs:
         id: watch
         env:
           DT: ${{ secrets.DEPLOY_TOKEN }}
+          BACK_MIN: ${{ vars.BACK_MIN }}
         run: |
           set -eu
-          for _ in $(seq 1 135); do
+          bm="${BACK_MIN:-45}"; case "$bm" in ''|*[!0-9]*) bm=45 ;; esac; bm=$((10#$bm)); [ "$bm" -gt 50 ] && bm=50
+          for _ in $(seq 1 $((bm * 3))); do
             st=$(curl -fsS -H "Authorization: Bearer $DT" "$WORKER_URL/release/state?n=$GITHUB_RUN_NUMBER" \
                  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).state||"")}catch(e){}})')
             if [ "$st" = "rollback" ]; then
